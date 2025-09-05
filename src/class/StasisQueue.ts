@@ -1,14 +1,13 @@
-import chalk from "chalk";
 import { goals } from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
-import { printObject } from "../utils/format";
+import { formatPlayer, printObject } from "../utils/format";
 import { Bot } from "./Bot";
 import { Logger } from "./Logger";
 import type { Stasis } from "./Stasis";
 
 export class StasisQueue {
 
-	private static didPull = false;
+	private static isAttemptingToClose = false;
 	private static goal: Stasis | null = null;
 	private static homePos: null | Vec3 = null;
 	private static queue: Stasis[] = [];
@@ -22,7 +21,7 @@ export class StasisQueue {
 		Logger.log("Queueing stasis:");
 		printObject({
 			dimension: stasis.dimension,
-			owner: stasis.owner.username,
+			owner: formatPlayer(stasis.owner),
 			position: stasis.block.position
 		});
 		this.queue.push(stasis);
@@ -55,21 +54,17 @@ export class StasisQueue {
 
 			// If were too far, keep walking
 			if (dist > 3) return;
+
+			// Gate to prevent double-activating
+			if (this.isAttemptingToClose) return;
+			this.isAttemptingToClose = true;
 			
-			// If the trapdoor is open, close it
-			if (this.goal.state.open) {
-				this.didPull = true;
-				await Bot.instance.lookAt(this.goal.block.position, true);
-				await Bot.instance.activateBlock(this.goal.block);
-				await Bot.instance.waitForTicks(10);
-				return;
-			}
-			
-			if (this.didPull) Logger.log(`Loaded stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
-			this.didPull = false;
-			
+			// Activate the chamber
+			await this.goal.activate();
 			await this.goal.remove();
-			return this.goal = null;
+			this.isAttemptingToClose = false;
+			this.goal = null;
+			return;
 			
 		}
 
@@ -86,7 +81,7 @@ export class StasisQueue {
 			this.goal = this.queue.shift() || null;
 			if (!this.goal) return;
 
-			Logger.log(`Processing stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
+			// Logger.log(`Processing stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
 			Bot.instance.pathfinder.setGoal(new goals.GoalNear(this.goal.block.position.x, this.goal.block.position.y, this.goal.block.position.z, 2));
 			return;
 

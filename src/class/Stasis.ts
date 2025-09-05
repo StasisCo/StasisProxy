@@ -186,7 +186,10 @@ export class Stasis {
 		const state = this.block.getProperties();
 		const open = Boolean("open" in state && state.open);
 		const occupied = this.entities.length > 0;
-		return { open, occupied };
+		const pearl = this.entities.find(e => e.position.distanceTo(this.block.position) <= Math.SQRT2);
+		const distance = pearl ? pearl.position.distanceTo(this.block.position) : Infinity;
+		const ready = pearl && distance <= Math.SQRT2 && pearl.velocity.abs().x <= 0.1 && pearl.velocity.abs().y <= 0.1 && pearl.velocity.abs().z <= 0.1 || false;
+		return { occupied, open, ready };
 	}
 
 	/**
@@ -197,6 +200,38 @@ export class Stasis {
 		return await prisma.stasis.deleteMany({ where: this.toJSON() })
 			.then(() => true)
 			.catch(() => false);
+	}
+
+	/**
+	 * Resolve when the stasis is ready, throws if it times out or fails
+	 * @param timeout - The maximum time to wait in milliseconds (default: 10000)
+	 */
+	public async onReady(timeout = 10_000): Promise<void> {
+		return await new Promise<void>((resolve, reject) => {
+			const start = Date.now();
+			function loop(this: Stasis): void {
+				if (this.state.ready) return resolve();
+				if (Date.now() - start >= timeout) return reject();
+				Bot.instance.waitForTicks(1).then(() => loop.call(this));
+			}
+			loop.call(this);
+		});
+	}
+
+	/**
+	 * Activate the stasis by opening the trapdoor
+	 * (assuming its within reach)
+	 * @returns {Promise<void>}
+	 */
+	public async activate(): Promise<void> {
+		while (this.state.open) {
+			await Bot.instance.lookAt(this.block.position, true);
+			await Bot.instance.activateBlock(this.block);
+			await Bot.instance.waitForTicks(2);
+		}
+
+		// Wait for there to be no pearls left
+		while (this.entities.length > 0) await Bot.instance.waitForTicks(2);
 	}
 
 	/**

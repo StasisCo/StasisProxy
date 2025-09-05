@@ -126,9 +126,10 @@ export class Bot {
 		// Wait for spawn
 		if (isWaitingForSpawn) await new Promise<void>(resolve => bot.once("spawn", () => resolve()));
 
-		Logger.log(`Loading dimension ${ chalk.cyan(bot.game.dimension) }...`);
+		Logger.log("Loading terrain...");
 		printObject({
 			difficulty: bot.game.difficulty,
+			dimension: bot.game.dimension,
 			gameMode: bot.game.gameMode,
 			version: bot.version
 		});

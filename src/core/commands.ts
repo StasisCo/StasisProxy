@@ -4,6 +4,7 @@ import { CHAT_COMMAND_PREFIX } from "../../config";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
+import { formatPlayer, printObject } from "../utils/format";
 
 /**
  * Module to handle chat commands for the bot
@@ -16,23 +17,42 @@ export default function(bot: Bot) {
 	 */
 	bot.on("chat", async function(username, message) {
 		if (!message.startsWith(CHAT_COMMAND_PREFIX)) return;
-		const command = message.substring(CHAT_COMMAND_PREFIX.length).split(" ")[0]?.toLowerCase();
-		const args = message.split(" ").slice(1);
 		const sender = bot.players[username];
-		if (!sender || !sender.uuid || !command) return;
-		exec(sender, command, args);
+		if (!sender || !sender.uuid) return;
+		exec(sender, "tp", []);
 	});
 	
 	/**
 	 * Handle commands from private messages (whispers)
 	 */
 	bot.on("whisper", async function(username, message) {
-		const command = message.split(" ")[0]?.toLowerCase();
-		const args = message.split(" ").slice(1);
 		const sender = bot.players[username];
-		if (!sender || !sender.uuid || !command) return;
-		exec(sender, command, args);
+		if (!sender || !sender.uuid) return;
+		exec(sender, "tp", []);
 	});
+
+	// /**
+	//  * Handle commands from public chat with a specific prefix
+	//  */
+	// bot.on("chat", async function(username, message) {
+	// 	if (!message.startsWith(CHAT_COMMAND_PREFIX)) return;
+	// 	const command = message.substring(CHAT_COMMAND_PREFIX.length).split(" ")[0]?.toLowerCase();
+	// 	const args = message.split(" ").slice(1);
+	// 	const sender = bot.players[username];
+	// 	if (!sender || !sender.uuid || !command) return;
+	// 	exec(sender, command, args);
+	// });
+	
+	// /**
+	//  * Handle commands from private messages (whispers)
+	//  */
+	// bot.on("whisper", async function(username, message) {
+	// 	const command = message.split(" ")[0]?.toLowerCase();
+	// 	const args = message.split(" ").slice(1);
+	// 	const sender = bot.players[username];
+	// 	if (!sender || !sender.uuid || !command) return;
+	// 	exec(sender, command, args);
+	// });
 
 	/**
 	 * Execute a command
@@ -41,6 +61,14 @@ export default function(bot: Bot) {
 	 * @param args - The arguments for the command
 	 */
 	async function exec(player: Player, cmd: string, args: string[]) {
+
+		Logger.log("Command received:");
+		printObject({
+			from: formatPlayer(player),
+			command: cmd,
+			arguments: args.length > 0 ? args : chalk.gray("(none)")
+		});
+		
 		switch (cmd.toLowerCase()) {
 
 			case "tp":
@@ -49,7 +77,10 @@ export default function(bot: Bot) {
 				// Make sure the player is not already queued
 				if (StasisQueue.has(player.uuid)) {
 					bot.chat(`/msg ${ player.username } You already have a pearl in queue, please wait...`);
-					Logger.warn(`${ chalk.cyan(player.username) } is already queued, ignoring.`);
+					Logger.warn("Ignoring duplicate stasis request:");
+					printObject({
+						from: formatPlayer(player)
+					});
 					return;
 				}
 
@@ -59,7 +90,12 @@ export default function(bot: Bot) {
 				// If they have no pearls, inform them and exit
 				if (existing.length === 0) {
 					bot.chat(`/msg ${ player.username } You have no pearls registered!`);
-					return Logger.warn(`Failed to locate a stasis for ${ chalk.cyan(player.username) }`);
+					Logger.warn("Failed to locate a stasis:");
+					printObject({
+						from: formatPlayer(player),
+						reason: "No pearls found"
+					});
+					return;
 				}
 
 				// Locate the closest pearl
@@ -72,7 +108,6 @@ export default function(bot: Bot) {
 				if (!chamber) return;
 
 				StasisQueue.add(chamber);
-				Logger.log(`Queued stasis at ${ chalk.yellow(chamber.block.position) } for ${ chalk.cyan(player.username) }`);
 				bot.chat(`/msg ${ player.username } Loading your pearl, please wait...`);
 
 				break;

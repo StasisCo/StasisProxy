@@ -1,5 +1,7 @@
 import chalk from "chalk";
+import type { Player } from "mineflayer";
 import { Vec3 } from "vec3";
+import { Bot } from "../class/Bot";
 
 Vec3.prototype.toString = function() {
 	return `${ Intl.NumberFormat().format(this.x) } ${ chalk.gray("/") } ${ Intl.NumberFormat().format(this.y) } ${ chalk.gray("/") } ${ Intl.NumberFormat().format(this.z) }`;
@@ -27,4 +29,12 @@ export function formatHealth(health: number, maxHealth = 20) {
 export function formatHunger(food: number) {
 	food = Math.floor(food);
 	return [ "🍗".repeat(food / 2), food % 2 === 1 ? "🍖" : "" ].join("");
+}
+
+export function formatPlayer(playerId: string | Player) {
+	const uuid = typeof playerId === "string" ? playerId : playerId.uuid;
+	const player = Object.values(Bot.instance.players)
+		.find(e => e.uuid === uuid || e.username === uuid);
+	if (player) return `${ chalk.magenta(player.username) } ${ chalk.gray(`(${ chalk.cyan(player.uuid) })`) }`;
+	return chalk.gray("Unknown player") + ` (${ chalk.gray(uuid) })`;
 }

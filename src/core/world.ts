@@ -1,4 +1,3 @@
-import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import { Logger } from "../class/Logger";
 import { formatHealth, formatHunger, printObject } from "../utils/format";
@@ -8,13 +7,12 @@ import { formatHealth, formatHunger, printObject } from "../utils/format";
  * @param bot The bot instance
  */
 export default (bot: Bot) => bot.on("spawn", function() {
-
-	Logger.log(`Spawned in the ${ chalk.cyan(bot.game.dimension) } at ${ chalk.yellow(bot.entity.position.floored()) }`);
-
+	Logger.log("Spawned in the world:");
 	printObject({
+		dimension: bot.game.dimension,
 		gameMode: bot.game.gameMode,
 		health: formatHealth(bot.health),
-		hunger: formatHunger(bot.food)
+		hunger: formatHunger(bot.food),
+		position: bot.entity.position.floored()
 	});
-	
 }).emit("spawn");
