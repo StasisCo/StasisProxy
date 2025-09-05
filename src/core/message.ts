@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { type Bot } from "mineflayer";
+import { CHAT_COMMAND_PREFIX } from "../../config";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
@@ -9,11 +10,14 @@ import { StasisQueue } from "../class/StasisQueue";
  * @param bot The bot instance
  */
 export default (bot: Bot) => {
-
+	
 	bot.on("chat", async function(username, message) {
-		console.log(username, message);
-		if (username !== "TehPicix") return;
-		if (message.startsWith("!resync")) return bot.chat("done syncing from postgres daddy");
+
+		if (!message.startsWith(CHAT_COMMAND_PREFIX)) return;
+
+		// console.log(username, message);
+		// if (username !== "TehPicix") return;
+		// if (message.startsWith("!resync")) return bot.chat("done syncing from postgres daddy");
 
 	});
 

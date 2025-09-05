@@ -14,8 +14,8 @@ export class Logger {
 	 */
 	private format(...args: unknown[]): string {
 		const timestamp = chalk.gray(dayjs().format("MM/DD/YYYY hh:mm:ss A"));
-		const prefixLine = [ this.prefix ? [ chalk.underline(timestamp), chalk.gray("|"), this.prefix ] : chalk.underline(timestamp) ].flat().filter(Boolean).join(" ");
-		return format(prefixLine, chalk.gray("|"), ...args);
+		const prefixLine = [ this.prefix ? [ chalk.underline(timestamp), chalk.gray("│"), this.prefix ] : chalk.underline(timestamp) ].flat().filter(Boolean).join(" ");
+		return format(prefixLine, chalk.gray("│"), ...args);
 	}
 	
 	/** 

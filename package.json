@@ -27,6 +27,7 @@
     "lodash": "^4.17.21",
     "mineflayer": "^4.32.0",
     "mineflayer-pathfinder": "^2.4.5",
+    "pretty-ms": "^9.2.0",
     "prismarine-block": "^1.22.0",
     "prismarine-chat": "^1.11.0",
     "prismarine-chunk": "^1.39.0",
