@@ -4,7 +4,18 @@ import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
 
+/**
+ * Monitor and log the bot's health and hunger changes.
+ * @param bot The bot instance
+ */
 export default (bot: Bot) => {
+
+	bot.on("chat", async function(username, message) {
+		console.log(username, message);
+		if (username !== "TehPicix") return;
+		if (message.startsWith("!resync")) return bot.chat("done syncing from postgres daddy");
+
+	});
 
 	// bot.on("chat", (username, message) => void CommandDispatcher.fromChat(username, message));
 	// bot.on("whisper", (username, message) => void CommandDispatcher.fromWhisper(username, message));

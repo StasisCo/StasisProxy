@@ -4,15 +4,15 @@ import { type Item } from "prismarine-item";
 import { FOOD_BUFFER } from "../../config";
 
 export default function(bot: Bot) {
+	
+	let isEating = false;
 
 	const mcData = mcDataLoader(bot.version);
-
-	let isEating = false;
-	let nextCheckTick = 0;
 
 	const foodsTable: Record<number, { foodPoints?: number; saturation?: number }> = mcData.foods ?? {};
 
 	function edible(item: Item | null | undefined): item is Item {
+		if (!item || item.name === "rotten_flesh" || item.name === "spider_eye") return false;
 		return !!item && item.type in foodsTable;
 	}
 
@@ -39,12 +39,11 @@ export default function(bot: Bot) {
 		return best;
 	}
 
-	async function tryEat() {
+	// run on every physics tick
+	bot.on("physicsTick", async function() {
 		if (isEating) return;
 		if (bot.food === undefined) return; // health plugin not ready yet
 		if (bot.food >= FOOD_BUFFER) return; // already full enough
-		const now = bot.time?.age ?? 0;
-		if (now < nextCheckTick) return; // throttle checks
 
 		const foods = getFoodItems();
 		if (!foods.length) return;
@@ -81,18 +80,14 @@ export default function(bot: Bot) {
 		} finally {
 
 			// Restore previously held item (best effort)
-			if (prevHeld) {
-				try {
-					await bot.equip(prevHeld, "hand");
-				} catch {}
-			}
+			if (prevHeld) await bot.equip(prevHeld, "hand");
+			
+			// small cool-down
 			isEating = false;
-			nextCheckTick = (bot.time?.age ?? 0) + 10; // small cool-down
+		
 		}
-	}
 
-	// run on every physics tick, same as your autototem
-	bot.on("physicsTick", tryEat);
+	});
 
 };
     

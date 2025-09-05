@@ -12,11 +12,22 @@ process.once("beforeExit", () => prisma.$disconnect());
 // Create and login the bot
 const bot = await Bot.connect();
 
-// Iterate over all files in modules folder
-for await (const path of new Glob("modules/*.ts").scan()) {
-	const module = await import(`./${ path }`);
+// Load core modules and modules
+for await (const path of new Glob("src/{core,modules}/**/*.ts").scan()) {
+
+	// Iterate over all files in modules folder
+	// for await (const path of new Glob("core/*.ts").scan()) {
+	// 	const module = await import(`./${ path }`);
+	// 	if (typeof module.default !== "function") continue;
+	// 	await module.default(bot);
+	// }
+		
+	// for await (const path of new Glob("modules/*.ts").scan()) {
+	const module = await import(`../${ path }`);
 	if (typeof module.default !== "function") continue;
 	await module.default(bot);
+
+	// }
 }
 
 // Start the pearl queue processor

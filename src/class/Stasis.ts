@@ -139,7 +139,7 @@ export class Stasis {
 		const block = Bot.instance.blockAt(new Vec3(columnTop.position.x, columnTop.position.y + 1, columnTop.position.z));
 		if (!block || !block.name.includes("trapdoor") || block.name === "iron_trapdoor") throw new Error("No valid trapdoor found above the stasis");
 
-		const ownerEntity = Object.values(Bot.instance.players).find(e => e.uuid === owner);
+		const ownerEntity = Object.values(Bot.instance.players).find(e => e.uuid === owner || e.username === owner);
 		if (!ownerEntity) throw new Error("Failed to find owner entity for stasis");
 
 		this.pos1 = columnTop.position;
