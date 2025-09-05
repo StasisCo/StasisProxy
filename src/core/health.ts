@@ -20,35 +20,20 @@ export default function(bot: Bot) {
 		// If nothing changed, ignore
 		if (lastHealth === health && lastHunger === food) return;
 		
-		// Banner
-		(function() {
-
-			// If health decreased
-			if (lastHealth && health < lastHealth) {
-				const diff = lastHealth - health;
-				return Logger.log(`Took ${ chalk.yellow(diff) } damage points`);
-			}
-
-			// If health increased
-			if (lastHealth && health > lastHealth) {
-				const diff = health - lastHealth;
-				return Logger.log(`Healed ${ chalk.yellow(diff) } health points`);
-			}
-
-			// If hunger decreased
-			if (lastHunger && food < lastHunger) {
-				const diff = lastHunger - food;
-				return Logger.log(`Consumed ${ chalk.yellow(diff) } hunger points`);
-			}
-
-			// If hunger increased
-			if (lastHunger && food > lastHunger) {
-				const diff = food - lastHunger;
-				return Logger.log(`Gained ${ chalk.yellow(diff) } hunger points`);
-			}
-
-		}());
-
+		if (lastHealth && health < lastHealth) {
+			const diff = lastHealth - health;
+			Logger.log(`Took ${ chalk.yellow(diff) } damage points`);
+		} else if (lastHealth && health > lastHealth) {
+			const diff = health - lastHealth;
+			Logger.log(`Healed ${ chalk.yellow(diff) } health points`);
+		} else if (lastHunger && food < lastHunger) {
+			const diff = lastHunger - food;
+			Logger.log(`Consumed ${ chalk.yellow(diff) } hunger points`);
+		} else if (lastHunger && food > lastHunger) {
+			const diff = food - lastHunger;
+			Logger.log(`Gained ${ chalk.yellow(diff) } hunger points`);
+		}
+			
 		lastHealth = health;
 		lastHunger = food;
 

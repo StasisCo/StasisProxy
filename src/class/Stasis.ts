@@ -173,12 +173,15 @@ export class Stasis {
 			.filter(e => Bot.instance.blockAt(e.position)?.position.y || 0 >= Math.max(this.pos1.y, this.pos2.y));
 	}
 
-	// /**
-	//  * Get the state of the stasis
-	//  */
-	// public get state() {
-		
-	// }
+	/**
+	 * Get the state of the stasis
+	 */
+	public get state() {
+		const state = this.block.getProperties();
+		const open = Boolean("open" in state && state.open);
+		const occupied = this.entities.length > 0;
+		return { open, occupied };
+	}
 
 	/**
 	 * Remove this stasis from the database

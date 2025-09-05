@@ -41,23 +41,17 @@ export class StasisQueue {
 		if (this.goal) {
 
 			// Make sure we arent sneaking
-			if (Bot.instance.controlState.sneak) {
-				Bot.instance.setControlState("sneak", false);
-				await Bot.instance.waitForTicks(5);
-			}
+			Bot.instance.setControlState("jump", false);
+			Bot.instance.setControlState("sneak", false);
 
 			// Check distance to chamber
 			const dist = Bot.instance.entity.position.distanceTo(this.goal.block.position);
 
 			// If were too far, keep walking
 			if (dist > 3) return;
-
-			// Determine if the trapdoor is open or close
-			const state = this.goal.block.getProperties();
-			const open = "open" in state && state.open;
-
+			
 			// If the trapdoor is open, close it
-			if (open) {
+			if (this.goal.state.open) {
 				this.didPull = true;
 				await Bot.instance.lookAt(this.goal.block.position, true);
 				await Bot.instance.activateBlock(this.goal.block);
