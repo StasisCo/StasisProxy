@@ -4,6 +4,10 @@ import { type Item } from "prismarine-item";
 import { TOTEM_BUFFER } from "../../config";
 import { Logger } from "../class/Logger";
 
+/**
+ * Automatically equip a totem in the off-hand and handle totem pops.
+ * @param bot The bot instance
+ */
 export default function(bot: Bot) {
 
 	const getTotems = () => bot.inventory.slots.filter(item => item && item.name === "totem_of_undying") as Item[];
