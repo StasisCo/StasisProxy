@@ -16,7 +16,7 @@ export default function(bot: Bot) {
 		printObject({
 			gamemode: bot.game.gameMode,
 			health: formatHealth(bot.health),
-			hunger: formatHunger(bot.food, bot.foodSaturation)
+			hunger: formatHunger(bot.food)
 		});
 
 	}

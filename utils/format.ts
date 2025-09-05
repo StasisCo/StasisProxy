@@ -16,27 +16,7 @@ export function formatHealth(health: number, maxHealth = 20) {
 	].join("");
 }
 
-export function formatHunger(food: number, foodSaturation = 0) {
-	const bar = [
-		"🍗".repeat(Math.floor(food / 2)),
-		food % 2 === 1 ? "🍖" : "",
-		"◼️ ".repeat(10 - Math.ceil(food / 2))
-	].join("");
-
-	let count = 0;
-	let formattedBar = "";
-	for (const char of bar) {
-		if (char === "🍗" || char === "🍖") {
-			count++;
-			if (count <= foodSaturation) {
-				formattedBar += chalk.underline(char);
-			} else {
-				formattedBar += char;
-			}
-		} else {
-			formattedBar += char;
-		}
-	}
-	return formattedBar;
-
+export function formatHunger(food: number) {
+	food = Math.floor(food);
+	return [ "🍗".repeat(food / 2), food % 2 === 1 ? "🍖" : "" ].join("");
 }

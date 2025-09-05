@@ -12,6 +12,10 @@ export class Bot {
 	private static queuePosition: number | undefined;
 	private static queuedAt: number | undefined;
 
+	public static get server() {
+		return process.env.MC_HOST?.includes(":") ? process.env.MC_HOST : `${ process.env.MC_HOST }:25565`;
+	}
+
 	/**
      * Login the bot
      * @returns The bot instance
@@ -21,7 +25,6 @@ export class Bot {
 		// Validate env variables
 		if (!process.env.MC_HOST) throw new Error("Env variable 'MC_HOST' not set. This should be the IP address of the Minecraft server.");
 		if (!process.env.MC_USERNAME) throw new Error("Env variable 'MC_USERNAME' not set. This should be the email of the Microsoft account to use.");
-		if (!process.env.MC_PASSWORD) throw new Error("Env variable 'MC_PASSWORD' not set. This should be the password of the Microsoft account to use.");
 
 		// Create the bot
 		Logger.log(`Connecting to host ${ chalk.cyan(process.env.MC_HOST) }...`);
@@ -29,6 +32,8 @@ export class Bot {
 			auth: "microsoft",
 			host: process.env.MC_HOST,
 			password: process.env.MC_PASSWORD,
+			accessToken: process.env.MC_ACCESS_TOKEN,
+			[process.env.MC_REFRESH_TOKEN ? "refreshToken" : ""]: process.env.MC_REFRESH_TOKEN,
 			port: parseInt(process.env.MC_HOST.split(":")[1] || "25565"),
 			username: process.env.MC_USERNAME,
 			version: process.env.MC_VERSION
@@ -57,7 +62,7 @@ export class Bot {
 		});
 
 		// Log queue position changes
-		bot.on("title", (title, subtitle) => {
+		bot.on("title", title => {
 			if (this.queuePosition === undefined) return;
 			const match = title.toString().match(/Position in queue: (\d+)/);
 			if (!match) return;

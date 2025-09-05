@@ -20,4 +20,4 @@ for await (const path of new Glob("modules/*.ts").scan()) {
 }
 
 // Start the pearl queue processor
-bot.on("physicsTick", () => StasisQueue.tick());
+bot.on("physicsTick", () => void StasisQueue.tick());

@@ -3,21 +3,21 @@ import { goals } from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
 import { Bot } from "./Bot";
 import { Logger } from "./Logger";
-import type { StasisColumn } from "./StasisColumn";
+import type { Stasis } from "./Stasis";
 
 export class StasisQueue {
 
 	private static didPull = false;
-	private static goal: StasisColumn | null = null;
+	private static goal: Stasis | null = null;
 	private static homePos: null | Vec3 = null;
-	private static queue: StasisColumn[] = [];
+	private static queue: Stasis[] = [];
 	private static returningHome = false;
 
 	/**
 	 * Add a chamber to the pearl queue.
 	 * Duplicates are ignored.
 	 */
-	public static add(chamber: StasisColumn) {
+	public static add(chamber: Stasis) {
 		if (this.queue.includes(chamber)) return;
 		this.queue.push(chamber);
 	}
@@ -40,6 +40,12 @@ export class StasisQueue {
 		// If we’re currently on a chamber
 		if (this.goal) {
 
+			// Make sure we arent sneaking
+			if (Bot.instance.controlState.sneak) {
+				Bot.instance.setControlState("sneak", false);
+				await Bot.instance.waitForTicks(5);
+			}
+
 			// Check distance to chamber
 			const dist = Bot.instance.entity.position.distanceTo(this.goal.block.position);
 
@@ -52,18 +58,16 @@ export class StasisQueue {
 
 			// If the trapdoor is open, close it
 			if (open) {
-				if (!this.didPull) {
-					this.didPull = true;
-					await Bot.instance.lookAt(this.goal.block.position, true);
-					await Bot.instance.activateBlock(this.goal.block);
-					await Bot.instance.waitForTicks(10);
-				}
+				this.didPull = true;
+				await Bot.instance.lookAt(this.goal.block.position, true);
+				await Bot.instance.activateBlock(this.goal.block);
+				await Bot.instance.waitForTicks(10);
 				return;
 			}
 			
-			Logger.log(`Loaded stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
-			
+			if (this.didPull) Logger.log(`Loaded stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
 			this.didPull = false;
+			
 			await this.goal.remove();
 			return this.goal = null;
 			
