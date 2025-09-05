@@ -27,5 +27,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/TehPicix/stasispearl:latest
-            ghcr.io/TehPicix/stasispearl:${{ github.sha }}
+            ghcr.io/tehpicix/stasispearl:latest
+            ghcr.io/tehpicix/stasispearl:${{ github.sha }}
