@@ -9,7 +9,6 @@ import { Logger } from "./Logger";
 export class Bot {
 
 	public static instance: mineflayer.Bot;
-
 	private static queuePosition: number | undefined;
 	private static queuedAt: number | undefined;
 
@@ -40,8 +39,6 @@ export class Bot {
 			bot.clearControlStates();
 			bot.pathfinder.stop();
 			bot.pathfinder.setGoal(null);
-
-			// Perform respawn — different protocol defs use different field names
 			const write = bot._client.write.bind(bot._client);
 			write("client_command", { payload: 0 });
 			write("client_command", { actionId: 0 });

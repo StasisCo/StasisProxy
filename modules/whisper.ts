@@ -7,16 +7,17 @@ import { StasisQueue } from "../class/StasisQueue";
 
 export default (bot: Bot) => bot.on("whisper", async function(username, message) {
 
-	// TODO: make it some kind of command syntax
-
 	// Get the player
 	const player = Object.values(bot.players).find(e => e.username === username);
 	if (!player || !player.uuid) return;
 
+	Logger.log(`Stasis request received from ${ chalk.cyan(username) }`);
+
 	// Make sure the player is not already queued
-	if (StasisQueue.isPlayerQueued(player.uuid)) {
+	if (StasisQueue.has(player.uuid)) {
 		bot.chat(`/msg ${ username } You already have a pearl in queue, please wait...`);
-		return Logger.warn(`${ chalk.cyan(username) } requested their pearl to be loaded, but they already have a pearl being loaded. ${ chalk.gray("(ignoring)") }`);
+		Logger.warn(`  ${ chalk.cyan(username) } is already queued, ignoring.`);
+		return;
 	}
 
 	// Get all the active pearls in the database for this player
@@ -33,22 +34,15 @@ export default (bot: Bot) => bot.on("whisper", async function(username, message)
 	const orphaned = pearls.filter(chamber => chamber.entities.length === 0);
 
 	// Cleanup orphaned pearls
-	for (const orphan of orphaned) {
-		await prisma.stasis.deleteMany({ where: {
-			x: orphan.block.position.x,
-			y: orphan.block.position.y,
-			z: orphan.block.position.z,
-			observer: bot.player.uuid,
-			dimension: bot.game.dimension,
-			server: [ bot._client.socket.remoteAddress, bot._client.socket.remotePort ].filter(Boolean).join(":")
-		}});
-		Logger.warn(`${ chalk.cyan(player.username) } has an orphaned stasis at ${ chalk.yellow(orphan.block.position) }, it was removed from the database.`);
+	if (orphaned.length > 0) {
+		Logger.warn(`  Removing ${ chalk.yellow(orphaned.length) } orphaned stasis...`);
+		for (const orphan of orphaned) await orphan.remove();
 	}
 
 	// If they have no pearls, inform them and exit
 	if (existing.length === 0) {
 		bot.chat(`/msg ${ username } You have no pearls registered!`);
-		return Logger.warn(`${ chalk.cyan(username) } requested their pearl to be loaded, but they have no pearls registered. ${ chalk.gray("(ignoring)") }`);
+		return Logger.warn(`  Failed to locate a stasis for ${ chalk.cyan(username) }`);
 	}
 
 	// Locate the closest pearl
@@ -60,9 +54,8 @@ export default (bot: Bot) => bot.on("whisper", async function(username, message)
 		.sort((a, b) => a.distance - b.distance)[0]?.chamber;
 	if (!chamber) return;
 
-	Logger.log(`${ chalk.cyan(username) } requested their pearl to be loaded, queuing chamber at ${ chalk.yellow(chamber.block.position) }...`);
-	StasisQueue.push(chamber);
-
+	StasisQueue.add(chamber);
+	Logger.log(`  Queued stasis at ${ chalk.yellow(chamber.block.position) } for ${ chalk.cyan(username) }`);
 	bot.chat(`/msg ${ username } Loading your pearl, please wait...`);
 
 });

@@ -27,9 +27,14 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 	const chamber = StasisColumn.from(blockPos.position, player.uuid);
 	if (!chamber) return;
 
+	Logger.log(`${ chalk.cyan(player.username) } threw a pearl in the stasis at ${ chalk.yellow(chamber.block.position) }`);
+
 	// Make sure theres not already a different pearl in this chamber
 	const occupants = chamber.entities.filter(e => e.uuid !== entity.uuid);
-	if (occupants.length > 0) return Logger.warn(`${ chalk.cyan(player.username) } threw a pearl into an occupied stasis at ${ chalk.yellow(chamber.block.position) }. This pearl will be ignored.`);
+	if (occupants.length > 0) return Logger.warn("  This stasis is already occupied, ignoring...");
+
+	// Clear any existing pearl data for this chamber
+	await prisma.stasis.deleteMany({ where: omit(chamber.toJSON(), "owner", "id", "createdAt") });
 		
 	// Wait for the pearl to settle at the trapdoor
 	await new Promise<void>(function loop(resolve) {
@@ -37,6 +42,8 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 		if (distance <= 1 && entity.velocity.abs().x <= 0.1 && entity.velocity.abs().y <= 0.1 && entity.velocity.abs().z <= 0.1) return resolve();
 		bot.waitForTicks(1).then(() => loop(resolve));
 	});
+
+	Logger.log("  Stasis ready");
 
 	// Get all the active pearls in the database for this player
 	const pearls = await prisma.stasis.findMany({
@@ -52,38 +59,27 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 	const orphaned = pearls.filter(chamber => chamber.entities.length === 0);
 
 	// Cleanup orphaned pearls
-	for (const orphan of orphaned) {
-		await prisma.stasis.deleteMany({ where: {
-			x: orphan.block.position.x,
-			y: orphan.block.position.y,
-			z: orphan.block.position.z,
-			observer: bot.player.uuid,
-			dimension: bot.game.dimension,
-			server: [ bot._client.socket.remoteAddress, bot._client.socket.remotePort ].filter(Boolean).join(":")
-		}});
-		Logger.warn(`${ chalk.cyan(player.username) } has an orphaned stasis at ${ chalk.yellow(orphan.block.position) }, it was removed from the database.`);
+	if (orphaned.length > 0) {
+		Logger.warn(`  Removing ${ chalk.yellow(orphaned.length) } orphaned stasis...`);
+		for (const orphan of orphaned) await orphan.remove();
 	}
 
 	// If they have too many, remove this pearl and ignore it
 	if (existing.length >= MAX_PLAYER_PEARLS) {
 		bot.chat(`/msg ${ player.username } You already have ${ existing.length } / ${ MAX_PLAYER_PEARLS } pearls registered. Extra pearls will be removed!`);
-		Logger.warn(`${ chalk.cyan(player.username) } threw a pearl into the stasis at ${ chalk.yellow(chamber.block.position) }, exceeding their limit of ${ chalk.yellow(MAX_PLAYER_PEARLS) } pearls.`);
-		StasisQueue.push(chamber);
+		Logger.warn(`  ${ chalk.cyan(player.username) } already has ${ chalk.yellow(existing.length) } / ${ chalk.yellow(MAX_PLAYER_PEARLS) } stasis, this pearl will be removed...`);
+		StasisQueue.add(chamber);
 		return;
 	}
 
 	// include the new pearl being added
 	existing.push(chamber);
-	Logger.log(`${ chalk.cyan(player.username) } set a pearl into the stasis at ${ chalk.yellow(chamber.block.position) }.`);
-
-	// Clear any existing pearl data for this chamber
-	await prisma.stasis.deleteMany({ where: omit(chamber.toJSON(), "owner") });
 
 	// Add a new pearl to the database
 	await prisma.stasis.create({ data: chamber.toJSON() });
 
+	Logger.log(`  ${ chalk.cyan(player.username) } now has ${ chalk.yellow(existing.length) } / ${ chalk.yellow(MAX_PLAYER_PEARLS) } pearls registered`);
 	bot.chat(`/msg ${ player.username } Pearl registered! You have ${ existing.length } out of ${ MAX_PLAYER_PEARLS } pearls registered.`);
-	Logger.log(`${ chalk.cyan(player.username) } threw a pearl into the stasis at ${ chalk.yellow(chamber.block.position) } and now has ${ chalk.yellow(pearls.length + 1) } out of ${ chalk.yellow(MAX_PLAYER_PEARLS) } pearls registered. ${ chalk.gray("(registered)") }`);
 
 });
     

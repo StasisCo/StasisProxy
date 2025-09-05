@@ -21,17 +21,3 @@ for await (const path of new Glob("modules/*.ts").scan()) {
 
 // Start the pearl queue processor
 bot.on("physicsTick", () => StasisQueue.process());
-
-// // External state
-// let currentGoal: Chamber | null = null;
-// let homePos: Vec3 | null = null; // set only when queue transitions empty -> non-empty
-// let returningHome = false; // are we currently navigating back home?
-
-// // // Disconnect if health is lower then 4
-// // bot.on("health", () => {
-// // 	if (bot.health < 4) {
-// // 		Logger.error("Health is low, disconnecting...");
-// // 		bot.quit();
-// // 	}
-// // });
-

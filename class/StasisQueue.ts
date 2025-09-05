@@ -16,7 +16,7 @@ export class StasisQueue {
 	 * Add a chamber to the pearl queue.
 	 * Duplicates are ignored.
 	 */
-	public static push(chamber: StasisColumn) {
+	public static add(chamber: StasisColumn) {
 		if (this.queue.includes(chamber)) return;
 		this.queue.push(chamber);
 	}
@@ -27,7 +27,7 @@ export class StasisQueue {
 	 * @param playerUuid - The UUID of the player to check
 	 * @returns {boolean} True if the player is queued, false otherwise
 	 */
-	public static isPlayerQueued(playerUuid: string): boolean {
+	public static has(playerUuid: string): boolean {
 		return this.queue.some(chamber => chamber.owner.uuid === playerUuid) || (this.currentGoal?.owner.uuid === playerUuid);
 	}
 

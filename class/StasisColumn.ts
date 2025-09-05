@@ -1,19 +1,19 @@
 import { type Stasis as StasisRecord } from "@prisma/client";
-import type { Optional } from "@prisma/client/runtime/library";
 import type { Player } from "mineflayer";
 import type { Block } from "prismarine-block";
 import { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
+import { prisma } from "..";
 import { Bot } from "./Bot";
 
 export class StasisColumn {
 
+	public readonly block: Block;
+	public readonly createdAt?: Date;
+	public readonly id?: string;
+	public readonly owner: Player;
 	public readonly pos1: Vec3;
 	public readonly pos2: Vec3;
-	public readonly owner: Player;
-	public readonly block: Block;
-	public readonly id?: string;
-	public readonly createdAt?: Date;
 
 	/**
 	 * Gets the chamber from a database record
@@ -92,6 +92,15 @@ export class StasisColumn {
 		this.id = id;
 
 	}
+
+	/**
+	 * Remove this chamber from the database
+	 */
+	public async remove() {
+		return await prisma.stasis.deleteMany({ where: this.toJSON() })
+			.then(() => true)
+			.catch(() => false);
+	}
 	
 	/**
 	 * Get all ender pearls currently in the bounding box of the chamber
@@ -109,7 +118,7 @@ export class StasisColumn {
 	/**
 	 * Serialize the chamber to JSON
 	 */
-	public toJSON(): Omit<StasisRecord, "id" | "createdAt"> & Optional<Pick<StasisRecord, "id" | "createdAt">, "id" | "createdAt"> {
+	public toJSON() {
 		if (!this.owner.uuid) throw new Error("Failed to determine owner UUID for stasis chamber");
 		return {
 			dimension: Bot.instance.game.dimension,
