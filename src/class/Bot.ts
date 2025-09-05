@@ -3,6 +3,7 @@ import mineflayer from "mineflayer";
 import { Movements, pathfinder } from "mineflayer-pathfinder";
 import pms from "pretty-ms";
 import prismarineChat from "prismarine-chat";
+import { clearLine, cursorTo, moveCursor } from "readline";
 import { unwrapNbtLike } from "../utils";
 import { printObject } from "../utils/format";
 import { Logger } from "./Logger";
@@ -93,9 +94,10 @@ export class Bot {
 
 				if (!iv) iv = setInterval(() => {
 
-					// process.stdout.moveCursor(0, -1);
-					// process.stdout.clearLine(0);
-					// process.stdout.cursorTo(0);
+					moveCursor(process.stdout, 0, -1);
+					clearLine(process.stdout, 0);
+					cursorTo(process.stdout, 0);
+					
 					if (this.queuePosition === undefined || this.queuePosition === -1) return Logger.warn(`In queue: Unknown position... ${ chalk.yellow(pms(Date.now() - (this.queuedAt || Date.now()))) }`);
 					Logger.log(`In queue: Position ${ chalk.yellow(this.queuePosition) }... ${ chalk.yellow(pms(Date.now() - (this.queuedAt || Date.now()), { keepDecimalsOnWholeSeconds: true })) }`);
 				}, 50);
@@ -116,8 +118,9 @@ export class Bot {
 				this.queuePosition = undefined;
 				const queuedFor = Date.now() - (this.queuedAt || Date.now());
 
-				// process.stdout.moveCursor(0, -1);
-				// process.stdout.clearLine(0);
+				moveCursor(process.stdout, 0, -1);
+				clearLine(process.stdout, 0);
+
 				Logger.log(`Left queue after ${ chalk.yellow(pms(queuedFor)) }`);
 			}
 
