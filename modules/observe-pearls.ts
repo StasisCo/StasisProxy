@@ -5,8 +5,7 @@ import { prisma } from "..";
 import { Logger } from "../class/Logger";
 import { StasisColumn } from "../class/StasisColumn";
 import { StasisQueue } from "../class/StasisQueue";
-
-const MAX_PLAYER_PEARLS = parseInt(process.env.MAX_PLAYER_PEARLS || "2");
+import { MAX_PLAYER_PEARLS } from "../config";
 
 export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 
