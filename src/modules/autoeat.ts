@@ -1,7 +1,7 @@
 import mcDataLoader from "minecraft-data";
 import { type Bot } from "mineflayer";
 import { type Item } from "prismarine-item";
-import { FOOD_BUFFER } from "../config";
+import { FOOD_BUFFER } from "../../config";
 
 export default function(bot: Bot) {
 

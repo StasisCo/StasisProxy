@@ -1,8 +1,8 @@
 import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import { type Item } from "prismarine-item";
+import { TOTEM_BUFFER } from "../../config";
 import { Logger } from "../class/Logger";
-import { TOTEM_BUFFER } from "../config";
 
 export default function(bot: Bot) {
 
