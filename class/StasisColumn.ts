@@ -8,10 +8,24 @@ import { Bot } from "./Bot";
 
 export class StasisColumn {
 
-	public readonly block: Block;
+	/**
+	 * The date this chamber was created, if it has been saved
+	 */
 	public readonly createdAt?: Date;
+
+	/**
+	 * The database ID of this chamber, if it has been saved
+	 */
 	public readonly id?: string;
+
+	/**
+	 * The player who owns the pearl in this chamber
+	 */
 	public readonly owner: Player;
+
+	/**
+	 * The bounding box of the chamber
+	 */
 	public readonly pos1: Vec3;
 	public readonly pos2: Vec3;
 
@@ -88,7 +102,6 @@ export class StasisColumn {
 		this.pos1 = columnTop.position;
 		this.pos2 = columnBottom.position;
 		this.owner = ownerEntity;
-		this.block = block;
 		this.id = id;
 
 	}
@@ -103,29 +116,16 @@ export class StasisColumn {
 	}
 
 	/**
-	 * Activate the chamber to summon the player
+	 * Get the block to interact with to activate the chamber
+	 * @returns {Block} The trapdoor block
 	 */
-	public async activate() {
-
-		// // Get initial state of trapdoor
-		// const { block } = this;
-		// const state = Bot.instance.blockAt(block.position)?.getProperties();
-		// if (!state) throw new Error("Failed to get state of stasis trapdoor");
-		// if (state.open === true) return; // Already open
-
-		// // Attempt to open the trapdoor until its state changes
-		// await Bot.instance.lookAt(this.block.position, true);
-		// await Bot.instance.activateBlock(this.block);
-
-		// // Wait for the trapdoor to open
-		// return await new Promise<void>(function loop(resolve: () => void) {
-		// 	const state = Bot.instance.blockAt(block.position)?.getProperties();
-		// 	if (state && state.open === false) return resolve();
-		// 	Bot.instance.waitForTicks(1).then(() => loop(resolve));
-		// }.bind(this));
-
+	public get block(): Block {
+		const block = Bot.instance.blockAt(new Vec3(this.pos1.x, this.pos1.y + 1, this.pos1.z));
+		if (!block) throw new Error("Failed to get trapdoor block for stasis chamber");
+		if (!block.name.includes("trapdoor") || block.name === "iron_trapdoor") throw new Error("No valid trapdoor found above the stasis chamber");
+		return block;
 	}
-	
+
 	/**
 	 * Get all ender pearls currently in the bounding box of the chamber
 	 * @returns {Entity[]} An array of ender pearl entities

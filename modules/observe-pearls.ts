@@ -39,7 +39,7 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 	// Wait for the pearl to settle at the trapdoor
 	await new Promise<void>(function loop(resolve) {
 		const distance = entity.position.distanceTo(chamber.block.position);
-		if (distance <= 1 && entity.velocity.abs().x <= 0.1 && entity.velocity.abs().y <= 0.1 && entity.velocity.abs().z <= 0.1) return resolve();
+		if (distance <= Math.SQRT2 && entity.velocity.abs().x <= 0.1 && entity.velocity.abs().y <= 0.1 && entity.velocity.abs().z <= 0.1) return resolve();
 		bot.waitForTicks(1).then(() => loop(resolve));
 	});
 

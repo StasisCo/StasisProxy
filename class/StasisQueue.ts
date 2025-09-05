@@ -7,6 +7,7 @@ import type { StasisColumn } from "./StasisColumn";
 
 export class StasisQueue {
 
+	private static didPull = false;
 	private static goal: StasisColumn | null = null;
 	private static homePos: null | Vec3 = null;
 	private static queue: StasisColumn[] = [];
@@ -45,15 +46,24 @@ export class StasisQueue {
 			// If were too far, keep walking
 			if (dist > 3) return;
 
-			// If theres pearls in the chamber, pull them
-			if (this.goal.entities.length > 0) {
-				await Bot.instance.lookAt(this.goal.block.position, true);
-				await Bot.instance.activateBlock(this.goal.block);
+			// Determine if the trapdoor is open or close
+			const state = this.goal.block.getProperties();
+			const open = "open" in state && state.open;
+
+			// If the trapdoor is open, close it
+			if (open) {
+				if (!this.didPull) {
+					this.didPull = true;
+					await Bot.instance.lookAt(this.goal.block.position, true);
+					await Bot.instance.activateBlock(this.goal.block);
+					await Bot.instance.waitForTicks(10);
+				}
 				return;
 			}
 			
 			Logger.log(`Loaded stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
-
+			
+			this.didPull = false;
 			await this.goal.remove();
 			return this.goal = null;
 			
