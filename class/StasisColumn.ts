@@ -101,6 +101,30 @@ export class StasisColumn {
 			.then(() => true)
 			.catch(() => false);
 	}
+
+	/**
+	 * Activate the chamber to summon the player
+	 */
+	public async activate() {
+
+		// // Get initial state of trapdoor
+		// const { block } = this;
+		// const state = Bot.instance.blockAt(block.position)?.getProperties();
+		// if (!state) throw new Error("Failed to get state of stasis trapdoor");
+		// if (state.open === true) return; // Already open
+
+		// // Attempt to open the trapdoor until its state changes
+		// await Bot.instance.lookAt(this.block.position, true);
+		// await Bot.instance.activateBlock(this.block);
+
+		// // Wait for the trapdoor to open
+		// return await new Promise<void>(function loop(resolve: () => void) {
+		// 	const state = Bot.instance.blockAt(block.position)?.getProperties();
+		// 	if (state && state.open === false) return resolve();
+		// 	Bot.instance.waitForTicks(1).then(() => loop(resolve));
+		// }.bind(this));
+
+	}
 	
 	/**
 	 * Get all ender pearls currently in the bounding box of the chamber
