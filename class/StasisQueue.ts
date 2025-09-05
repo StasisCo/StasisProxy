@@ -7,11 +7,11 @@ import type { StasisColumn } from "./StasisColumn";
 
 export class StasisQueue {
 
-	private static currentGoal: StasisColumn | null = null;
+	private static goal: StasisColumn | null = null;
 	private static homePos: null | Vec3 = null;
 	private static queue: StasisColumn[] = [];
 	private static returningHome = false;
-	
+
 	/**
 	 * Add a chamber to the pearl queue.
 	 * Duplicates are ignored.
@@ -28,80 +28,75 @@ export class StasisQueue {
 	 * @returns {boolean} True if the player is queued, false otherwise
 	 */
 	public static has(playerUuid: string): boolean {
-		return this.queue.some(chamber => chamber.owner.uuid === playerUuid) || (this.currentGoal?.owner.uuid === playerUuid);
+		return this.queue.some(chamber => chamber.owner.uuid === playerUuid) || (this.goal?.owner.uuid === playerUuid);
 	}
 
 	/**
 	 * Process the pearl queue. Call this every tick.
 	 */
-	public static async process() {
+	public static async tick() {
 
-		// --- If we’re working on a chamber, finish that first ---
-		if (this.currentGoal) {
-			const interactionBlock = this.currentGoal.block;
-			if (!interactionBlock) {
-				this.currentGoal = null;
+		// If we’re currently on a chamber
+		if (this.goal) {
+
+			// Check distance to chamber
+			const dist = Bot.instance.entity.position.distanceTo(this.goal.block.position);
+
+			// If were too far, keep walking
+			if (dist > 3) return;
+
+			// If theres pearls in the chamber, pull them
+			if (this.goal.entities.length > 0) {
+				await Bot.instance.lookAt(this.goal.block.position, true);
+				await Bot.instance.activateBlock(this.goal.block);
 				return;
 			}
+			
+			Logger.log(`Loaded stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
 
-			const dist = Bot.instance.entity.position.distanceTo(interactionBlock.position);
-			if (dist <= 3) {
-
-				// Arrived → interact once, then advance
-				this.currentGoal = null;
-
-				Logger.log(`Interacting with chamber at ${ chalk.yellow(interactionBlock.position) }...`);
-				await Bot.instance.lookAt(interactionBlock.position, true);
-				await Bot.instance.activateBlock(interactionBlock);
-
-				// Next tick will pick up the next chamber or start returning home
-			}
-			return;
+			await this.goal.remove();
+			return this.goal = null;
+			
 		}
 
-		// --- Not currently on a chamber ---
-
-		// If there’s queued work:
+		// If theres a chamber queued
 		if (this.queue.length > 0) {
 
-			// Capture home only when a new work session starts (empty -> non-empty)
+			// Save our return position if we dont have one already
 			if (this.homePos === null) this.homePos = Bot.instance.entity.position.clone().floored();
-
-			// If we were heading home, cancel that and do work (keep original this.homePos)
+			
+			// Stop going home if we were
 			this.returningHome = false;
 
-			const chamber = this.queue.shift()!;
-			const interactionBlock = chamber.block;
-			if (!interactionBlock) return; // skip this one; next tick will try again
+			// Get the next chamber in the queue
+			this.goal = this.queue.shift() || null;
+			if (!this.goal) return;
 
-			this.currentGoal = chamber;
-			Logger.log(`Moving to chamber at ${ chalk.yellow(interactionBlock.position) }...`);
-			Bot.instance.pathfinder.setGoal(new goals.GoalNear(interactionBlock.position.x, interactionBlock.position.y, interactionBlock.position.z, 2));
+			Logger.log(`Processing stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
+			Bot.instance.pathfinder.setGoal(new goals.GoalNear(this.goal.block.position.x, this.goal.block.position.y, this.goal.block.position.z, 2));
 			return;
+
 		}
 
-		// --- Queue is empty ---
-		// If we have a saved home and we're not there yet, go home.
+		// Return home if we dont have any work to do
 		if (this.homePos) {
-			const dHome = Bot.instance.entity.position.distanceTo(this.homePos);
-			if (dHome > 1) {
-				if (!this.returningHome) {
-					this.returningHome = true;
-					Logger.log(`Returning home to ${ chalk.yellow(this.homePos) }...`);
-					Bot.instance.pathfinder.setGoal(new goals.GoalBlock(this.homePos.x, this.homePos.y, this.homePos.z));
-				}
 
-				// keep walking; don't clear goal every tick
+			// See how far we are from home
+			const dist = Bot.instance.entity.position.distanceTo(this.homePos);
+
+			// If we have arrived
+			if (dist < 1) {
+				this.returningHome = false;
+				this.homePos = null;
 				return;
 			}
 
-			// We arrived home with no new work → end session
-			this.returningHome = false;
+			// Return home if were not already
+			if (!this.returningHome) {
+				this.returningHome = true;
+				Bot.instance.pathfinder.setGoal(new goals.GoalBlock(this.homePos.x, this.homePos.y, this.homePos.z));
+			}
 
-			// Keep goal as-is (already satisfied) to avoid pathfinder thrash.
-			// If you *really* want to clear it once, do it here (but don't call stop()):
-			// bot.pathfinder.setGoal(null);
-			this.homePos = null; // allow a new home to be captured next time work starts
 		}
 
 	}

@@ -43,8 +43,6 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 		bot.waitForTicks(1).then(() => loop(resolve));
 	});
 
-	Logger.log("  Stasis ready");
-
 	// Get all the active pearls in the database for this player
 	const pearls = await prisma.stasis.findMany({
 		where: {
