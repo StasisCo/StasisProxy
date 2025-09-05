@@ -1,8 +1,8 @@
 import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import { type Item } from "prismarine-item";
-import { TOTEM_BUFFER } from "../../config";
 import { Logger } from "../class/Logger";
+import { TOTEM_BUFFER } from "../config";
 
 /**
  * Automatically equip a totem in the off-hand and handle totem pops.

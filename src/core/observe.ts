@@ -2,10 +2,10 @@ import chalk from "chalk";
 import { omit } from "lodash";
 import { type Bot } from "mineflayer";
 import { prisma } from "..";
-import { MAX_PLAYER_PEARLS } from "../../config";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
+import { MAX_PLAYER_PEARLS } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 
 export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {

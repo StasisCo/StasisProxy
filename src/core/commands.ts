@@ -1,9 +1,9 @@
 import chalk from "chalk";
 import { type Bot, type Player } from "mineflayer";
-import { CHAT_COMMAND_PREFIX } from "../../config";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
+import { CHAT_COMMAND_PREFIX } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 
 /**

@@ -1,5 +1,5 @@
 {
-  "name": "stasisbot",
+  "name": "stasis-pearl",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
@@ -14,6 +14,7 @@
     "prisma": "^6.15.0"
   },
   "scripts": {
+    "start": "bun .",
     "lint": "eslint --fix"
   },
   "peerDependencies": {

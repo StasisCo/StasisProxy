@@ -1,9 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 import { Glob } from "bun";
-import * as config from "../config";
 import { Bot } from "./class/Bot";
 import { Logger } from "./class/Logger";
 import { StasisQueue } from "./class/StasisQueue";
+import * as config from "./config";
 import { printObject } from "./utils/format";
 
 // Connect to the database

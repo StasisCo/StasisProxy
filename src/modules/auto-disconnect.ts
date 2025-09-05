@@ -1,8 +1,8 @@
 import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import type { Item } from "prismarine-item";
-import { HEALTH_BUFFER, TOTEM_BUFFER } from "../../config";
 import { Logger } from "../class/Logger";
+import { HEALTH_BUFFER, TOTEM_BUFFER } from "../config";
 
 /**
  * Automatically disconnect the bot if health and totems are critically low.
