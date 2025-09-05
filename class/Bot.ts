@@ -1,4 +1,3 @@
-import chalk from "chalk";
 import mineflayer from "mineflayer";
 import { Movements, pathfinder } from "mineflayer-pathfinder";
 import { printAnsiChat } from "../utils";
@@ -6,7 +5,7 @@ import { Logger } from "./Logger";
 
 export class Bot {
 
-	private static instance: mineflayer.Bot;
+	public static instance: mineflayer.Bot;
 
 	/**
      * Login the bot
@@ -36,7 +35,7 @@ export class Bot {
 		bot.on("kicked", reason => Logger.error("Disconnected:", printAnsiChat(typeof reason === "string" ? JSON.parse(reason) : reason)));
 
 		// Log chat messages
-		bot.on("message", username => Logger.log(chalk.gray("[CHAT]"), username.toAnsi()));
+		// bot.on("message", username => Logger.log(chalk.gray("[CHAT]"), username.toAnsi()));
 
 		// Load pathfinder
 		bot.loadPlugin(pathfinder);
@@ -59,11 +58,6 @@ export class Bot {
 
 		return bot;
 
-	}
-
-	public static get bot() {
-		if (!this.instance) throw new Error("Bot not initialized yet. Call Bot.connect() first.");
-		return this.instance;
 	}
 
 }
