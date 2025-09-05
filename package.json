@@ -15,6 +15,7 @@
   },
   "scripts": {
     "start": "bun .",
+    "postinstall": "prisma generate",
     "lint": "eslint --fix"
   },
   "peerDependencies": {
