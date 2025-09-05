@@ -92,9 +92,10 @@ export class Bot {
 			if (bot.game.dimension === "the_end" && bot.game.gameMode === "spectator") {
 
 				if (!iv) iv = setInterval(() => {
-					process.stdout.moveCursor(0, -1);
-					process.stdout.clearLine(0);
-					process.stdout.cursorTo(0);
+
+					// process.stdout.moveCursor(0, -1);
+					// process.stdout.clearLine(0);
+					// process.stdout.cursorTo(0);
 					if (this.queuePosition === undefined || this.queuePosition === -1) return Logger.warn(`In queue: Unknown position... ${ chalk.yellow(pms(Date.now() - (this.queuedAt || Date.now()))) }`);
 					Logger.log(`In queue: Position ${ chalk.yellow(this.queuePosition) }... ${ chalk.yellow(pms(Date.now() - (this.queuedAt || Date.now()), { keepDecimalsOnWholeSeconds: true })) }`);
 				}, 50);
@@ -114,8 +115,9 @@ export class Bot {
 			if (this.queuePosition !== undefined) {
 				this.queuePosition = undefined;
 				const queuedFor = Date.now() - (this.queuedAt || Date.now());
-				process.stdout.moveCursor(0, -1);
-				process.stdout.clearLine(0);
+
+				// process.stdout.moveCursor(0, -1);
+				// process.stdout.clearLine(0);
 				Logger.log(`Left queue after ${ chalk.yellow(pms(queuedFor)) }`);
 			}
 
