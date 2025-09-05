@@ -3,9 +3,11 @@ import { omit } from "lodash";
 import { type Bot } from "mineflayer";
 import { prisma } from "..";
 import { MAX_PLAYER_PEARLS } from "../../config";
+import { Bot as BotClass } from "../class/Bot";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
+import { printObject } from "../utils/format";
 
 export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 
@@ -27,11 +29,33 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 	const chamber = Stasis.from(blockPos.position, player.uuid);
 	if (!chamber) return;
 
-	Logger.log(`${ chalk.cyan(player.username) } threw a pearl in the stasis at ${ chalk.yellow(chamber.block.position) }`);
+	// Logger.log(`${ chalk.cyan(player.username) } threw a pearl in the stasis at ${ chalk.yellow(chamber.block.position) }`);
 
 	// Make sure theres not already a different pearl in this chamber
 	const occupants = chamber.entities.filter(e => e.uuid !== entity.uuid);
-	if (occupants.length > 0) return Logger.warn("This stasis is already occupied, ignoring...");
+	if (occupants.length > 0) {
+
+		const current = await prisma.stasis.findFirst({
+			where: {
+				x: chamber.block.position.x,
+				y: chamber.block.position.y,
+				z: chamber.block.position.z,
+				dimension: chamber.dimension,
+				NOT: { owner: player.uuid }
+			}
+		});
+
+		if (current) {
+			Logger.warn("Stasis conflict detected");
+			printObject({
+				dimension: current.dimension,
+				owner: Object.values(BotClass.instance.players).find(e => e.uuid === current.owner)?.username || current.owner,
+				position: chamber.block.position
+			});
+			return;
+		}
+
+	}
 
 	// Clear any existing pearl data for this chamber
 	await prisma.stasis.deleteMany({ where: omit(chamber.toJSON(), "owner", "id", "createdAt") });

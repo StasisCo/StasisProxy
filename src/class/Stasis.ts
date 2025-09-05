@@ -1,6 +1,6 @@
 import { type Stasis as StasisRecord } from "@prisma/client";
 import chalk from "chalk";
-import type { Player } from "mineflayer";
+import type { Dimension, Player } from "mineflayer";
 import type { Block } from "prismarine-block";
 import { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
@@ -14,6 +14,11 @@ export class Stasis {
 	 * The date this stasis was created, if it has been saved
 	 */
 	public readonly createdAt?: Date;
+
+	/**
+	 * The dimension this stasis is in
+	 */
+	public readonly dimension: Dimension;
 
 	/**
 	 * The database ID of this stasis, if it has been saved
@@ -144,6 +149,7 @@ export class Stasis {
 
 		this.pos1 = columnTop.position;
 		this.pos2 = columnBottom.position;
+		this.dimension = Bot.instance.game.dimension;
 		this.owner = ownerEntity;
 		this.id = id;
 

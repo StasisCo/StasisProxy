@@ -5,7 +5,8 @@ import type { Block } from "prismarine-block";
 import { Vec3 } from "vec3";
 
 /**
- * Make the bot walk around randomly for a few seconds after it initially spawns, to avoid being considered a bot by anti-bot measures.
+ * Make the bot walk around randomly for a few seconds after it initially 
+ * spawns, to avoid being considered a bot by anti-bot measures.
  * @param bot The bot instance
  */
 export default async function(bot: Bot) {

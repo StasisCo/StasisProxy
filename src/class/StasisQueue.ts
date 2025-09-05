@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { goals } from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
+import { printObject } from "../utils/format";
 import { Bot } from "./Bot";
 import { Logger } from "./Logger";
 import type { Stasis } from "./Stasis";
@@ -17,9 +18,14 @@ export class StasisQueue {
 	 * Add a chamber to the pearl queue.
 	 * Duplicates are ignored.
 	 */
-	public static add(chamber: Stasis) {
-		if (this.queue.includes(chamber)) return;
-		this.queue.push(chamber);
+	public static add(stasis: Stasis) {
+		Logger.log("Queueing stasis:");
+		printObject({
+			dimension: stasis.dimension,
+			owner: stasis.owner.username,
+			position: stasis.block.position
+		});
+		this.queue.push(stasis);
 	}
 
 	/**

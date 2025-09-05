@@ -129,7 +129,7 @@ export class Bot {
 		Logger.log(`Loading dimension ${ chalk.cyan(bot.game.dimension) }...`);
 		printObject({
 			difficulty: bot.game.difficulty,
-			gamemode: bot.game.gameMode,
+			gameMode: bot.game.gameMode,
 			version: bot.version
 		});
 

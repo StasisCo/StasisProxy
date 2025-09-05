@@ -9,7 +9,7 @@ export function printObject(obj: Record<string, unknown>) {
 	const longestKey = Math.max(...Object.keys(obj).map(k => k.length));
 	let index = 0;
 	for (const [ k, v ] of Object.entries(obj).filter(([ , v ]) => v !== undefined && v !== null && v !== "" && v !== 0)) {
-		const key = index === 0 ? "├── " : index === Object.keys(obj).length - 1 ? "└── " : "├── ";
+		const key = index === 0 ? ((index === Object.keys(obj).length - 1) ? "└── " : "├── ") : (index === Object.keys(obj).length - 1) ? "└── " : "├── ";
 		console.log(`${ " ".repeat(25) } ${ chalk.gray(key) }${ chalk.blue(k.padEnd(longestKey)) } ${ chalk.gray("=") } ${ chalk[typeof v === "string" ? "cyan" : "yellow"](v) }`);
 		index++;
 	}
