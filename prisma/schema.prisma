@@ -1,0 +1,30 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "mysql"
+    url      = env("DB_URL")
+}
+
+model Chamber {
+    // Unique ID for this chamber entry
+    id String @id @unique @default(cuid())
+
+    // UUID of the player who owns this chamber
+    ownerUUID String
+
+    // UUID of the bot that observes this chamber
+    botUUID String
+
+    // The dimension/world where this chamber is located
+    dimension String
+
+    // The server that this chamber is on
+    server String
+
+    // The coordinates of the chamber
+    x Int
+    y Int
+    z Int
+}
