@@ -1,0 +1,54 @@
+services:
+  
+  stasis-proxy:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - minecraft-data:/root/.minecraft
+    environment:
+      - MC_HOST
+      - MC_USERNAME
+      - STASIS_LOCATION_NAME
+      - DATABASE_URL=postgresql://stasis:stasis@postgres:5432/stasis
+      - PROXY_PORT=25577
+      - MC_PROFILE=/root/.minecraft
+      - MC_VERSION=1.20.1
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "25577:25577"
+    env_file:
+      - path: .env
+        required: false
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: stasis
+      POSTGRES_PASSWORD: stasis
+      POSTGRES_DB: stasis
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U stasis" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  minecraft-data:
+  pgdata:
+  redisdata:

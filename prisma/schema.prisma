@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Stasis {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  dimension String
+  ownerId   String
+  server    String
+  x         Int
+  y         Int
+  z         Int
+
+  owner Player @relation(fields: [ownerId], references: [id])
+
+  @@unique([server, x, y, z, dimension], name: "position")
+}
+
+model Player {
+  id        String   @id @unique
+  createdAt DateTime @default(now())
+
+  username String
+
+  stases Stasis[]
+}

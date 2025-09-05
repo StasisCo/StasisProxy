@@ -1,0 +1,524 @@
+import chalk from "chalk";
+import { createServer, type Client as MinecraftClient, type PacketMeta, type Server, type SessionObject } from "minecraft-protocol";
+import type { Bot as Mineflayer } from "mineflayer";
+import sharp from "sharp";
+import z from "zod";
+import { ChatManager } from "~/manager/ChatManager";
+import { Logger } from "../util/Logger";
+import { Client } from "./Client";
+
+/**
+ * Cached packet entry with insertion order preserved via the sequence number.
+ */
+interface CachedPacket {
+	seq: number;
+	name: string;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol data
+	data: any;
+}
+
+/**
+ * Defines how a packet is keyed in the cache. 
+ * - A string key function means the packet is "keyed" — only the latest value per key is kept.
+ * - `true` means the packet is stored once (singleton).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- packet shapes are dynamic
+const PACKET_KEYS: Record<string, true | ((data: any) => string)> = {
+
+	// ── Login & Configuration (singletons — one value each) ──
+	"login": true,
+	"difficulty": true,
+	"abilities": true,
+	"held_item_slot": true,
+	"declare_commands": true,
+	"declare_recipes": true,
+	"unlock_recipes": true,
+	"tags": true,
+	"feature_flags": true,
+	"server_data": true,
+	"spawn_position": true,
+	"update_time": true,
+	"update_health": true,
+	"experience": true,
+	"position": true,
+	"update_view_position": true,
+	"simulation_distance": true,
+	"update_view_distance": true,
+	"playerlist_header": true,
+	"initialize_world_border": true,
+	"world_border_center": true,
+	"world_border_size": true,
+
+	// ── Title / Action bar (singletons — latest value only) ──
+	"set_title_text": true,
+	"set_title_subtitle": true,
+	"set_title_time": true,
+	"action_bar": true,
+
+	// ── Keyed by entity ID ──
+	"spawn_entity": d => `${ d.entityId }`,
+	"named_entity_spawn": d => `${ d.entityId }`,
+	"spawn_entity_experience_orb": d => `${ d.entityId }`,
+	"entity_metadata": d => `${ d.entityId }`,
+	"entity_equipment": d => `${ d.entityId }`,
+	"entity_update_attributes": d => `${ d.entityId }`,
+	"entity_head_rotation": d => `${ d.entityId }`,
+	"entity_teleport": d => `${ d.entityId }`,
+	"set_passengers": d => `${ d.entityId }`,
+	"entity_effect": d => `${ d.entityId }:${ d.effectId }`,
+
+	// ── Keyed by chunk coordinate ──
+	"map_chunk": d => `${ d.x },${ d.z }`,
+	"update_light": d => `${ d.chunkX },${ d.chunkZ }`,
+
+	// ── Keyed by block position ──
+	"block_change": d => `${ d.location.x },${ d.location.y },${ d.location.z }`,
+	"tile_entity_data": d => `${ d.location.x },${ d.location.y },${ d.location.z }`,
+
+	// ── Keyed by chunk section ──
+	"multi_block_change": d => `${ d.chunkCoordinates.x },${ d.chunkCoordinates.y },${ d.chunkCoordinates.z }`,
+
+	// ── Keyed by scoreboard identifiers ──
+	"scoreboard_objective": d => `${ d.name }`,
+	"scoreboard_display_objective": d => `${ d.position }`,
+	"scoreboard_score": d => `${ d.itemName }:${ d.scoreName }`,
+	"teams": d => `${ d.team }`,
+
+	// ── Keyed by window ──
+	"window_items": d => `${ d.windowId }`,
+	"set_slot": d => `${ d.windowId }:${ d.slot }`,
+
+	// ── Keyed by boss bar UUID ──
+	"boss_bar": d => `${ d.entityUUID }`,
+
+	// ── Game state changes keyed by reason ──
+	"game_state_change": d => `${ d.reason }`,
+
+	// ── Player list (replace whole list each time) ──
+	"player_info": true
+};
+
+/**
+ * Entity-related packet names that should be deleted when an entity is destroyed.
+ */
+const ENTITY_PACKET_NAMES = [
+	"spawn_entity",
+	"named_entity_spawn",
+	"spawn_entity_experience_orb",
+	"entity_metadata",
+	"entity_equipment",
+	"entity_update_attributes",
+	"entity_head_rotation",
+	"entity_teleport",
+	"set_passengers"
+] as const;
+
+export class Proxy {
+
+	private static readonly logger = new Logger(chalk.green("PROXY"));
+
+	private server!: Server;
+
+	/**
+	 * The packet cache. Outer map is keyed by packet name, inner map is keyed by
+	 * the packet's unique key (or "_" for singletons).
+	 */
+	private readonly cache = new Map<string, Map<string, CachedPacket>>();
+
+	/** Monotonically increasing counter to preserve insertion/update order. */
+	private seq = 0;
+
+	/** Cached favicon data URL, applied to server when both are ready */
+	private favicon: string | null = null;
+
+	/** The currently connected player client, if any */
+	private client: MinecraftClient | null = null;
+
+	constructor(private readonly bot: Mineflayer) {
+
+		// Start recording packets immediately (before game is ready)
+		bot._client.on("packet", this.onPacket);
+
+		// Download favicon as soon as session is available
+		const fetchFavicon = ({ selectedProfile: { id }}: SessionObject) => void fetch(`https://mc-heads.net/head/${ id }/64`)
+			.then(res => res.arrayBuffer().then(Buffer.from))
+			.then(sharp)
+			.then(img => img.resize(64, 64, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 }}))
+			.then(img => img.png().toBuffer())
+			.then(buf => `data:image/png;base64,${ buf.toString("base64") }`)
+			.then(dataUrl => {
+				this.favicon = dataUrl;
+				if (this.server) this.server.favicon = dataUrl;
+			})
+			.catch(error => Proxy.logger.warn("Failed to fetch player head for proxy favicon", "\n" + error.stack));
+
+		bot._client.on("session", fetchFavicon);
+		if (bot._client.session) fetchFavicon(bot._client.session);
+
+		if (bot.game) {
+			this.startServer();
+		} else {
+			bot.once("game", () => this.startServer());
+		}
+	}
+
+	get motd(): string {
+		const lines = [ "§8§l» §3§lStasisProxy §8§l«§r" ];
+		
+		if (Client.queue.queued) lines.push(`§b§n${ Client.bot.username }§r - ${ (Client.queue.subtitle || Client.queue.title)?.toMotd() || "§6Queueing..." }`);
+		else lines.push(`§b§n${ Client.bot.username }§r - §e${ Object.keys(Client.bot.players).length } Online`);
+
+		return lines.filter(Boolean).map(line => ChatManager.center(line, 270)).join("\n");
+	}
+
+	private startServer() {
+		const port = parseInt(z.string().optional().parse(process.env.PROXY_PORT) ?? Math.floor(10000 + Math.random() * 50000).toString(), 10);
+		this.server = createServer({
+			port,
+			"online-mode": true,
+			version: this.bot.version,
+			motd: this.motd,
+			maxPlayers: 1,
+			keepAlive: false,
+			errorHandler: (_client, err) => {
+				Proxy.logger.warn(`Protocol error: ${ err.message }`);
+			}
+		});
+
+		// Apply favicon if it was fetched before the server started
+		if (this.favicon) this.server.favicon = this.favicon;
+
+		// Make motd dynamic so every server list ping gets a fresh value
+		Object.defineProperty(this.server, "motd", {
+			get: () => this.motd,
+			configurable: true
+		});
+
+		this.server.on("playerJoin", client => this.onPlayerJoin(client));
+		Proxy.logger.log("Listening on", chalk.yellow(`:${ port }`));
+	}
+
+	// ── Cache helpers ──
+
+	private set(name: string, key: string, data: unknown) {
+		let inner = this.cache.get(name);
+		if (!inner) {
+			inner = new Map();
+			this.cache.set(name, inner);
+		}
+
+		// Deep-copy the data — parsed objects may contain views into the protocol
+		// stream's internal pool whose memory can be reused after the event handler.
+		inner.set(key, { seq: this.seq++, name, data: structuredClone(data) });
+	}
+
+	private deleteKey(name: string, key: string) {
+		this.cache.get(name)?.delete(key);
+	}
+
+	private deleteAll(name: string) {
+		this.cache.delete(name);
+	}
+
+	private deleteEntity(entityId: number) {
+		const key = `${ entityId }`;
+		for (const name of ENTITY_PACKET_NAMES) {
+			this.deleteKey(name, key);
+		}
+
+		// Also remove entity effects (keyed as entityId:effectId)
+		const effectMap = this.cache.get("entity_effect");
+		if (effectMap) {
+			for (const k of effectMap.keys()) {
+				if (k.startsWith(`${ entityId }:`)) effectMap.delete(k);
+			}
+		}
+	}
+
+	/**
+	 * Remove stale block_change, multi_block_change, and tile_entity_data entries
+	 * that fall within the given chunk column.
+	 */
+	private invalidateBlocksInChunk(chunkX: number, chunkZ: number) {
+		for (const pktName of [ "block_change", "tile_entity_data" ] as const) {
+			const map = this.cache.get(pktName);
+			if (!map) continue;
+			for (const key of map.keys()) {
+				const parts = key.split(",").map(Number);
+				if ((parts[0]! >> 4) === chunkX && (parts[2]! >> 4) === chunkZ) map.delete(key);
+			}
+		}
+
+		const mbc = this.cache.get("multi_block_change");
+		if (mbc) {
+			for (const key of mbc.keys()) {
+				const parts = key.split(",").map(Number);
+				if (parts[0] === chunkX && parts[2] === chunkZ) mbc.delete(key);
+			}
+		}
+	}
+
+	// ── Packet handler ──
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol data
+	private readonly onPacket = (data: any, meta: PacketMeta) => {
+		const { name } = meta;
+
+		// ── Invalidation: entity destroyed ──
+		if (name === "entity_destroy") {
+			if (Array.isArray(data.entityIds)) {
+				for (const id of data.entityIds) this.deleteEntity(id);
+			}
+			return;
+		}
+
+		// ── Invalidation: chunk unloaded ──
+		if (name === "unload_chunk") {
+			const chunkKey = `${ data.chunkX },${ data.chunkZ }`;
+			this.deleteKey("map_chunk", chunkKey);
+			this.deleteKey("update_light", chunkKey);
+			this.invalidateBlocksInChunk(data.chunkX, data.chunkZ);
+			return;
+		}
+
+		// ── Invalidation: respawn (dimension change) — clear all world state ──
+		if (name === "respawn") {
+			for (const pktName of ENTITY_PACKET_NAMES) this.deleteAll(pktName);
+			this.deleteAll("entity_effect");
+			this.deleteAll("map_chunk");
+			this.deleteAll("update_light");
+			this.deleteAll("scoreboard_objective");
+			this.deleteAll("scoreboard_display_objective");
+			this.deleteAll("scoreboard_score");
+			this.deleteAll("teams");
+			this.deleteAll("boss_bar");
+			this.deleteAll("window_items");
+			this.deleteAll("set_slot");
+			this.deleteAll("block_change");
+			this.deleteAll("multi_block_change");
+			this.deleteAll("tile_entity_data");
+			this.deleteAll("initialize_world_border");
+			this.deleteAll("world_border_center");
+			this.deleteAll("world_border_size");
+			this.deleteAll("position");
+			this.deleteAll("update_health");
+			this.deleteAll("experience");
+			this.deleteAll("update_view_position");
+			this.deleteAll("game_state_change");
+			this.deleteAll("spawn_position");
+			this.deleteAll("set_title_text");
+			this.deleteAll("set_title_subtitle");
+			this.deleteAll("set_title_time");
+			this.deleteAll("action_bar");
+
+			// Store the respawn itself — login is kept for entity ID / dimension codec
+			this.set("respawn", "_", data);
+			return;
+		}
+
+		// ── Invalidation: clear titles ──
+		if (name === "clear_titles") {
+			this.deleteAll("set_title_text");
+			this.deleteAll("set_title_subtitle");
+			return;
+		}
+
+		// ── Invalidation: player removed from player list ──
+		if (name === "player_remove") return;
+
+		// ── Invalidation: remove entity effect ──
+		if (name === "remove_entity_effect") {
+			this.deleteKey("entity_effect", `${ data.entityId }:${ data.effectId }`);
+			return;
+		}
+
+		// ── Invalidation: boss bar remove action ──
+		if (name === "boss_bar" && data.action === 1) {
+			this.deleteKey("boss_bar", `${ data.entityUUID }`);
+			return;
+		}
+
+		// ── Invalidation: scoreboard objective removed ──
+		if (name === "scoreboard_objective" && data.action === 1) {
+			this.deleteKey("scoreboard_objective", `${ data.name }`);
+			return;
+		}
+
+		// ── Store cacheable packets ──
+		const keySpec = PACKET_KEYS[name];
+		if (keySpec === undefined) return;
+
+		const key = keySpec === true ? "_" : keySpec(data);
+
+		// When a new map_chunk arrives, invalidate stale block/tile entries in that chunk
+		if (name === "map_chunk") {
+			this.invalidateBlocksInChunk(data.x, data.z);
+		}
+
+		this.set(name, key, data);
+	};
+
+	// ── Replay ──
+
+	/**
+	 * Returns all cached packets sorted by sequence number (insertion/update order).
+	 * Login/respawn is forced first regardless of sequence.
+	 */
+	private getReplayPackets(): CachedPacket[] {
+		const all: CachedPacket[] = [];
+
+		for (const inner of this.cache.values()) {
+			for (const pkt of inner.values()) {
+				all.push(pkt);
+			}
+		}
+
+		// Sort by sequence, but pull login/respawn to the very front
+		all.sort((a, b) => {
+			const aLogin = a.name === "login" || a.name === "respawn" ? 0 : 1;
+			const bLogin = b.name === "login" || b.name === "respawn" ? 0 : 1;
+			if (aLogin !== bLogin) return aLogin - bLogin;
+			return a.seq - b.seq;
+		});
+
+		return all;
+	}
+
+	// ── Player connection ──
+
+	private onPlayerJoin(client: MinecraftClient) {
+		if (this.client) {
+			client.end("A player is already connected.");
+			return;
+		}
+
+		this.client = client;
+		const pos = this.bot.player?.entity?.position;
+		const hasPos = pos && Number.isFinite(pos.x);
+		Proxy.logger.log([
+			`UUID of player ${ client.username } is ${ client.uuid }`,
+			`${ client.username }[/${ client.socket.remoteAddress }:${ client.socket.remotePort }] logged in with entity id ${ this.bot.player?.entity?.id ?? "?" } at ([${ this.bot.game.dimension }]${ hasPos ? `${ Math.trunc(pos.x * 10) / 10 }, ${ Math.trunc(pos.y * 10) / 10 }, ${ Math.trunc(pos.z * 10) / 10 }` : "?, ?, ?" })`
+		].join("\n"));
+
+		// Replay cached world state to the connecting player.
+		// Update the cached position to match what 2b2t ACTUALLY thinks (lastSent),
+		// with explicit absolute flags. Using bot.entity.position would be wrong —
+		// the physics simulation keeps updating it every tick even while a player is
+		// connected, so it drifts from what 2b2t knows. Preserving the original flags
+		// would also be wrong — if 2b2t sent a relative position correction, our
+		// absolute coords would be interpreted as offsets.
+		const { lastSent } = Client.physics;
+		if (Number.isFinite(lastSent.x)) {
+			const posMap = this.cache.get("position");
+			const existing = posMap?.get("_");
+			if (existing) {
+				existing.data = {
+					...existing.data,
+					x: lastSent.x,
+					y: lastSent.y,
+					z: lastSent.z,
+					yaw: lastSent.yaw,
+					pitch: lastSent.pitch,
+					flags: 0x00
+				};
+			}
+
+			// Same for update_view_position (1.14+) — tells the client which chunk to center on
+			const viewPosMap = this.cache.get("update_view_position");
+			const viewPos = viewPosMap?.get("_");
+			if (viewPos) {
+				viewPos.data = {
+					...viewPos.data,
+					chunkX: Math.floor(lastSent.x) >> 4,
+					chunkZ: Math.floor(lastSent.z) >> 4
+				};
+			}
+		}
+
+		const packets = this.getReplayPackets();
+		Proxy.logger.log(`Replaying ${ packets.length } cached packets...`);
+
+		// Hold back the position packet — it must come AFTER chunk data so the
+		// client doesn't spawn in unloaded terrain, fall through the void, and rubberband.
+		let positionPkt: CachedPacket | null = null;
+
+		for (const pkt of packets) {
+			if (pkt.name === "position") {
+				positionPkt = pkt;
+				continue;
+			}
+			try {
+				client.write(pkt.name, pkt.data);
+			} catch (err) {
+				Proxy.logger.warn(`Failed to replay ${ pkt.name }:`, err);
+			}
+		}
+
+		// Send position LAST so chunks are loaded before the client teleports
+		if (positionPkt) {
+			try {
+				client.write(positionPkt.name, positionPkt.data);
+			} catch (err) {
+				Proxy.logger.warn("Failed to replay position:", err);
+			}
+		}
+
+		// The replayed position packet has a stale teleportId — the client will
+		// send teleport_confirm for it, which must NOT reach 2b2t (already confirmed).
+		let replayTeleportId: number | null = (positionPkt?.data as { teleportId?: number })?.teleportId ?? null;
+
+		// Bridge: server → player (raw parsed buffer — strips 2b2t extras, no re-serialization)
+		const onServerPacket = (_data: unknown, meta: PacketMeta, buffer: Buffer) => {
+			if (meta.name === "keep_alive" || meta.name === "kick_disconnect") return;
+			try {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- writeRaw bypasses serialization
+				(client as any).writeRaw(buffer);
+			} catch { /* client may have disconnected */ }
+		};
+
+		// Bridge: player → server (raw buffers — player sends standard packets)
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- need to inspect teleport_confirm data
+		const onClientPacket = (data: any, meta: PacketMeta, _buffer: Buffer, fullBuffer: Buffer) => {
+			if (meta.name === "keep_alive") return;
+
+			// Filter the teleport_confirm for our replayed position packet
+			if (meta.name === "teleport_confirm" && replayTeleportId !== null && data?.teleportId === replayTeleportId) {
+				replayTeleportId = null;
+				return;
+			}
+
+			try {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- writeRaw bypasses serialization
+				(this.bot._client as any).writeRaw(fullBuffer);
+			} catch { /* server may have disconnected */ }
+		};
+
+		this.bot._client.on("packet", onServerPacket);
+		client.on("packet", onClientPacket);
+
+		// Cleanup on disconnect
+		const cleanup = () => {
+			this.bot._client.off("packet", onServerPacket);
+			client.off("packet", onClientPacket);
+			this.client = null;
+			Proxy.logger.log(`${ client.username } lost connection: Disconnected`);
+		};
+
+		client.on("end", cleanup);
+		client.on("error", (err: Error) => {
+			Proxy.logger.warn(`Client error (non-fatal): ${ err?.message }`);
+		});
+	}
+
+	/** Whether a player is currently controlling the bot */
+	public get connected(): boolean {
+		return this.client !== null;
+	}
+
+	/** Shut down the proxy server and clean up resources */
+	public close() {
+		this.bot._client.off("packet", this.onPacket);
+		this.client?.end("Proxy server shutting down.");
+		this.server.close();
+	}
+}

@@ -1,0 +1,53 @@
+name: Build & Push Docker Image
+
+on:
+  push:
+    branches: [ "*" ]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build & Push (cached)
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout Types
+        uses: actions/checkout@v4
+        with:
+          repository: stasisco/hackware-server
+          path: hackware-server
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GH_TOKEN }}
+
+      - name: Build and push (with BuildKit cache)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          build-contexts: |
+            hackware-types=hackware-server/packages/types
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          tags: |
+            ghcr.io/stasisco/stasisproxy:${{ github.ref_name }}
+            ghcr.io/stasisco/stasisproxy:${{ github.sha }}
