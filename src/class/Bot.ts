@@ -41,7 +41,8 @@ export class Bot {
 			[process.env.MC_REFRESH_TOKEN ? "refreshToken" : ""]: process.env.MC_REFRESH_TOKEN,
 			port: parseInt(process.env.MC_HOST.split(":")[1] || "25565"),
 			username: process.env.MC_USERNAME,
-			version: process.env.MC_VERSION
+			version: process.env.MC_VERSION,
+			profilesFolder: process.env.MC_CACHE || "/data/mc-cache"
 		});
 
 		// Respawn on death
