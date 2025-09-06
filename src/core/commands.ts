@@ -17,42 +17,23 @@ export default function(bot: Bot) {
 	 */
 	bot.on("chat", async function(username, message) {
 		if (!message.startsWith(CHAT_COMMAND_PREFIX)) return;
+		const command = message.substring(CHAT_COMMAND_PREFIX.length).split(" ")[0]?.toLowerCase();
+		const args = message.split(" ").slice(1);
 		const sender = bot.players[username];
-		if (!sender || !sender.uuid) return;
-		exec(sender, "tp", []);
+		if (!sender || !sender.uuid || !command) return;
+		exec(sender, command, args);
 	});
 	
 	/**
 	 * Handle commands from private messages (whispers)
 	 */
 	bot.on("whisper", async function(username, message) {
+		const command = message.split(" ")[0]?.toLowerCase();
+		const args = message.split(" ").slice(1);
 		const sender = bot.players[username];
-		if (!sender || !sender.uuid) return;
-		exec(sender, "tp", []);
+		if (!sender || !sender.uuid || !command) return;
+		exec(sender, command, args);
 	});
-
-	// /**
-	//  * Handle commands from public chat with a specific prefix
-	//  */
-	// bot.on("chat", async function(username, message) {
-	// 	if (!message.startsWith(CHAT_COMMAND_PREFIX)) return;
-	// 	const command = message.substring(CHAT_COMMAND_PREFIX.length).split(" ")[0]?.toLowerCase();
-	// 	const args = message.split(" ").slice(1);
-	// 	const sender = bot.players[username];
-	// 	if (!sender || !sender.uuid || !command) return;
-	// 	exec(sender, command, args);
-	// });
-	
-	// /**
-	//  * Handle commands from private messages (whispers)
-	//  */
-	// bot.on("whisper", async function(username, message) {
-	// 	const command = message.split(" ")[0]?.toLowerCase();
-	// 	const args = message.split(" ").slice(1);
-	// 	const sender = bot.players[username];
-	// 	if (!sender || !sender.uuid || !command) return;
-	// 	exec(sender, command, args);
-	// });
 
 	/**
 	 * Execute a command
