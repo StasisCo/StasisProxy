@@ -16,7 +16,7 @@ export default function(bot: Bot) {
 	 * Handle commands from public chat with a specific prefix
 	 */
 	bot.on("chat", async function(username, message) {
-		if (ENABLE_CHAT_COMMANDS === false) return;
+		if (!ENABLE_CHAT_COMMANDS) return;
 		if (!message.startsWith(CHAT_COMMAND_PREFIX)) return;
 		const command = message.substring(CHAT_COMMAND_PREFIX.length).split(" ")[0]?.toLowerCase();
 		const args = message.split(" ").slice(1);

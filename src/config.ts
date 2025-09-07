@@ -60,4 +60,4 @@ export const MAX_TRAPDOOR_DISTANCE = parseInt(process.env.MAX_TRAPDOOR_DISTANCE 
  * If this is set to false, the bot will only respond to private messages (whispers)
  * @default true
  */
-export const ENABLE_CHAT_COMMANDS = process.env.ENABLE_CHAT_COMMANDS === undefined ? true : !!process.env.ENABLE_CHAT_COMMANDS;
+export const ENABLE_CHAT_COMMANDS = process.env.ENABLE_CHAT_COMMANDS === undefined ? true : Boolean(process.env.ENABLE_CHAT_COMMANDS);
