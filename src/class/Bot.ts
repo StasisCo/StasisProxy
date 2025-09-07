@@ -142,6 +142,8 @@ export class Bot {
 
 		// Setup pathing movements
 		const movements = new Movements(bot);
+		movements.canDig = false;
+		movements.infiniteLiquidDropdownDistance = false;
 		bot.pathfinder.setMovements(movements);
 
 		return bot;

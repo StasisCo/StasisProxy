@@ -48,6 +48,14 @@ export const CHAT_COMMAND_PREFIX = process.env.CHAT_COMMAND_PREFIX || "!";
 export const MAX_STASIS_DISTANCE = parseInt(process.env.MAX_STASIS_DISTANCE || "100");
 
 /**
+ * The maximum distance to search for a trapdoor when a player requests one
+ * For example, if this is set to 5, the bot will only consider trapdoors within 5 blocks
+ * This must be less then the entity broadcast range on the server (default 128)
+ * @default 5
+ */
+export const MAX_TRAPDOOR_DISTANCE = parseInt(process.env.MAX_TRAPDOOR_DISTANCE || "5");
+
+/**
  * Weather or not to enable commands in the public chat
  * If this is set to false, the bot will only respond to private messages (whispers)
  * @default true

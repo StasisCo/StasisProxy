@@ -1,5 +1,6 @@
 import { goals } from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
+import { MAX_TRAPDOOR_DISTANCE } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 import { Bot } from "./Bot";
 import { Logger } from "./Logger";
@@ -53,7 +54,7 @@ export class StasisQueue {
 			const dist = Bot.instance.entity.position.distanceTo(this.goal.block.position);
 
 			// If were too far, keep walking
-			if (dist > 3) return;
+			if (dist > MAX_TRAPDOOR_DISTANCE) return;
 
 			// Gate to prevent double-activating
 			if (this.isAttemptingToClose) return;
@@ -82,7 +83,7 @@ export class StasisQueue {
 			if (!this.goal) return;
 
 			// Logger.log(`Processing stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
-			Bot.instance.pathfinder.setGoal(new goals.GoalNear(this.goal.block.position.x, this.goal.block.position.y, this.goal.block.position.z, 2));
+			Bot.instance.pathfinder.setGoal(new goals.GoalNear(this.goal.block.position.x, this.goal.block.position.y, this.goal.block.position.z, MAX_TRAPDOOR_DISTANCE - 1));
 			return;
 
 		}
