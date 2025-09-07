@@ -46,3 +46,10 @@ export const CHAT_COMMAND_PREFIX = process.env.CHAT_COMMAND_PREFIX || "!";
  * @default 100
  */
 export const MAX_STASIS_DISTANCE = parseInt(process.env.MAX_STASIS_DISTANCE || "100");
+
+/**
+ * Weather or not to enable commands in the public chat
+ * If this is set to false, the bot will only respond to private messages (whispers)
+ * @default true
+ */
+export const ENABLE_CHAT_COMMANDS = process.env.ENABLE_CHAT_COMMANDS === undefined ? true : !!process.env.ENABLE_CHAT_COMMANDS;

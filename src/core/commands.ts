@@ -3,7 +3,7 @@ import { type Bot, type Player } from "mineflayer";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
-import { CHAT_COMMAND_PREFIX } from "../config";
+import { CHAT_COMMAND_PREFIX, ENABLE_CHAT_COMMANDS } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 
 /**
@@ -16,6 +16,7 @@ export default function(bot: Bot) {
 	 * Handle commands from public chat with a specific prefix
 	 */
 	bot.on("chat", async function(username, message) {
+		if (ENABLE_CHAT_COMMANDS === false) return;
 		if (!message.startsWith(CHAT_COMMAND_PREFIX)) return;
 		const command = message.substring(CHAT_COMMAND_PREFIX.length).split(" ")[0]?.toLowerCase();
 		const args = message.split(" ").slice(1);
