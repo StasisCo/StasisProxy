@@ -79,16 +79,33 @@ export default async function(bot: BotType) {
 
 		// Check permissions
 		switch (command.permission) {
+			
 			case "operator": {
-				const isOp = await prisma.operator.count({ where: { uuid: player.uuid, server: Bot.server }}).then(c => c > 0);
+				const isOp = await prisma.operator.count({ where: {
+					bot: Bot.instance.player.uuid,
+					server: Bot.server,
+					uuid: player.uuid
+				}}).then(c => c > 0);
 				if (!isOp) return;
 				break;
 			}
+
 			case "whitelisted": {
-				const isWhitelisted = await prisma.whitelist.count({ where: { uuid: player.uuid, server: Bot.server }}).then(c => c > 0);
+				const isOp = await prisma.operator.count({ where: {
+					bot: Bot.instance.player.uuid,
+					server: Bot.server,
+					uuid: player.uuid
+				}}).then(c => c > 0);
+				if (isOp) break; // Operators are always allowed
+				const isWhitelisted = await prisma.whitelist.count({ where: {
+					bot: Bot.instance.player.uuid,
+					server: Bot.server,
+					uuid: player.uuid
+				}}).then(c => c > 0);
 				if (!isWhitelisted) return;
 				break;
 			}
+
 		}
 
 		// Execute the command

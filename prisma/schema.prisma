@@ -22,6 +22,7 @@ model Stasis {
 model Whitelist {
     id        String   @id @unique @default(cuid())
     createdAt DateTime @default(now())
+    bot       String
     server    String
     uuid      String
 }
@@ -29,6 +30,7 @@ model Whitelist {
 model Operator {
     id        String   @id @unique @default(cuid())
     createdAt DateTime @default(now())
+    bot       String
     server    String
     uuid      String
 }

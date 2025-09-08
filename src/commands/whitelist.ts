@@ -29,7 +29,11 @@ export default async function(player: Player, args: string[]) {
 				bot.chat(`/msg ${ player.username } Player ${ target } not found!`);
 				break;
 			}
-			await prisma.whitelist.create({ data: { uuid: targetPlayer.uuid, server: Bot.server }});
+			await prisma.whitelist.create({ data: {
+				uuid: targetPlayer.uuid,
+				bot: Bot.instance.player.uuid,
+				server: Bot.server
+			}});
 			bot.chat(`/msg ${ player.username } Player ${ target } has been added as an whitelist!`);
 			Logger.log(`Player ${ chalk.cyan(target) } has been added to the whitelist by ${ chalk.cyan(player.username) }`);
 			break;
@@ -47,7 +51,11 @@ export default async function(player: Player, args: string[]) {
 				bot.chat(`/msg ${ player.username } Player ${ target } not found!`);
 				break;
 			}
-			await prisma.whitelist.deleteMany({ where: { uuid: targetPlayer.uuid, server: Bot.server }});
+			await prisma.whitelist.deleteMany({ where: {
+				uuid: targetPlayer.uuid,
+				bot: Bot.instance.player.uuid,
+				server: Bot.server
+			}});
 			bot.chat(`/msg ${ player.username } Player ${ target } has been removed as an whitelist!`);
 			Logger.log(`Player ${ chalk.cyan(target) } has been removed from the whitelist by ${ chalk.cyan(player.username) }`);
 			break;
