@@ -125,7 +125,7 @@ export class Stasis {
 			else break;
 		}
 
-		// Detect the bubble column
+		// Walk down to find the soul sand
 		let columnTop;
 		let columnBottom;
 		for (let y = startPos; y >= -64; y--) {
@@ -141,7 +141,7 @@ export class Stasis {
 		if (!columnTop || !columnBottom) throw new Error("No stasis found at the given position");
 
 		// Make sure theres a trapdoor above the top
-		const block = Bot.instance.blockAt(new Vec3(columnTop.position.x, columnTop.position.y + 1, columnTop.position.z));
+		const block = Bot.instance.blockAt(new Vec3(columnTop.position.x, startPos + 1, columnTop.position.z));
 
 		// console.log(block, block?.getProperties());
 
