@@ -142,6 +142,9 @@ export class Stasis {
 
 		// Make sure theres a trapdoor above the top
 		const block = Bot.instance.blockAt(new Vec3(columnTop.position.x, columnTop.position.y + 1, columnTop.position.z));
+
+		// console.log(block, block?.getProperties());
+
 		if (!block || !block.name.includes("trapdoor") || block.name === "iron_trapdoor") throw new Error("No valid trapdoor found above the stasis");
 
 		const ownerEntity = Object.values(Bot.instance.players).find(e => e.uuid === owner || e.username === owner);

@@ -53,6 +53,10 @@ export default function(bot: Bot) {
 		
 		switch (cmd.toLowerCase()) {
 
+			case "say":
+				bot.chat(args.join(" "));
+				break;
+
 			case "tp":
 			case "teleport": {
 
