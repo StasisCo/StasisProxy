@@ -18,3 +18,17 @@ model Stasis {
     y         Int
     z         Int
 }
+
+model Whitelist {
+    id        String   @id @unique @default(cuid())
+    createdAt DateTime @default(now())
+    server    String
+    uuid      String
+}
+
+model Operator {
+    id        String   @id @unique @default(cuid())
+    createdAt DateTime @default(now())
+    server    String
+    uuid      String
+}

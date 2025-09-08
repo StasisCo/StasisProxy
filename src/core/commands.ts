@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { type Bot, type Player } from "mineflayer";
+import { type Bot as BotType, type Player } from "mineflayer";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
@@ -10,7 +10,7 @@ import { formatPlayer, printObject } from "../utils/format";
  * Module to handle chat commands for the bot
  * @param bot The bot instance
  */
-export default function(bot: Bot) {
+export default function(bot: BotType) {
 
 	/**
 	 * Handle commands from public chat with a specific prefix
@@ -53,10 +53,9 @@ export default function(bot: Bot) {
 		
 		switch (cmd.toLowerCase()) {
 
-			case "say":
-				bot.chat(args.join(" "));
-				break;
-
+			/**
+			 * Queue yourself for stasis teleport
+			 */
 			case "tp":
 			case "teleport": {
 
@@ -98,6 +97,132 @@ export default function(bot: Bot) {
 
 				break;
 			}
+
+			/**
+			 * Allow the bot to send a message in chat
+			 * @usage <...message|command>
+			 */
+			case "say":
+			case "sudo":
+				bot.chat(args.join(" "));
+				break;
+
+			// /**
+			//  * Add a player as an operator (Allows them to control the bot via chat commands)
+			//  * @usage <username>
+			//  * @permission op
+			//  */
+			// case "op": {
+				
+			// 	const isOp = prisma.operator.count({ where: { uuid: player.uuid, server: Bot.server }}).then(c => c > 0);
+			// 	if (!isOp) {
+			// 		bot.chat(`/msg ${ player.username } You are not allowed to use that command!`);
+			// 		Logger.warn("Ignoring unauthorized op command:");
+			// 		printObject({ from: formatPlayer(player) });
+			// 		return;
+			// 	}
+
+			// 	const target = args[0];
+			// 	if (!target) {
+			// 		bot.chat(`/msg ${ player.username } Usage: ${ CHAT_COMMAND_PREFIX }op <username>`);
+			// 		break;
+			// 	}
+			// 	const targetPlayer = Object.values(bot.players).find(e => e.username === target);
+			// 	if (!targetPlayer || !targetPlayer.uuid) {
+			// 		bot.chat(`/msg ${ player.username } Player ${ target } not found!`);
+			// 		break;
+			// 	}
+			// 	await prisma.operator.create({ data: { uuid: targetPlayer.uuid, server: Bot.server }});
+			// 	bot.chat(`/msg ${ player.username } Player ${ target } has been added as an operator!`);
+			// 	Logger.log(`Player ${ chalk.cyan(target) } has been added as an operator by ${ chalk.cyan(player.username) }`);
+			// 	break;
+			// }
+
+			// case "deop": {
+			// 	const isOp = prisma.operator.count({ where: { uuid: player.uuid, server: Bot.server }}).then(c => c > 0);
+			// 	if (!isOp) {
+			// 		bot.chat(`/msg ${ player.username } You are not allowed to use that command!`);
+			// 		Logger.warn("Ignoring unauthorized op command:");
+			// 		printObject({ from: formatPlayer(player) });
+			// 		return;
+			// 	}
+
+			// 	const target = args[0];
+			// 	if (!target) {
+			// 		bot.chat(`/msg ${ player.username } Usage: ${ CHAT_COMMAND_PREFIX }deop <username>`);
+			// 		break;
+			// 	}
+			// 	const targetPlayer = Object.values(bot.players).find(e => e.username === target);
+			// 	if (!targetPlayer || !targetPlayer.uuid) {
+			// 		bot.chat(`/msg ${ player.username } Player ${ target } not found!`);
+			// 		break;
+			// 	}
+			// 	await prisma.operator.deleteMany({ where: { uuid: targetPlayer.uuid, server: Bot.server }});
+			// 	bot.chat(`/msg ${ player.username } Player ${ target } has been removed as an operator!`);
+			// 	Logger.log(`Player ${ chalk.cyan(target) } has been removed as an operator by ${ chalk.cyan(player.username) }`);
+			// 	break;
+			// }
+
+			// case "whitelist": {
+				
+			// 	const subCommand = args.shift()?.toLowerCase();
+			// 	switch (subCommand) {
+
+			// 		case "add": {
+				
+			// 			const isOp = prisma.whitelist.count({ where: { uuid: player.uuid, server: Bot.server }}).then(c => c > 0);
+			// 			if (!isOp) {
+			// 				bot.chat(`/msg ${ player.username } You are not allowed to use that command!`);
+			// 				Logger.warn("Ignoring unauthorized op command:");
+			// 				printObject({ from: formatPlayer(player) });
+			// 				return;
+			// 			}
+
+			// 			const target = args[0];
+			// 			if (!target) {
+			// 				bot.chat(`/msg ${ player.username } Usage: ${ CHAT_COMMAND_PREFIX }op <username>`);
+			// 				break;
+			// 			}
+			// 			const targetPlayer = Object.values(bot.players).find(e => e.username === target);
+			// 			if (!targetPlayer || !targetPlayer.uuid) {
+			// 				bot.chat(`/msg ${ player.username } Player ${ target } not found!`);
+			// 				break;
+			// 			}
+			// 			await prisma.whitelist.create({ data: { uuid: targetPlayer.uuid, server: Bot.server }});
+			// 			bot.chat(`/msg ${ player.username } Player ${ target } has been added as an whitelist!`);
+			// 			Logger.log(`Player ${ chalk.cyan(target) } has been added to the whitelist by ${ chalk.cyan(player.username) }`);
+			// 			break;
+			// 		}
+
+			// 		case "rm": {
+			// 			const isOp = prisma.whitelist.count({ where: { uuid: player.uuid, server: Bot.server }}).then(c => c > 0);
+			// 			if (!isOp) {
+			// 				bot.chat(`/msg ${ player.username } You are not allowed to use that command!`);
+			// 				Logger.warn("Ignoring unauthorized op command:");
+			// 				printObject({ from: formatPlayer(player) });
+			// 				return;
+			// 			}
+
+			// 			const target = args[0];
+			// 			if (!target) {
+			// 				bot.chat(`/msg ${ player.username } Usage: ${ CHAT_COMMAND_PREFIX }deop <username>`);
+			// 				break;
+			// 			}
+			// 			const targetPlayer = Object.values(bot.players).find(e => e.username === target);
+			// 			if (!targetPlayer || !targetPlayer.uuid) {
+			// 				bot.chat(`/msg ${ player.username } Player ${ target } not found!`);
+			// 				break;
+			// 			}
+			// 			await prisma.whitelist.deleteMany({ where: { uuid: targetPlayer.uuid, server: Bot.server }});
+			// 			bot.chat(`/msg ${ player.username } Player ${ target } has been removed as an whitelist!`);
+			// 			Logger.log(`Player ${ chalk.cyan(target) } has been removed from the whitelist by ${ chalk.cyan(player.username) }`);
+			// 			break;
+			// 		}
+
+			// 	}
+
+			// 	break;
+			// }
 
 		}
 
