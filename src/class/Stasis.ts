@@ -116,42 +116,32 @@ export class Stasis {
 	 */
 	private constructor(position: Vec3, owner: string, id?: string) {
 
-		// Walk up to find the top of the bubble column
-		let startPos = position.y;
-		while (true) {
-			const block = Bot.instance.blockAt(new Vec3(position.x, startPos, position.z));
-			if (!block) break;
-			if (block.name === "bubble_column") startPos++;
-			else break;
-		}
-
-		// Walk down to find the soul sand
-		let columnTop;
-		let columnBottom;
-		for (let y = startPos; y >= -64; y--) {
-			const block = Bot.instance.blockAt(new Vec3(position.x, y, position.z));
-			if (!block) continue;
-			if (block.name === "bubble_column" && !columnTop) columnTop = block;
-			if (block.name === "soul_sand") {
-				columnBottom = block;
-				break;
-			}
-		}
-
-		if (!columnTop || !columnBottom) throw new Error("No stasis found at the given position");
-
-		// Make sure theres a trapdoor above the top
-		const block = Bot.instance.blockAt(new Vec3(columnTop.position.x, startPos + 1, columnTop.position.z));
-
-		// console.log(block, block?.getProperties());
-
-		if (!block || !block.name.includes("trapdoor") || block.name === "iron_trapdoor") throw new Error("No valid trapdoor found above the stasis");
-
+		// Get the owner player
 		const ownerEntity = Object.values(Bot.instance.players).find(e => e.uuid === owner || e.username === owner);
 		if (!ownerEntity) throw new Error("Failed to find owner entity for stasis");
 
-		this.pos1 = columnTop.position;
-		this.pos2 = columnBottom.position;
+		console.log(position);
+
+		// Walk down from the starting position until we find the soul sand at the bottom
+		let soulSandY = position.y;
+		while (soulSandY >= -64) {
+			const block = Bot.instance.blockAt(new Vec3(position.x, soulSandY, position.z));
+			if (!block) throw new Error("Failed to find stasis blocks");
+			if (block.name === "soul_sand") break;
+			soulSandY--;
+		}
+
+		// Walk up from the soul sand until we find the top bubble column block
+		let trapdoorY = soulSandY;
+		while (trapdoorY <= 320) {
+			const block = Bot.instance.blockAt(new Vec3(position.x, trapdoorY, position.z));
+			if (!block) throw new Error("Failed to find stasis blocks");
+			if (block.name.includes("trapdoor") && block.name !== "iron_trapdoor") break;
+			trapdoorY++;
+		}
+		
+		this.pos1 = new Vec3(position.x, trapdoorY, position.z);
+		this.pos2 = new Vec3(position.x, soulSandY, position.z);
 		this.dimension = Bot.instance.game.dimension;
 		this.owner = ownerEntity;
 		this.id = id;
@@ -163,7 +153,7 @@ export class Stasis {
 	 * @returns {Block} The trapdoor block
 	 */
 	public get block(): Block {
-		const block = Bot.instance.blockAt(new Vec3(this.pos1.x, this.pos1.y + 1, this.pos1.z));
+		const block = Bot.instance.blockAt(new Vec3(this.pos1.x, this.pos1.y, this.pos1.z));
 		if (!block) throw new Error("Failed to get trapdoor block for stasis");
 		if (!block.name.includes("trapdoor") || block.name === "iron_trapdoor") throw new Error("No valid trapdoor found above the stasis");
 		return block;

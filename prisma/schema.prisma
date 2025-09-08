@@ -1,36 +1,36 @@
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Stasis {
-    id        String   @id @unique @default(cuid())
-    createdAt DateTime @default(now())
-    dimension String
-    observer  String
-    owner     String
-    server    String
-    x         Int
-    y         Int
-    z         Int
+  id        String   @id @unique @default(cuid())
+  createdAt DateTime @default(now())
+  dimension String
+  observer  String
+  owner     String
+  server    String
+  x         Int
+  y         Int
+  z         Int
 }
 
 model Whitelist {
-    id        String   @id @unique @default(cuid())
-    createdAt DateTime @default(now())
-    bot       String
-    server    String
-    uuid      String
+  id        String   @id @unique @default(cuid())
+  createdAt DateTime @default(now())
+  bot       String
+  server    String
+  uuid      String
 }
 
 model Operator {
-    id        String   @id @unique @default(cuid())
-    createdAt DateTime @default(now())
-    bot       String
-    server    String
-    uuid      String
+  id        String   @id @unique @default(cuid())
+  createdAt DateTime @default(now())
+  bot       String
+  server    String
+  uuid      String
 }
