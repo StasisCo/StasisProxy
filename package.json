@@ -35,6 +35,7 @@
     "prismarine-chunk": "^1.39.0",
     "prismarine-physics": "^1.10.0",
     "prismarine-registry": "^1.11.0",
-    "prismarine-viewer": "^1.33.0"
+    "prismarine-viewer": "^1.33.0",
+    "zod": "^4.1.5"
   }
 }
