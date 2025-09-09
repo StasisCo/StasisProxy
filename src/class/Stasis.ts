@@ -31,7 +31,7 @@ export class Stasis {
 	public readonly owner: Player;
 
 	/**
-	 * The first corner of the stasis (the top bubble column block)
+	 * The first corner of the stasis (the top trapdoor block)
 	 */
 	private readonly pos1: Vec3;
 
@@ -120,8 +120,6 @@ export class Stasis {
 		const ownerEntity = Object.values(Bot.instance.players).find(e => e.uuid === owner || e.username === owner);
 		if (!ownerEntity) throw new Error("Failed to find owner entity for stasis");
 
-		console.log(position);
-
 		// Walk down from the starting position until we find the soul sand at the bottom
 		let soulSandY = position.y;
 		while (soulSandY >= -64) {
@@ -139,7 +137,7 @@ export class Stasis {
 			if (block.name.includes("trapdoor") && block.name !== "iron_trapdoor") break;
 			trapdoorY++;
 		}
-		
+
 		this.pos1 = new Vec3(position.x, trapdoorY, position.z);
 		this.pos2 = new Vec3(position.x, soulSandY, position.z);
 		this.dimension = Bot.instance.game.dimension;
