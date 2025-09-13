@@ -3,8 +3,7 @@ name: Continuous Deployment
 on:
   workflow_dispatch:
   push:
-    branches:
-      - master
+    branches: ["*"]
 
 jobs:
   build:
