@@ -5,7 +5,7 @@ import z from "zod";
 import { prisma } from "..";
 import { Bot } from "../class/Bot";
 import { Logger } from "../class/Logger";
-import { CHAT_COMMAND_PREFIX, DISABLE_CHAT_COMMANDS } from "../config";
+import { COMMAND_CHAT_DISABLED, COMMAND_CHAT_PREFIX } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 
 const zModule = z.object({
@@ -39,9 +39,9 @@ export default async function(bot: BotType) {
 	 * Handle commands from public chat with a specific prefix
 	 */
 	bot.on("chat", async function(username, message) {
-		if (DISABLE_CHAT_COMMANDS) return;
-		if (!message.startsWith(CHAT_COMMAND_PREFIX)) return;
-		const command = message.substring(CHAT_COMMAND_PREFIX.length).split(" ")[0]?.toLowerCase();
+		if (COMMAND_CHAT_DISABLED) return;
+		if (!message.startsWith(COMMAND_CHAT_PREFIX)) return;
+		const command = message.substring(COMMAND_CHAT_PREFIX.length).split(" ")[0]?.toLowerCase();
 		const args = message.split(" ").slice(1);
 		const sender = bot.players[username];
 		if (!sender || !sender.uuid || !command) return;

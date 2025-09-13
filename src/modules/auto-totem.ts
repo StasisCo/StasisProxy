@@ -2,7 +2,7 @@ import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import { type Item } from "prismarine-item";
 import { Logger } from "../class/Logger";
-import { TOTEM_BUFFER } from "../config";
+import { AUTOTOTEM_MIN_TOTEM } from "../config";
 
 /**
  * Automatically equip a totem in the off-hand and handle totem pops.
@@ -43,7 +43,7 @@ export default function(bot: Bot) {
 
 		// Count the totems in the inventory
 		const totems = bot.inventory.slots.filter(item => item && item.name === "totem_of_undying");
-		if (totems.length <= TOTEM_BUFFER) {
+		if (totems.length <= AUTOTOTEM_MIN_TOTEM) {
 			Logger.error(`${ chalk.yellow(totems.length) } totems remaining, disconnecting...`);
 			bot.quit();
 			process.exit(0);

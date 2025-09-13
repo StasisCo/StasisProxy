@@ -1,7 +1,7 @@
 import mcDataLoader from "minecraft-data";
 import { type Bot } from "mineflayer";
 import { type Item } from "prismarine-item";
-import { FOOD_BUFFER } from "../config";
+import { AUTOEAT_MIN_FOOD } from "../config";
 
 /**
  * Automatically eat food when hunger is below a certain threshold.
@@ -47,7 +47,7 @@ export default function(bot: Bot) {
 	bot.on("physicsTick", async function() {
 		if (isEating) return;
 		if (bot.food === undefined) return; // health plugin not ready yet
-		if (bot.food >= FOOD_BUFFER) return; // already full enough
+		if (bot.food >= AUTOEAT_MIN_FOOD) return; // already full enough
 
 		const foods = getFoodItems();
 		if (!foods.length) return;

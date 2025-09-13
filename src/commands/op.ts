@@ -3,7 +3,7 @@ import type { Player } from "mineflayer";
 import { prisma } from "..";
 import { Bot } from "../class/Bot";
 import { Logger } from "../class/Logger";
-import { CHAT_COMMAND_PREFIX } from "../config";
+import { COMMAND_CHAT_PREFIX } from "../config";
 
 export const aliases = [ "op" ];
 
@@ -21,7 +21,7 @@ export default async function(player: Player, args: string[]) {
 
 			const target = args[0];
 			if (!target) {
-				bot.chat(`/msg ${ player.username } Usage: ${ CHAT_COMMAND_PREFIX }op add <username>`);
+				bot.chat(`/msg ${ player.username } Usage: ${ COMMAND_CHAT_PREFIX }op add <username>`);
 				break;
 			}
 			const targetPlayer = Object.values(bot.players).find(e => e.username === target);
@@ -43,7 +43,7 @@ export default async function(player: Player, args: string[]) {
 
 			const target = args[0];
 			if (!target) {
-				bot.chat(`/msg ${ player.username } Usage: ${ CHAT_COMMAND_PREFIX }op rm <username>`);
+				bot.chat(`/msg ${ player.username } Usage: ${ COMMAND_CHAT_PREFIX }op rm <username>`);
 				break;
 			}
 			const targetPlayer = Object.values(bot.players).find(e => e.username === target);

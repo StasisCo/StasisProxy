@@ -3,9 +3,10 @@ import { Bot } from "../class/Bot";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
+import { COMMAND_CHAT_ALIAS } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 
-export const aliases = [ "tp", "teleport" ];
+export const aliases = COMMAND_CHAT_ALIAS.split(",").map(a => a.trim().toLowerCase());
 
 /**
  * Queue yourself for stasis teleport

@@ -5,7 +5,7 @@ import { prisma } from "..";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
-import { MAX_PLAYER_PEARLS } from "../config";
+import { STASIS_DISTANCE_MAX, STASIS_USER_MAX } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 
 export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
@@ -51,6 +51,10 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 	// If we still dont have a stasis, ignore this pearl
 	if (!stasis) return;
 
+	// Make sure the stasis is within range of the bots home position
+	const homePos = StasisQueue.getHomePosition();
+	if (STASIS_DISTANCE_MAX >= 0 && stasis.block.position.distanceTo(homePos) > STASIS_DISTANCE_MAX) return;
+
 	// Make sure theres not already a different pearl in this chamber
 	const occupants = stasis.entities.filter(e => e.uuid !== entity.uuid);
 	if (occupants.length > 0) {
@@ -93,8 +97,8 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 	const pearls = await Stasis.fetch(player);
 
 	// If they have too many, remove this pearl and ignore it
-	if (pearls.length >= MAX_PLAYER_PEARLS && MAX_PLAYER_PEARLS >= 0) {
-		bot.chat(`/msg ${ player.username } You already have ${ pearls.length } / ${ MAX_PLAYER_PEARLS } pearls registered. Extra pearls will be removed!`);
+	if (pearls.length >= STASIS_USER_MAX && STASIS_USER_MAX >= 0) {
+		bot.chat(`/msg ${ player.username } You already have ${ pearls.length } / ${ STASIS_USER_MAX } pearls registered. Extra pearls will be removed!`);
 
 		Logger.warn("Player attempted to add a stasis, but they have too many registered:");
 		printObject({
@@ -102,7 +106,7 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 			dimension: stasis.dimension,
 			player: formatPlayer(player),
 			position: stasis.block.position,
-			"registered pearls": `${ chalk.yellow(pearls.length) } ${ chalk.gray("/") } ${ chalk.yellow(MAX_PLAYER_PEARLS) }`
+			"registered pearls": `${ chalk.yellow(pearls.length) } ${ chalk.gray("/") } ${ chalk.yellow(STASIS_USER_MAX) }`
 		});
 
 		StasisQueue.add(stasis);
@@ -121,9 +125,9 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 		dimension: stasis.dimension,
 		player: formatPlayer(player),
 		position: stasis.block.position,
-		"registered pearls": `${ chalk.yellow(pearls.length) } ${ chalk.gray("/") } ${ chalk.yellow(MAX_PLAYER_PEARLS) }`
+		"registered pearls": `${ chalk.yellow(pearls.length) } ${ chalk.gray("/") } ${ chalk.yellow(STASIS_USER_MAX) }`
 	});
 
-	bot.chat(`/msg ${ player.username } Pearl registered! You have ${ pearls.length } out of ${ MAX_PLAYER_PEARLS } pearls registered.`);
+	bot.chat(`/msg ${ player.username } Pearl registered! You have ${ pearls.length } out of ${ STASIS_USER_MAX } pearls registered.`);
 
 });

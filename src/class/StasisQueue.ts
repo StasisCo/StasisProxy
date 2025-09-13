@@ -1,6 +1,6 @@
 import { goals } from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
-import { MAX_TRAPDOOR_DISTANCE } from "../config";
+import { STASIS_TRAPDOOR_RANGE } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 import { Bot } from "./Bot";
 import { Logger } from "./Logger";
@@ -39,6 +39,16 @@ export class StasisQueue {
 	}
 
 	/**
+	 * Get the home position the bot will return to when it has no more chambers to process.
+	 * This will be null if the bot is already at home or has never moved from its spawn point.
+	 * @returns {Vec3}
+	 */
+	public static getHomePosition(): Vec3 {
+		if (this.homePos) return this.homePos;
+		return Bot.instance.entity.position.clone().floored();
+	}
+
+	/**
 	 * Process the pearl queue. Call this every tick.
 	 */
 	public static async tick() {
@@ -63,7 +73,7 @@ export class StasisQueue {
 			const dist = Bot.instance.entity.position.distanceTo(this.goal.block.position);
 
 			// If were too far, keep walking
-			if (dist > MAX_TRAPDOOR_DISTANCE) return;
+			if (dist > STASIS_TRAPDOOR_RANGE) return;
 
 			// Gate to prevent double-activating
 			if (this.isAttemptingToClose) return;
@@ -92,7 +102,7 @@ export class StasisQueue {
 			if (!this.goal) return;
 
 			// Logger.log(`Processing stasis belonging to ${ chalk.cyan(this.goal.owner.username) } at ${ chalk.yellow(this.goal.block.position) }`);
-			Bot.instance.pathfinder.setGoal(new goals.GoalNear(this.goal.block.position.x, this.goal.block.position.y, this.goal.block.position.z, MAX_TRAPDOOR_DISTANCE - 1));
+			Bot.instance.pathfinder.setGoal(new goals.GoalNear(this.goal.block.position.x, this.goal.block.position.y, this.goal.block.position.z, STASIS_TRAPDOOR_RANGE - 1));
 			return;
 
 		}

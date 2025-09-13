@@ -2,7 +2,7 @@ import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import type { Item } from "prismarine-item";
 import { Logger } from "../class/Logger";
-import { HEALTH_BUFFER, TOTEM_BUFFER } from "../config";
+import { AUTODISCONNECT_MIN_HEALTH, AUTOTOTEM_MIN_TOTEM } from "../config";
 
 /**
  * Automatically disconnect the bot if health and totems are critically low.
@@ -24,7 +24,7 @@ export default function(bot: Bot) {
 		const totems = getTotems().length;
 
 		// If we have less totems then the totem gate AND health is low, eat a totem
-		if (totems <= TOTEM_BUFFER && health <= HEALTH_BUFFER) {
+		if (totems <= AUTOTOTEM_MIN_TOTEM && health <= AUTODISCONNECT_MIN_HEALTH) {
 			Logger.error(`Disconnecting... Only ${ chalk.yellow(health) } health and ${ chalk.yellow(totems) } totems`);
 			bot.quit();
 			process.exit(0);

@@ -1,18 +1,10 @@
-/**
- * The amount of totems to make sure we always have on hand
- * For example, if this is set to 3, the bot will disconnect if it has 3 or less totems and is low on health
- * Set this to -1 to disable auto disconnecting based on totem count
- * @default 3
- */
-export const TOTEM_BUFFER = parseInt(process.env.TOTEM_BUFFER || "3");
-
 /** 
  * The health threshold to trigger auto disconnect if we have low totems
  * For example, if this is set to 8, the bot will disconnect if it has 3 or less totems and 8 or less health
  * Set this to -1 to disable auto disconnecting based on health
  * @default 8
  */
-export const HEALTH_BUFFER = parseInt(process.env.HEALTH_BUFFER || "8");
+export const AUTODISCONNECT_MIN_HEALTH = parseInt(process.env.AUTODISCONNECT_MIN_HEALTH || "8");
 
 /**
  * The food threshold to trigger auto eating
@@ -20,15 +12,30 @@ export const HEALTH_BUFFER = parseInt(process.env.HEALTH_BUFFER || "8");
  * Set this to -1 to disable auto eating
  * @default 20
  */
-export const FOOD_BUFFER = parseInt(process.env.FOOD_BUFFER || "20");
+export const AUTOEAT_MIN_FOOD = parseInt(process.env.AUTOEAT_MIN_FOOD || "20");
 
 /**
- * The maximum amount of pearls to throw at a player
- * For example, if this is set to 2, the bot will only throw 2 pearls at a player
- * Set this to -1 to disable pearl limiting
- * @default 2
+ * The amount of totems to make sure we always have on hand
+ * For example, if this is set to 3, the bot will disconnect if it has 3 or less totems and is low on health
+ * Set this to -1 to disable auto disconnecting based on totem count
+ * @default 3
  */
-export const MAX_PLAYER_PEARLS = parseInt(process.env.MAX_PLAYER_PEARLS || "2");
+export const AUTOTOTEM_MIN_TOTEM = parseInt(process.env.AUTOTOTEM_MIN_TOTEM || "3");
+
+/**
+ * The aliases to use for the stasis command in chat
+ * For example, if this is set to "tp,teleport", the bot will respond to "!tp" and "!teleport"
+ * Separate multiple aliases with a comma
+ * @default "tp,teleport"
+ */
+export const COMMAND_CHAT_ALIAS = process.env.COMMAND_CHAT_ALIAS || "tp,teleport,tele";
+
+/**
+ * Weather or not to enable commands in the public chat
+ * If this is set to false, the bot will only respond to private messages (whispers)
+ * @default true
+ */
+export const COMMAND_CHAT_DISABLED = Boolean(process.env.COMMAND_CHAT_DISABLED);
 
 /**
  * The prefix to use for chat commands
@@ -36,7 +43,15 @@ export const MAX_PLAYER_PEARLS = parseInt(process.env.MAX_PLAYER_PEARLS || "2");
  * Set this to an empty string to disable chat commands
  * @default "!"
  */
-export const CHAT_COMMAND_PREFIX = process.env.CHAT_COMMAND_PREFIX || "!";
+export const COMMAND_CHAT_PREFIX = process.env.COMMAND_CHAT_PREFIX || "!";
+
+/**
+ * The maximum amount of pearls to throw at a player
+ * For example, if this is set to 2, the bot will only throw 2 pearls at a player
+ * Set this to -1 to disable pearl limiting
+ * @default 2
+ */
+export const STASIS_USER_MAX = parseInt(process.env.STASIS_USER_MAX || "2");
 
 /**
  * The maximum distance to search for a stasis chamber when a player requests one
@@ -45,7 +60,7 @@ export const CHAT_COMMAND_PREFIX = process.env.CHAT_COMMAND_PREFIX || "!";
  * Set this to -1 to disable distance limiting
  * @default 100
  */
-export const MAX_STASIS_DISTANCE = parseInt(process.env.MAX_STASIS_DISTANCE || "100");
+export const STASIS_DISTANCE_MAX = parseInt(process.env.STASIS_DISTANCE_MAX || "100");
 
 /**
  * The maximum distance to search for a trapdoor when a player requests one
@@ -53,11 +68,5 @@ export const MAX_STASIS_DISTANCE = parseInt(process.env.MAX_STASIS_DISTANCE || "
  * This must be less then the entity broadcast range on the server (default 128)
  * @default 5
  */
-export const MAX_TRAPDOOR_DISTANCE = parseInt(process.env.MAX_TRAPDOOR_DISTANCE || "5");
+export const STASIS_TRAPDOOR_RANGE = parseInt(process.env.STASIS_TRAPDOOR_RANGE || "5");
 
-/**
- * Weather or not to enable commands in the public chat
- * If this is set to false, the bot will only respond to private messages (whispers)
- * @default true
- */
-export const DISABLE_CHAT_COMMANDS = Boolean(process.env.DISABLE_CHAT_COMMANDS);
