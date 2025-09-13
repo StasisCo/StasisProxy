@@ -32,3 +32,8 @@ jobs:
           tags: |
             ghcr.io/tehpicix/stasispearl:latest
             ghcr.io/tehpicix/stasispearl:${{ github.sha }}
+
+      - name: Deploy to server
+        run: |
+          curl --request POST --url ${{ secrets.WEBHOOK_HOST }}/webhooks/d93586ec-6ebc-4f8e-9758-340bd77b4998
+          curl --request POST --url ${{ secrets.WEBHOOK_HOST }}/webhooks/17780d9c-e36e-46a0-948a-0b5db24bcaf0
