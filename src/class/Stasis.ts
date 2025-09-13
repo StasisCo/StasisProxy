@@ -93,18 +93,22 @@ export class Stasis {
 	 * @returns {Stasis | null}
 	 */
 	static from(arg1: StasisRecord | Vec3, arg2?: string): Stasis | null {
-
-		// record overload
-		if (typeof arg2 !== "string") {
-			const rec = arg1 as StasisRecord;
-			return new Stasis(new Vec3(rec.x, rec.y, rec.z), rec.owner, rec.id);
-		}
-
-		// (position, owner) overload
+		
 		try {
+			
+			// record overload
+			if (typeof arg2 !== "string") {
+				const rec = arg1 as StasisRecord;
+				return new Stasis(new Vec3(rec.x, rec.y, rec.z), rec.owner, rec.id);
+			}
+
+			// (position, owner) overload
 			return new Stasis(arg1 as Vec3, arg2);
+
 		} catch {
+
 			return null;
+			
 		}
 	}
 
@@ -153,7 +157,6 @@ export class Stasis {
 	public get block(): Block {
 		const block = Bot.instance.blockAt(this.pos1);
 		if (!block) throw new Error("Failed to get trapdoor block for stasis");
-		if (!block.name.includes("trapdoor") || block.name === "iron_trapdoor") throw new Error("No valid trapdoor found above the stasis");
 		return block;
 	}
 
@@ -164,10 +167,10 @@ export class Stasis {
 	public get entities(): Entity[] {
 		return Object.values(Bot.instance.entities)
 			.filter(e => e.type === "projectile" && e.name === "ender_pearl")
-			.filter(e => Bot.instance.blockAt(e.position)?.position.x === this.pos1.x)
-			.filter(e => Bot.instance.blockAt(e.position)?.position.z === this.pos1.z)
-			.filter(e => Bot.instance.blockAt(e.position)?.position.y || 0 <= Math.min(this.pos1.y, this.pos2.y))
-			.filter(e => Bot.instance.blockAt(e.position)?.position.y || 0 >= Math.max(this.pos1.y, this.pos2.y));
+			.filter(e => e.position.floored().x === this.pos1.x)
+			.filter(e => e.position.floored().z === this.pos1.z)
+			.filter(e => e.position.floored().y || 0 <= Math.min(this.pos1.y, this.pos2.y))
+			.filter(e => e.position.floored().y || 0 >= Math.max(this.pos1.y, this.pos2.y));
 	}
 
 	/**

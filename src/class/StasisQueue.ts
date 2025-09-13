@@ -46,6 +46,15 @@ export class StasisQueue {
 		// If we’re currently on a chamber
 		if (this.goal) {
 
+			// If the player is no longer online, skip this chamber unqueued
+			if (!Bot.instance.players[this.goal.owner.username]) {
+				Logger.warn("Skipping stasis for offline player:");
+				printObject({ owner: formatPlayer(this.goal.owner) });
+				this.goal = null;
+				this.isAttemptingToClose = false;
+				return;
+			}
+
 			// Make sure we arent sneaking
 			Bot.instance.setControlState("jump", false);
 			Bot.instance.setControlState("sneak", false);
