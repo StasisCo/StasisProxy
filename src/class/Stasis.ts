@@ -151,7 +151,7 @@ export class Stasis {
 	 * @returns {Block} The trapdoor block
 	 */
 	public get block(): Block {
-		const block = Bot.instance.blockAt(new Vec3(this.pos1.x, this.pos1.y, this.pos1.z));
+		const block = Bot.instance.blockAt(this.pos1);
 		if (!block) throw new Error("Failed to get trapdoor block for stasis");
 		if (!block.name.includes("trapdoor") || block.name === "iron_trapdoor") throw new Error("No valid trapdoor found above the stasis");
 		return block;
