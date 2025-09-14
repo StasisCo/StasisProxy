@@ -46,7 +46,7 @@ export class StasisQueue {
 	 */
 	public static get home(): Vec3 {
 		if (this.homePos) return this.homePos;
-		return Bot.instance.entity.position.clone().floored();
+		return Bot.instance.entity.position.floored();
 	}
 
 	/**
@@ -93,7 +93,7 @@ export class StasisQueue {
 		if (this.queue.length > 0) {
 
 			// Save our return position if we dont have one already
-			if (this.homePos === null) this.homePos = Bot.instance.entity.position.clone().floored();
+			if (this.homePos === null) this.homePos = Bot.instance.entity.position.floored();
 			
 			// Stop going home if we were
 			this.returningHome = false;

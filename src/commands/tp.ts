@@ -3,7 +3,7 @@ import { Bot } from "../class/Bot";
 import { Logger } from "../class/Logger";
 import { Stasis } from "../class/Stasis";
 import { StasisQueue } from "../class/StasisQueue";
-import { COMMAND_CHAT_ALIAS } from "../config";
+import { COMMAND_CHAT_ALIAS, STASIS_DISTANCE_MAX } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 
 export const aliases = COMMAND_CHAT_ALIAS.split(",").map(a => a.trim().toLowerCase());
@@ -24,7 +24,8 @@ export default async function(player: Player) {
 	}
     
 	// Get all the active pearls in the database for this player
-	const existing = await Stasis.fetch(player);
+	const existing = await Stasis.fetch(player)
+		.then(chambers => chambers.filter(chamber => StasisQueue.home.distanceTo(chamber.block.position) <= STASIS_DISTANCE_MAX));
     
 	// If they have no pearls, inform them and exit
 	if (existing.length === 0) {
@@ -38,12 +39,7 @@ export default async function(player: Player) {
 	}
     
 	// Locate the closest pearl
-	const chamber = existing
-		.map(chamber => ({
-			chamber,
-			distance: Bot.instance.entity.position.distanceTo(chamber.block.position)
-		}))
-		.sort((a, b) => a.distance - b.distance)[0]?.chamber;
+	const chamber = existing.sort((a, b) => Bot.instance.entity.position.distanceTo(a.block.position) - Bot.instance.entity.position.distanceTo(b.block.position))[0];
 	if (!chamber) return;
     
 	StasisQueue.add(chamber);

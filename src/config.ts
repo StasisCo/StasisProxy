@@ -26,9 +26,9 @@ export const AUTOTOTEM_MIN_TOTEM = parseInt(process.env.AUTOTOTEM_MIN_TOTEM || "
  * The aliases to use for the stasis command in chat
  * For example, if this is set to "tp,teleport", the bot will respond to "!tp" and "!teleport"
  * Separate multiple aliases with a comma
- * @default "tp,teleport"
+ * @default "tp,teleport,tele,tel"
  */
-export const COMMAND_CHAT_ALIAS = process.env.COMMAND_CHAT_ALIAS || "tp,teleport,tele";
+export const COMMAND_CHAT_ALIAS = process.env.COMMAND_CHAT_ALIAS || "tp,teleport,tele,tel";
 
 /**
  * Weather or not to enable commands in the public chat
@@ -46,21 +46,21 @@ export const COMMAND_CHAT_DISABLED = Boolean(process.env.COMMAND_CHAT_DISABLED);
 export const COMMAND_CHAT_PREFIX = process.env.COMMAND_CHAT_PREFIX || "!";
 
 /**
+ * The maximum distance to search for a stasis chamber when a player requests one
+ * For example, if this is set to 100, the bot will only consider chambers within 100 blocks
+ * This must be less then the entity broadcast range on the server (default 128)
+ * Set this to -1 to disable distance limiting
+ * @default 100
+*/
+export const STASIS_DISTANCE_MAX = parseInt(process.env.STASIS_DISTANCE_MAX || "100");
+
+/**
  * The maximum amount of pearls to throw at a player
  * For example, if this is set to 2, the bot will only throw 2 pearls at a player
  * Set this to -1 to disable pearl limiting
  * @default 2
  */
 export const STASIS_USER_MAX = parseInt(process.env.STASIS_USER_MAX || "2");
-
-/**
- * The maximum distance to search for a stasis chamber when a player requests one
- * For example, if this is set to 100, the bot will only consider chambers within 100 blocks
- * This must be less then the entity broadcast range on the server (default 128)
- * Set this to -1 to disable distance limiting
- * @default 100
- */
-export const STASIS_DISTANCE_MAX = parseInt(process.env.STASIS_DISTANCE_MAX || "100");
 
 /**
  * The maximum distance to search for a trapdoor when a player requests one
