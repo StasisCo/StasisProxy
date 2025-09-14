@@ -8,15 +8,16 @@ import type { Stasis } from "./Stasis";
 
 export class StasisQueue {
 
-	private static isAttemptingToClose = false;
 	private static goal: Stasis | null = null;
 	private static homePos: null | Vec3 = null;
+	private static isAttemptingToClose = false;
 	private static queue: Stasis[] = [];
 	private static returningHome = false;
 
 	/**
-	 * Add a chamber to the pearl queue.
-	 * Duplicates are ignored.
+	 * Add a chamber to the pearl queue. 
+	 * Will not add if the owner already has a chamber queued or being processed.
+	 * @param stasis - The chamber to add to the queue
 	 */
 	public static add(stasis: Stasis) {
 		Logger.log("Queueing stasis:");
@@ -43,7 +44,7 @@ export class StasisQueue {
 	 * This will be null if the bot is already at home or has never moved from its spawn point.
 	 * @returns {Vec3}
 	 */
-	public static getHomePosition(): Vec3 {
+	public static get home(): Vec3 {
 		if (this.homePos) return this.homePos;
 		return Bot.instance.entity.position.clone().floored();
 	}

@@ -1,5 +1,5 @@
 {
-  "name": "stasis-pearl",
+  "name": "stasispearl",
   "module": "src/index.ts",
   "type": "module",
   "private": true,

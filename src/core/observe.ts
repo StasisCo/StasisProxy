@@ -52,8 +52,7 @@ export default (bot: Bot) => bot.on("entitySpawn", async function(entity) {
 	if (!stasis) return;
 
 	// Make sure the stasis is within range of the bots home position
-	const homePos = StasisQueue.getHomePosition();
-	if (STASIS_DISTANCE_MAX >= 0 && stasis.block.position.distanceTo(homePos) > STASIS_DISTANCE_MAX) return;
+	if (STASIS_DISTANCE_MAX >= 0 && stasis.block.position.distanceTo(StasisQueue.home) > STASIS_DISTANCE_MAX) return;
 
 	// Make sure theres not already a different pearl in this chamber
 	const occupants = stasis.entities.filter(e => e.uuid !== entity.uuid);

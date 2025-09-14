@@ -31,12 +31,12 @@ export class Logger {
 
 	/** Print a message to the console and log file */
 	public log(...args: unknown[]) {
-		console.log(chalk.blue("ℹ️ "), this.format(...args));
+		console.log(chalk.blue("ℹ️"), this.format(...args));
 	}
     
 	/** Print a warning message to the console and log file */
 	public warn(...args: unknown[]) {
-		console.warn(chalk.yellow("⚠️ "), this.format(...args));
+		console.warn(chalk.yellow("⚠️"), this.format(...args));
 	}
 	
 	/** Print an error message to the console and log file */

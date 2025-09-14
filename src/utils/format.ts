@@ -20,7 +20,7 @@ export function printObject(obj: Record<string, unknown>) {
 export function formatHealth(health: number, maxHealth = 20) {
 	health = Math.floor(health);
 	return [
-		"❤️ ".repeat(Math.floor(health / 2)),
+		"❤️".repeat(Math.floor(health / 2)),
 		health % 2 === 1 ? "❤️‍🩹" : "",
 		"🖤".repeat(maxHealth / 2 - Math.ceil(health / 2))
 	].join("");
