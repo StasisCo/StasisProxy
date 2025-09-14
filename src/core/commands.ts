@@ -31,7 +31,7 @@ export default async function(bot: BotType) {
 	for await (const path of new Glob("src/{commands}/**/*.ts").scan()) {
 		await import(`../../${ path }`)
 			.then(zModule.parseAsync)
-			.then(commands.push);
+			.then(module => commands.push(module));
 	}
 
 	/**
