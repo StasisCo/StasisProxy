@@ -48,7 +48,7 @@ export class Stasis {
 	public static async fetch(player: Player): Promise<Stasis[]> {
 
 		// Get all the active stasis in the database for this player
-		const stasis = await prisma.stasis.findMany({
+		const stasis = await prisma.pearls.findMany({
 			where: {
 				dimension: Bot.instance.game.dimension,
 				owner: player.uuid,
@@ -191,7 +191,7 @@ export class Stasis {
 	 * @returns {Promise<boolean>} whether the removal was successful
 	 */
 	public async remove(): Promise<boolean> {
-		return await prisma.stasis.deleteMany({ where: this.toJSON() })
+		return await prisma.pearls.deleteMany({ where: this.toJSON() })
 			.then(() => true)
 			.catch(() => false);
 	}

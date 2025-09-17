@@ -46,6 +46,14 @@ export const COMMAND_CHAT_DISABLED = Boolean(process.env.COMMAND_CHAT_DISABLED);
 export const COMMAND_CHAT_PREFIX = process.env.COMMAND_CHAT_PREFIX || "!";
 
 /**
+ * Weather or not to disable permission checks for commands
+ * If this is set to true, the bot will allow any player to use any command
+ * This is not recommended for public bots as it can be a major security risk
+ * @default false
+ */
+export const COMMAND_PERMISSION_CHECKS_DISABLED = Boolean(process.env.COMMAND_PERMISSION_CHECKS_DISABLED);
+
+/**
  * The maximum distance to search for a stasis chamber when a player requests one
  * For example, if this is set to 100, the bot will only consider chambers within 100 blocks
  * This must be less then the entity broadcast range on the server (default 128)

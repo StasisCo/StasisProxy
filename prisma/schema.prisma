@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Stasis {
+model Pearls {
   id        String   @id @unique @default(cuid())
   createdAt DateTime @default(now())
   dimension String
@@ -19,18 +19,18 @@ model Stasis {
   z         Int
 }
 
-model Whitelist {
-  id        String   @id @unique @default(cuid())
-  createdAt DateTime @default(now())
-  bot       String
+model Players {
+  id        String    @id @unique @default(cuid())
+  admin     Boolean   @default(false)
+  firstSeen DateTime  @default(now())
+  lastSeen  DateTime? @updatedAt
+  observer  String
   server    String
+  username  String
   uuid      String
-}
+  x         Int?
+  y         Int?
+  z         Int?
 
-model Operator {
-  id        String   @id @unique @default(cuid())
-  createdAt DateTime @default(now())
-  bot       String
-  server    String
-  uuid      String
+  @@unique([observer, server, uuid], name: "observer_server_uuid_unique")
 }

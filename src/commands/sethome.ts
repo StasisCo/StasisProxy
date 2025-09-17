@@ -6,7 +6,7 @@ import { formatPlayer, printObject } from "../utils/format";
 
 export const aliases = [ "sethome" ];
 
-export const permission = "operator";
+export const admin = true;
 
 /**
  * Set the bot's home position to your current position.
@@ -16,22 +16,22 @@ export default async function(player: Player) {
 	// Locate the player in render distance
 	const target = Bot.instance.players[player.username];
 	if (!target || !target.entity) {
-		Bot.instance.chat(`/msg ${ player.username } You must be in render distance to use this command!`);
 		Logger.warn("Failed to locate player:");
 		printObject({
 			from: formatPlayer(player),
 			reason: "Not in render distance"
 		});
-		return;
+		return "You must be in render distance to use this command!";
 	}
 
 	// Set the home position to the players current position
 	StasisQueue.home = target.entity.position.floored();
-	Bot.instance.chat(`/msg ${ player.username } Home position set to your current location.`);
 	Logger.log("Home position updated:");
 	printObject({
 		by: formatPlayer(player),
 		home: StasisQueue.home
 	});
+
+	return "Home position set to your current location.";
 
 }

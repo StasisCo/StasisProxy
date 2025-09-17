@@ -5,7 +5,7 @@ import z from "zod";
 import { prisma } from "..";
 import { Bot } from "../class/Bot";
 import { Logger } from "../class/Logger";
-import { COMMAND_CHAT_DISABLED, COMMAND_CHAT_PREFIX } from "../config";
+import { COMMAND_CHAT_DISABLED, COMMAND_CHAT_PREFIX, COMMAND_PERMISSION_CHECKS_DISABLED } from "../config";
 import { formatPlayer, printObject } from "../utils/format";
 
 const zModule = z.object({
@@ -15,9 +15,9 @@ const zModule = z.object({
 			z.custom<Player>(),
 			z.string().array()
 		]),
-		output: z.promise(z.void())
+		output: z.promise(z.string().or(z.undefined()))
 	}),
-	permission: z.enum([ "everyone", "whitelisted", "operator" ]).default("everyone")
+	admin: z.boolean().optional().default(false)
 });
 
 /**
@@ -44,7 +44,8 @@ export default async function(bot: BotType) {
 		const args = message.split(" ").slice(1);
 		const sender = bot.players[username];
 		if (!sender || !sender.uuid || !command) return;
-		exec(sender, command, args);
+		const resp = await exec(sender, command, args);
+		if (typeof resp === "string") bot.chat(resp);
 	});
 	
 	/**
@@ -55,7 +56,8 @@ export default async function(bot: BotType) {
 		const args = message.split(" ").slice(1);
 		const sender = bot.players[username];
 		if (!sender || !sender.uuid || !command) return;
-		exec(sender, command, args);
+		const resp = await exec(sender, command, args);
+		if (typeof resp === "string") bot.chat(`/msg ${ username } ${ resp }`);
 	});
 
 	/**
@@ -76,36 +78,29 @@ export default async function(bot: BotType) {
 		const command = commands.find(c => c.aliases.includes(cmd));
 		if (!command) return;
 
-		const isOp = await prisma.operator.count({ where: {
-			bot: Bot.instance.player.uuid,
-			server: Bot.server,
-			uuid: player.uuid
-		}}).then(c => c > 0);
-
-		const isWhitelisted = await prisma.whitelist.count({ where: {
-			bot: Bot.instance.player.uuid,
-			server: Bot.server,
-			uuid: player.uuid
-		}}).then(c => c > 0);
-
-		// Check permissions
-		switch (command.permission) {
-			
-			case "operator": {
-				if (!isOp) return;
-				break;
+		// Get the player's permissions from the database
+		const dbPlayer = await prisma.players.findUnique({
+			where: {
+				observer_server_uuid_unique: {
+					observer: bot.player.uuid,
+					server: Bot.server,
+					uuid: player.uuid
+				}
 			}
+		});
 
-			case "whitelisted": {
-				if (isOp) break;
-				if (!isWhitelisted) return;
-				break;
-			}
-
+		if (command.admin && !dbPlayer?.admin && !COMMAND_PERMISSION_CHECKS_DISABLED) {
+			Logger.warn("Permission denied:");
+			printObject({
+				from: formatPlayer(player),
+				command: cmd,
+				reason: "Insufficient permissions"
+			});
+			return "You do not have permission to use this command.";
 		}
 
 		// Execute the command
-		await command.default(player, args);
+		return await command.default(player, args);
 
 	}
 	

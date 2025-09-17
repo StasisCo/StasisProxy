@@ -3,7 +3,7 @@ import { Bot } from "../class/Bot";
 
 export const aliases = [ "say" ];
 
-export const permission = "whitelisted";
+export const admin = true;
 
 /**
  * Make the bot say something in chat

@@ -4,12 +4,12 @@ import { Bot } from "../class/Bot";
 import { Logger } from "../class/Logger";
 import { printObject } from "../utils/format";
 
-export const aliases = [ "op" ];
+export const aliases = [ "deop" ];
 
 export const admin = true;
 
 /**
- * Grant operator status to a player
+ * Revokes operator status to a player
  */
 export default async function(player: Player, [ target ]: string[]) {
 
@@ -30,10 +30,10 @@ export default async function(player: Player, [ target ]: string[]) {
 	const pl = onlineTarget ? onlineTarget : offlineTarget;
 	if (!pl) return `Player not found: '${ target }'`;
 
-	if (offlineTarget?.admin) return `Player '${ pl.username }' is already an operator`;
+	if (!offlineTarget?.admin) return `Player '${ pl.username }' is not an operator`;
 
 	// Set operator status in the database
-	await prisma.players.upsert({
+	await prisma.players.update({
 		where: {
 			observer_server_uuid_unique: {
 				observer: Bot.instance.player.uuid,
@@ -41,24 +41,17 @@ export default async function(player: Player, [ target ]: string[]) {
 				uuid: pl.uuid
 			}
 		},
-		update: {
-			admin: true
-		},
-		create: {
-			observer: Bot.instance.player.uuid,
-			server: Bot.server,
-			username: pl.username,
-			uuid: pl.uuid,
-			admin: true
+		data: {
+			admin: false
 		}
 	});
 
-	Logger.log("Granted operator status:");
+	Logger.log("Revoked operator status:");
 	printObject({
 		by: player.username,
 		to: pl.username
 	});
 
-	return `Made player '${ pl.username }' an operator`;
+	return `Player '${ pl.username }' is no longer an operator`;
 
 }

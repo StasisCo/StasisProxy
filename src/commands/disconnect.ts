@@ -5,18 +5,21 @@ import { formatPlayer, printObject } from "../utils/format";
 
 export const aliases = [ "disconnect", "dc", "exit" ];
 
-export const permission = "operator";
+export const admin = true;
 
 /**
  * Disconnect and exit the bot
  */
 export default async function(player: Player) {
 
-	Bot.instance.chat(`/msg ${ player.username } Disconnecting...`);
 	Logger.log("Disconnecting per user request:");
 	printObject({ from: formatPlayer(player) });
 
-	Bot.instance.quit();
-	process.exit(0);
+	Bot.instance.waitForTicks(1).then(function() {
+		Bot.instance.quit();
+		process.exit(0);
+	});
+
+	return "Disconnecting...";
 
 }

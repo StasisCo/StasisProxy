@@ -42,5 +42,5 @@ bun start
 
 Or using Docker:
 ```bash
-docker run -d --env-file .env --name stasis-bot ghcr.io/ryanfortner/stasis-bot:latest
+docker run -d --env-file .env ghcr.io/tehpicix/stasispearl:latest
 ```
