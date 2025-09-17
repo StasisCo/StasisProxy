@@ -50,6 +50,21 @@ export class StasisQueue {
 	}
 
 	/**
+	 * Sets the bots home position to its current position to a given position.
+	 * @param pos - The position to set as home. If null, clears the home position.
+	 */
+	public static set home(pos: Vec3) {
+		this.homePos = pos.floored();
+
+		// Go to the home position if were not doing anything else
+		if (this.queue.length === 0 && !this.goal) {
+			this.returningHome = true;
+			Bot.instance.pathfinder.setGoal(new goals.GoalBlock(this.homePos.x, this.homePos.y, this.homePos.z));
+		}
+
+	}
+
+	/**
 	 * Process the pearl queue. Call this every tick.
 	 */
 	public static async tick() {
