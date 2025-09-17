@@ -27,5 +27,11 @@ export default async function(player: Player) {
 
 	// Set the home position to the players current position
 	StasisQueue.home = target.entity.position.floored();
+	Bot.instance.chat(`/msg ${ player.username } Home position set to your current location.`);
+	Logger.log("Home position updated:");
+	printObject({
+		by: formatPlayer(player),
+		home: StasisQueue.home
+	});
 
 }

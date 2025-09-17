@@ -14,9 +14,7 @@ export default async function(player: Player) {
 
 	Bot.instance.chat(`/msg ${ player.username } Disconnecting...`);
 	Logger.log("Disconnecting per user request:");
-	printObject({
-		from: formatPlayer(player)
-	});
+	printObject({ from: formatPlayer(player) });
 
 	Bot.instance.quit();
 	process.exit(0);
