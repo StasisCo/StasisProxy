@@ -18,7 +18,8 @@ export default async function(player: Player) {
 		Bot.instance.chat(`/msg ${ player.username } You already have a pearl in queue, please wait...`);
 		Logger.warn("Ignoring duplicate stasis request:");
 		printObject({
-			from: formatPlayer(player)
+			from: formatPlayer(player),
+			reason: "Already in queue"
 		});
 		return;
 	}
