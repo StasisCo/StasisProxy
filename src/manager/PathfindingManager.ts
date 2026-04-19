@@ -10,6 +10,10 @@ export class PathfindingManager {
 	private home: Vec3 | null = null;
 	private returningHome = false;
 
+	/** Tracks ticks spent without meaningful XZ movement while controls.forward is true */
+	private stuckTicks = 0;
+	private lastPos = { x: 0, z: 0 };
+
 	constructor(private readonly bot: Mineflayer) {
 		const init = () => {
 			Client.physics.onPreTick.push(() => this.update());
@@ -158,7 +162,17 @@ export class PathfindingManager {
 			return;
 		}
 
-		// Steer toward target, avoiding hazards
+		// Stuck detection — track ticks without meaningful XZ movement
+		const movedDist = Math.abs(pos.x - this.lastPos.x) + Math.abs(pos.z - this.lastPos.z);
+		if (movedDist > 0.05) {
+			this.stuckTicks = 0;
+		} else if (Client.physics.controls.forward) {
+			this.stuckTicks++;
+		}
+		this.lastPos.x = pos.x;
+		this.lastPos.z = pos.z;
+
+		// Steer toward target, avoiding hazards and solid obstacles
 		const dx = target.x - pos.x;
 		const dz = target.z - pos.z;
 		const len = Math.sqrt(dx * dx + dz * dz);
@@ -180,12 +194,19 @@ export class PathfindingManager {
 	}
 
 	/**
-	 * Find a yaw that steers toward the target while avoiding dangerous blocks.
-	 * Tries the direct path first, then offsets up to ±90°.
+	 * Find a yaw that steers toward the target while avoiding dangerous blocks
+	 * and solid obstacles. Tries the direct path first, then offsets up to ±90°.
+	 * When stuck (no progress for several ticks), expands search to wider angles
+	 * and skips the direct path that's clearly not working.
 	 */
 	private findSafeYaw(pos: { x: number; y: number; z: number }, nx: number, nz: number): number | null {
-		const offsets = [ 0, 25, -25, 50, -50, 75, -75, 90, -90 ];
+		const offsets = this.stuckTicks > 10
+			? [ 45, -45, 90, -90, 120, -120, 150, -150, 180 ]
+			: this.stuckTicks > 5
+				? [ 25, -25, 50, -50, 75, -75, 90, -90, 120, -120 ]
+				: [ 0, 25, -25, 50, -50, 75, -75, 90, -90 ];
 		const feetY = pos.y;
+		const by = Math.floor(feetY);
 
 		for (const deg of offsets) {
 			const rad = deg * Math.PI / 180;
@@ -197,13 +218,32 @@ export class PathfindingManager {
 			const ax = pos.x + dirX;
 			const az = pos.z + dirZ;
 
-			if (!this.isDangerousBlock(ax, feetY, az) &&
-				!this.isDangerousBlock(ax, feetY - 1, az)) {
-				return Math.atan2(-dirX, -dirZ);
-			}
+			if (this.isDangerousBlock(ax, feetY, az) ||
+				this.isDangerousBlock(ax, feetY - 1, az)) continue;
+
+			// Check for 2-high solid wall ahead (can't walk through or jump over)
+			if (this.isWallAhead(pos.x, by, pos.z, dirX, dirZ)) continue;
+
+			return Math.atan2(-dirX, -dirZ);
 		}
 
 		return null;
+	}
+
+	/**
+	 * Check if there is a 2-high solid wall in the given direction.
+	 * Probes the center point 0.8 blocks ahead at both feet and head level.
+	 * Only flags as blocked when BOTH levels are solid (1-high obstacles can be jumped).
+	 */
+	private isWallAhead(posX: number, feetBlockY: number, posZ: number, dirX: number, dirZ: number): boolean {
+		const probeX = posX + dirX * 0.8;
+		const probeZ = posZ + dirZ * 0.8;
+		const bx = Math.floor(probeX);
+		const bz = Math.floor(probeZ);
+
+		const feetBlock = this.bot.blockAt(new Vec3(bx, feetBlockY, bz));
+		const headBlock = this.bot.blockAt(new Vec3(bx, feetBlockY + 1, bz));
+		return feetBlock?.boundingBox === "block" && headBlock?.boundingBox === "block";
 	}
 
 	/** Check if the block at the given position is a hazard (water, bubble column, open trapdoor). */
