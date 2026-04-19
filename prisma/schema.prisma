@@ -29,5 +29,5 @@ model Player {
 
   username String
 
-  stases Stasis[]
+  stasis Stasis[]
 }
