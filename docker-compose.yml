@@ -1,5 +1,5 @@
 services:
-  
+
   stasis-proxy:
     image: ghcr.io/stasisco/stasisproxy:master
     depends_on:
@@ -9,6 +9,7 @@ services:
         condition: service_healthy
     volumes:
       - minecraft-data:/root/.minecraft
+    restart: on-failure
     environment:
       - MC_HOST
       - MC_USERNAME
