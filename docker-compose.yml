@@ -1,7 +1,7 @@
 services:
   
   stasis-proxy:
-    build: .
+    image: ghcr.io/stasisco/stasisproxy:master
     depends_on:
       postgres:
         condition: service_healthy
