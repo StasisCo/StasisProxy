@@ -5,9 +5,13 @@ import { Module } from "~/class/Module";
 
 const DIRECTIONS: Vec3[] = [
 	new Vec3(0, 0, 2),
+	new Vec3(2, 0, 2),
 	new Vec3(0, 0, -2),
+	new Vec3(2, 0, -2),
 	new Vec3(2, 0, 0),
-	new Vec3(-2, 0, 0)
+	new Vec3(-2, 0, 2),
+	new Vec3(-2, 0, 0),
+	new Vec3(-2, 0, -2)
 ];
 
 export default class AntiBot extends Module {
