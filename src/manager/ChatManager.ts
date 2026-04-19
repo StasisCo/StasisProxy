@@ -61,15 +61,17 @@ export class ChatManager {
 			if (name !== "system_chat") return;
 
 			const message = new ChatManager.parser(JSON.parse(packet.content));
-			ChatManager.logger.log(message.toAnsi().replaceAll(bot.username, chalk.hex("#FF55FF")(bot.username)));
+			ChatManager.logger.log(message.toAnsi()
+				.replaceAll(bot.username, chalk.hex("#FF55FF").underline(bot.username))
+			);
 
 		});
 		
 		bot.on("whisper", async(username, message) => {
 
 			// Prefix is optional for whisper commands, but if present, should be removed before command parsing
-			if (message.toLowerCase().startsWith(COMMAND_CHAT_PREFIX.toLowerCase())) {
-				message = message.slice(COMMAND_CHAT_PREFIX.length);
+			if (message.toLowerCase().trim().startsWith(COMMAND_CHAT_PREFIX.toLowerCase().trim())) {
+				message = message.trim().slice(COMMAND_CHAT_PREFIX.length).trim();
 			}
 
 			const command = message.trim();
@@ -77,12 +79,17 @@ export class ChatManager {
 
 		});
 
-		bot.on("chat", async(message, username) => {
+		bot.on("chat", async(username, message) => {
+
+			// Parse out green text
+			if (message.trim().startsWith(">")) {
+				message = message.trim().slice(1).trim();
+			}
 
 			// Ignore messages that don't start with the command prefix
 			if (!message.toLowerCase().startsWith(COMMAND_CHAT_PREFIX.toLowerCase())) return;
 
-			const command = message.slice(COMMAND_CHAT_PREFIX.length).trim();
+			const command = message.trim().slice(COMMAND_CHAT_PREFIX.length).trim();
 			await CommandManager.handle(username, command, "chat");
 
 		});
