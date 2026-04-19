@@ -355,7 +355,7 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 	public enqueue(mode: "online" | "offline" = "online") {
 
 		// Initialize the goal
-		const goal = new Goal(this.block.position);
+		const goal = new Goal(this.block.position).setRange(5.0);
 		
 		switch (mode) {
 			
