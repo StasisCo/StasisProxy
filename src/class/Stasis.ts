@@ -42,7 +42,7 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 		let soulSandY = position.y;
 		while (soulSandY >= bottomY) {
 			const block = Client.bot.blockAt(new Vec3(position.x, soulSandY, position.z));
-			if (!block) throw new Error("Failed to find stasis blocks");
+			if (!block) return null; // Chunk not loaded yet
 			if (block.name === "soul_sand") break;
 			soulSandY--;
 		}
@@ -51,7 +51,7 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 		let trapdoorY = soulSandY;
 		while (trapdoorY <= bottomY + height) {
 			const block = Client.bot.blockAt(new Vec3(position.x, trapdoorY, position.z));
-			if (!block) throw new Error("Failed to find stasis blocks");
+			if (!block) return null; // Chunk not loaded yet
 			if (block.name.includes("trapdoor")) break;
 			trapdoorY++;
 		}
@@ -76,34 +76,37 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 	 */
 	public static async fetch(player: Pick<Player, "uuid">): Promise<Stasis<true>[]> {
 		if (!Client.host) throw new Error("Client host is not set. Cannot query for stasis without server information.");
-		const stasis = await prisma.stasis.findMany({
+		const maxDistance = STASIS_DISTANCE_MAX > 0 ? STASIS_DISTANCE_MAX : Infinity;
+
+		const rows = await prisma.stasis.findMany({
 			where: {
 				server: Client.host,
 				ownerId: player.uuid
 			}
-		})
-			.then(stasis => stasis.map(stasis => new Stasis<true>(stasis)))
-			.then(stasis => stasis.filter(stasis => stasis !== null));
-			
-		// Cleanup any orphaned pearls
-		const orphaned = stasis.filter(stasis => stasis.entities.length === 0);
-		if (orphaned.length > 0) for (const orphan of orphaned) await orphan.remove();
+		});
 
-		// Somehow there may be a duplicate stasis in the database, filter them out too and remove them
-		const toRemove: Stasis<true>[] = [];
+		// Safely construct stasis instances, skip any whose chunks aren't loaded
+		const stasis = rows.reduce<Stasis<true>[]>((acc, row) => {
+			try {
+				acc.push(new Stasis<true>(row));
+			} catch { /* chunk not loaded / invalid bounds */ }
+			return acc;
+		}, []);
+
+		// Only keep stasis that have pearls and are within range
+		const valid = stasis
+			.filter(s => s.entities.length > 0)
+			.filter(s => s.entities.some(e => e.position.distanceTo(Client.bot.entity.position) <= maxDistance));
+
+		// Deduplicate by position, removing extras from the database
 		const unique = new Map<string, Stasis<true>>();
-		for (const s of stasis) {
+		for (const s of valid) {
 			const key = `${ s.block.position.x },${ s.block.position.y },${ s.block.position.z }`;
-			if (unique.has(key)) {
-				await s.remove();
-				toRemove.push(s);
-			} else unique.set(key, s);
+			if (unique.has(key)) await s.remove();
+			else unique.set(key, s);
 		}
 
-		return stasis
-			.filter(s => !toRemove.includes(s))
-			.filter(stasis => stasis.entities.length > 0)
-			.filter(stasis => stasis.entities.some(e => e.position.distanceTo(Client.bot.entity.position) <= (STASIS_DISTANCE_MAX > 0 ? STASIS_DISTANCE_MAX : Infinity)));
+		return [ ...unique.values() ];
 
 	}
 
@@ -241,29 +244,24 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 
 		if (!Client.host) throw new Error("Client host is not set. Cannot save stasis without server information.");
 
+		await prisma.player.upsert({
+			where: { id: owner.uuid },
+			update: { username: owner.username },
+			create: { id: owner.uuid, username: owner.username }
+		});
+
 		const saved = await prisma.stasis.upsert({
-			where: { position: {
-				server: Client.host,
-				dimension: this.dimension,
-				x: this.block.position.x,
-				y: this.block.position.y,
-				z: this.block.position.z
-			}},
-			update: {
-				owner: {
-					upsert: {
-						where: {
-							id: owner.uuid
-						},
-						update: {
-							username: owner.username
-						},
-						create: {
-							id: owner.uuid,
-							username: owner.username
-						}
-					}
+			where: {
+				position: {
+					server: Client.host,
+					dimension: this.dimension,
+					x: this.block.position.x,
+					y: this.block.position.y,
+					z: this.block.position.z
 				}
+			},
+			update: {
+				ownerId: owner.uuid
 			},
 			create: {
 				server: Client.host,
@@ -271,17 +269,7 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 				x: this.block.position.x,
 				y: this.block.position.y,
 				z: this.block.position.z,
-				owner: {
-					connectOrCreate: {
-						where: {
-							id: owner.uuid
-						},
-						create: {
-							id: owner.uuid,
-							username: owner.username
-						}
-					}
-				}
+				ownerId: owner.uuid
 			}
 		});
 

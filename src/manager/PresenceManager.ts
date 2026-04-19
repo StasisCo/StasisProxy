@@ -212,6 +212,7 @@ export class PresenceManager extends EventEmitter<{
 	// ── SSE connection ──
 
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	private connected = false;
 
 	private connect() {
 		if (this.reconnectTimer) {
@@ -240,50 +241,63 @@ export class PresenceManager extends EventEmitter<{
 					"Accept": "text/event-stream",
 					"Cache-Control": "no-cache"
 				}
+			}).then(res => {
+				if (!res.ok) PresenceManager.logger.warn(`IRC SSE fetch returned ${ res.status } ${ res.statusText }`);
+				return res;
 			})
 		});
 		
 		this.es = es;
 
 		es.onopen = () => {
-			PresenceManager.logger.log("Connected to IRC SSE stream");
+			if (!this.connected) {
+				PresenceManager.logger.log("Connected to IRC SSE stream");
+				this.connected = true;
+			}
 			this.requestPost();
 		};
 
 		es.onmessage = ({ data }) => {
 			if (!data || typeof data !== "string") return;
 
-			const parsed = zIrcPayload.safeParse(JSON.parse(data));
+			let json: unknown;
+			try { json = JSON.parse(data); }
+			catch { return; }
+
+			const parsed = zIrcPayload.safeParse(json);
 			if (!parsed.success) return;
 
 			const payload = parsed.data;
 			this.emit(payload.type, payload as never);
 		};
 
-		// EventSource has built-in reconnection (SSE spec). Only manually
-		// reconnect when the connection is permanently closed.
-		es.onerror = () => {
+		es.onerror = (event) => {
+			const detail = "message" in event ? (event as { message: string }).message : "";
 			if (es.readyState === EventSource.CLOSED) {
-				PresenceManager.logger.warn("IRC SSE stream closed, reconnecting in 5s...");
+				PresenceManager.logger.warn(`IRC SSE stream closed${ detail ? `: ${ detail }` : "" }, reconnecting in 5s...`);
+				this.connected = false;
 				this.reconnectTimer = setTimeout(() => {
 					this.reconnectTimer = null;
 					this.connect();
 				}, 5000);
 			}
+			// CONNECTING state = normal SSE auto-reconnect, no log needed
 		};
 	}
 
 	public async post(body: z.infer<typeof zIrcPresence>) {
 		if (!this.session || !Client.host || !this.bot.player) return;
 
-		await fetch(new URL("/irc", process.env.IRC_HOST), {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				...this.headers()
-			},
-			body: JSON.stringify(body)
-		});
+		try {
+			await fetch(new URL("/irc", process.env.IRC_HOST), {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...this.headers()
+				},
+				body: JSON.stringify(body)
+			});
+		} catch { /* connection error, will retry on next interval */ }
 	}
 
 	/** Maximum posts per second */

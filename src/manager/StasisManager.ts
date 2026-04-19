@@ -70,7 +70,6 @@ export class StasisManager {
 			
 			const resolved = await stasis.resolve();
 			if (!resolved) return;
-			console.log({ resolved: resolved.id });
 			
 			const owner = Client.bot.players[resolved.ownerId];
 			if (!owner) return;
