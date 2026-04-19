@@ -1,11 +1,9 @@
 # StasisProxy
-A Docker based proxy server for Minecraft
 
 ## Quick Start
 
 ### Prerequisites
 - [Docker](https://www.docker.com/get-started)
-- [Git](https://git-scm.com/downloads)
 
 ### Running with Docker Compose
 1. Clone the repository:
@@ -13,14 +11,15 @@ A Docker based proxy server for Minecraft
     git clone https://github.com/StasisCo/StasisProxy.git
     cd StasisProxy
     ```
+    
 2. Create a `.env` file in the root directory with the following content, replacing the placeholders with your actual values:
     ```env
     MC_HOST=2b2t.org
     MC_USERNAME=Username
     ```
 
-3. Start the services using Docker Compose:
+3. Start the stack:
     ```bash
-    docker-compose up
+    docker compose up -d
     ```
-
+    This brings up the proxy, PostgreSQL, and Redis. The proxy listens on port `25577` by default.
