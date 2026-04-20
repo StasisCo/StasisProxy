@@ -15,6 +15,9 @@ interface CachedPacket {
 	name: string;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol data
 	data: any;
+
+	/** Raw packet buffer for writeRaw replay (avoids re-serialization issues). */
+	buffer: Buffer;
 }
 
 /**
@@ -117,6 +120,13 @@ export class Proxy {
 
 	private static readonly logger = new Logger(chalk.green("PROXY"));
 
+	/**
+	 * Packets that must be re-serialized via write() instead of writeRaw().
+	 * ViaVersion on 2b2t can produce wire bytes with extra data that the
+	 * vanilla client rejects — re-serializing from the parsed data fixes this.
+	 */
+	private static readonly RESERIALIZE_PACKETS = new Set([ "entity_equipment" ]);
+
 	private server!: Server;
 
 	/**
@@ -200,7 +210,7 @@ export class Proxy {
 
 	// ── Cache helpers ──
 
-	private set(name: string, key: string, data: unknown) {
+	private set(name: string, key: string, data: unknown, buffer: Buffer) {
 		let inner = this.cache.get(name);
 		if (!inner) {
 			inner = new Map();
@@ -209,7 +219,9 @@ export class Proxy {
 
 		// Deep-copy the data — parsed objects may contain views into the protocol
 		// stream's internal pool whose memory can be reused after the event handler.
-		inner.set(key, { seq: this.seq++, name, data: structuredClone(data) });
+		// Copy the raw buffer too — used for writeRaw replay to avoid re-serialization
+		// issues (structuredClone converts Buffers to Uint8Array, corrupting chunk data).
+		inner.set(key, { seq: this.seq++, name, data: structuredClone(data), buffer: Buffer.from(buffer) });
 	}
 
 	private deleteKey(name: string, key: string) {
@@ -261,7 +273,7 @@ export class Proxy {
 	// ── Packet handler ──
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol data
-	private readonly onPacket = (data: any, meta: PacketMeta) => {
+	private readonly onPacket = (data: any, meta: PacketMeta, buffer: Buffer) => {
 		const { name } = meta;
 
 		// ── Invalidation: entity destroyed ──
@@ -312,7 +324,7 @@ export class Proxy {
 			this.deleteAll("action_bar");
 
 			// Store the respawn itself — login is kept for entity ID / dimension codec
-			this.set("respawn", "_", data);
+			this.set("respawn", "_", data, buffer);
 			return;
 		}
 
@@ -355,7 +367,7 @@ export class Proxy {
 			this.invalidateBlocksInChunk(data.x, data.z);
 		}
 
-		this.set(name, key, data);
+		this.set(name, key, data, buffer);
 	};
 
 	// ── Replay ──
@@ -373,11 +385,22 @@ export class Proxy {
 			}
 		}
 
-		// Sort by sequence, but pull login/respawn to the very front
+		// Sort by sequence, but enforce priority groups so the client can process
+		// the world correctly:
+		//   0 — login / respawn: sets up dimension, registries, entity ID
+		//   1 — view config: tells the client where to center & how far to render
+		//       (without this, the client defaults to chunk 0,0 and discards all
+		//        chunks outside that range — the root cause of empty-world on replay)
+		//   2 — everything else, in original order
+		const priority = (p: CachedPacket) => {
+			if (p.name === "login" || p.name === "respawn") return 0;
+			if (p.name === "update_view_position" || p.name === "update_view_distance" || p.name === "simulation_distance") return 1;
+			return 2;
+		};
 		all.sort((a, b) => {
-			const aLogin = a.name === "login" || a.name === "respawn" ? 0 : 1;
-			const bLogin = b.name === "login" || b.name === "respawn" ? 0 : 1;
-			if (aLogin !== bLogin) return aLogin - bLogin;
+			const ap = priority(a);
+			const bp = priority(b);
+			if (ap !== bp) return ap - bp;
 			return a.seq - b.seq;
 		});
 
@@ -436,11 +459,16 @@ export class Proxy {
 		}
 
 		const packets = this.getReplayPackets();
-		Proxy.logger.log(`Replaying ${ packets.length } cached packets...`);
+		const chunkCount = this.cache.get("map_chunk")?.size ?? 0;
+		const lightCount = this.cache.get("update_light")?.size ?? 0;
+		const viewPos = this.cache.get("update_view_position")?.get("_");
+		Proxy.logger.log(`Replaying ${ packets.length } cached packets (${ chunkCount } chunks, ${ lightCount } lights, viewPos=${ viewPos ? `${ viewPos.data.chunkX },${ viewPos.data.chunkZ }` : "MISSING" })...`);
 
 		// Hold back the position packet — it must come AFTER chunk data so the
 		// client doesn't spawn in unloaded terrain, fall through the void, and rubberband.
 		let positionPkt: CachedPacket | null = null;
+		let replayedChunks = 0;
+		let failedPackets = 0;
 
 		for (const pkt of packets) {
 			if (pkt.name === "position") {
@@ -448,16 +476,48 @@ export class Proxy {
 				continue;
 			}
 			try {
-				client.write(pkt.name, pkt.data);
+				if (pkt.name === "update_view_position" || Proxy.RESERIALIZE_PACKETS.has(pkt.name)) {
+
+					// Re-serialize from parsed data: update_view_position was modified
+					// above, and RESERIALIZE_PACKETS have ViaVersion extra bytes.
+					// We use manual serialization + writeRaw instead of write() because
+					// write() goes through the async serializer Transform stream, which
+					// causes these packets to arrive at the compressor AFTER all the
+					// writeRaw'd packets (map_chunk, etc.). The client would then receive
+					// chunks before update_view_position, discard them as out-of-range,
+					// and render an empty void.
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
+					(client as any).writeRaw((client as any).serializer.proto.createPacketBuffer("packet", { name: pkt.name, params: pkt.data }));
+				} else {
+
+					// Default: send the raw wire buffer. This avoids structuredClone
+					// corrupting Buffer fields (e.g. NBT in login, chunkData in map_chunk)
+					// which breaks re-serialization via write().
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- writeRaw bypasses serialization
+					(client as any).writeRaw(pkt.buffer);
+				}
+				if (pkt.name === "map_chunk") replayedChunks++;
 			} catch (err) {
-				Proxy.logger.warn(`Failed to replay ${ pkt.name }:`, err);
+				failedPackets++;
+				Proxy.logger.warn(`Failed to replay ${ pkt.name } (buf=${ pkt.buffer.length }b):`, err);
 			}
 		}
 
-		// Send position LAST so chunks are loaded before the client teleports
+		Proxy.logger.log(`Replay done: ${ replayedChunks } chunks sent, ${ failedPackets } failures`);
+
+		// Debug: sample a cached chunk buffer to verify integrity
+		const sampleChunk = this.cache.get("map_chunk")?.values().next().value;
+		if (sampleChunk) {
+			Proxy.logger.log(`Sample chunk buffer: ${ sampleChunk.buffer.length }b, first 8 bytes: ${ Buffer.from(sampleChunk.buffer.slice(0, 8)).toString("hex") }, isBuffer=${ Buffer.isBuffer(sampleChunk.buffer) }`);
+		}
+
+		// Send position LAST so chunks are loaded before the client teleports.
+		// Must also use writeRaw (via manual serialization) to maintain ordering
+		// with the preceding writeRaw'd packets.
 		if (positionPkt) {
 			try {
-				client.write(positionPkt.name, positionPkt.data);
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
+				(client as any).writeRaw((client as any).serializer.proto.createPacketBuffer("packet", { name: positionPkt.name, params: positionPkt.data }));
 			} catch (err) {
 				Proxy.logger.warn("Failed to replay position:", err);
 			}
@@ -467,12 +527,23 @@ export class Proxy {
 		// send teleport_confirm for it, which must NOT reach 2b2t (already confirmed).
 		let replayTeleportId: number | null = (positionPkt?.data as { teleportId?: number })?.teleportId ?? null;
 
-		// Bridge: server → player (raw parsed buffer — strips 2b2t extras, no re-serialization)
-		const onServerPacket = (_data: unknown, meta: PacketMeta, buffer: Buffer) => {
+		// Bridge: server → player
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- need parsed data for re-serialized packets
+		const onServerPacket = (data: any, meta: PacketMeta, buffer: Buffer) => {
 			if (meta.name === "keep_alive" || meta.name === "kick_disconnect") return;
 			try {
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- writeRaw bypasses serialization
-				(client as any).writeRaw(buffer);
+				if (Proxy.RESERIALIZE_PACKETS.has(meta.name)) {
+
+					// Re-serialize from parsed data to fix ViaVersion wire-format quirks.
+					// Use manual serialization + writeRaw instead of write() to avoid
+					// ordering issues between the async serializer and direct writeRaw.
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
+					(client as any).writeRaw((client as any).serializer.proto.createPacketBuffer("packet", { name: meta.name, params: data }));
+				} else {
+
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- writeRaw bypasses serialization
+					(client as any).writeRaw(buffer);
+				}
 			} catch { /* client may have disconnected */ }
 		};
 
@@ -519,6 +590,6 @@ export class Proxy {
 	public close() {
 		this.bot._client.off("packet", this.onPacket);
 		this.client?.end("Proxy server shutting down.");
-		this.server.close();
+		this.server?.close();
 	}
 }
