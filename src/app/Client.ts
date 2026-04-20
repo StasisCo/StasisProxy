@@ -87,8 +87,8 @@ export class Client {
 		this.bot.on("kicked", reason => {
 			const component = new ChatManager.parser(JSON.parse(reason));
 			Client.logger.warn(component.toAnsi());
-			this.proxy?.close();
-			process.exit(this.exitCode);
+			this.exitCode = 1;
+			Client.bot.quit();
 		});
 
 		this.bot.on("error", err => {
