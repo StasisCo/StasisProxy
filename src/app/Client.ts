@@ -86,8 +86,9 @@ export class Client {
 		// Handle disconnection
 		this.bot.on("kicked", reason => {
 			const component = new ChatManager.parser(JSON.parse(reason));
-			this.exitCode = 1;
 			Client.logger.warn(component.toAnsi());
+			this.proxy?.close();
+			process.exit(this.exitCode);
 		});
 
 		this.bot.on("error", err => {
