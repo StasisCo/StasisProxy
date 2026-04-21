@@ -133,8 +133,10 @@ export class Pearl extends EventEmitter<{
 		const data = await redis.get(`pearl:${ this.entity.id }:owner`);
 		if (!data) return this;
 		try {
-			const owner = JSON.parse(data) as Player;
-			this.owner = Client.bot.players[owner.uuid] || owner;
+			const owner = JSON.parse(data) as Partial<Player>;
+			if (typeof owner?.uuid !== "string" || owner.uuid.length === 0) return this;
+			this.owner = Object.values(Client.bot.players).find(p => p.uuid === owner.uuid)
+				?? ({ uuid: owner.uuid, username: owner.username ?? owner.uuid } as Player);
 		} catch {
 			return this;
 		}
@@ -146,8 +148,10 @@ export class Pearl extends EventEmitter<{
 	 * Associate a pearl with a player and save to Redis. 
 	 * @param owner The player to associate with the pearl
 	*/
-	public async associate(owner: Player) {
-		this.owner = owner;
+	public async associate(ownerId: string) {
+		if (typeof ownerId !== "string" || ownerId.length === 0) return;
+		this.owner = Object.values(Client.bot.players).find(p => p.uuid === ownerId)
+			?? ({ uuid: ownerId, username: ownerId } as Player);
 		await redis.set(`pearl:${ this.entity.id }:owner`, JSON.stringify(this.owner));
 	}
 

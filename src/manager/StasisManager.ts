@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import EventEmitter from "events";
 import { type Bot as Mineflayer } from "mineflayer";
 import { Client } from "~/app/Client";
 import { Pearl, type OwnedPearl } from "~/class/Pearl";
@@ -6,11 +7,20 @@ import { Stasis } from "~/class/Stasis";
 import { STASIS_USER_MAX } from "~/config";
 import { Logger } from "~/util/Logger";
 
-export class StasisManager {
+export class StasisManager extends EventEmitter<{
+
+	/** Emitted when a stasis chamber is saved to the database */
+	"stasisSaved": [ Stasis<true> ];
+
+	/** Emitted when a stasis chamber is removed from the database */
+	"stasisRemoved": [ Stasis ];
+
+}> {
 
 	private static logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
 
 	constructor(private readonly bot: Mineflayer) {
+		super();
 		if (this.bot.game) this.onReady();
 		else this.bot.once("login", this.onReady);
 	}
@@ -49,7 +59,8 @@ export class StasisManager {
 			if (!stasis) return;
 
 			// If we have a stasis, remove it since the pearl is gone
-			await stasis.remove();
+			const removed = await stasis.remove();
+			if (removed) this.emit("stasisRemoved", stasis);
 
 		});
 
@@ -70,13 +81,15 @@ export class StasisManager {
 			
 			const resolved = await stasis.resolve();
 			if (!resolved) return;
+			if (!resolved.ownerId) {
+				StasisManager.logger.warn(`Failed to resolve owner for existing pearl ${ chalk.yellow(`${ pearl.entity.id }`) }`);
+				return;
+			}
 			
-			const owner = Client.bot.players[resolved.ownerId];
-			if (!owner) return;
-			console.log({ owner: owner.username });
-
-			await pearl.associate(owner);
-			StasisManager.logger.log(`Existing pearl ${ chalk.yellow(`${ pearl.entity.id }`) } belonging to ${ chalk.cyan(owner.username) } entered visual range`);
+			await pearl.associate(resolved.ownerId);
+			
+			const owner = Object.values(Client.bot.players).find(player => player.uuid === resolved.ownerId);
+			if (owner) StasisManager.logger.log(`Existing pearl ${ chalk.yellow(`${ pearl.entity.id }`) } belonging to ${ chalk.cyan(owner.username) } entered visual range`);
 			return;
 
 		}
@@ -92,7 +105,8 @@ export class StasisManager {
 		}
 
 		StasisManager.logger.log(`Existing pearl ${ chalk.yellow(`${ pearl.entity.id }`) } belonging to ${ chalk.cyan(pearl.owner.username) } entered visual range`);
-		await stasis.save(pearl.owner);
+		const resolved = await stasis.save(pearl.owner);
+		Client.stasis.emit("stasisSaved", resolved);
 
 	}
 
@@ -139,14 +153,19 @@ export class StasisManager {
 			if (pearls.some(p => p.isOwned() && p.owner.uuid !== pearl.owner.uuid)) {
 				const owner = await stasis.resolve()
 					.then(stasis => stasis?.ownerId)
-					.then(owner => owner ? Client.bot.players[owner] : null);
+					.then(ownerId => ownerId ? Object.values(Client.bot.players).find(player => player.uuid === ownerId) ?? null : null);
 				if (owner) return StasisManager.logger.warn(`Stasis chamber at ${ chalk.yellow(stasis.block.position.toString()) } already belongs to ${ chalk.cyan(owner.username) }, ignoring pearl ${ chalk.yellow(pearl.entity.id) } from ${ chalk.cyan(pearl.owner.username) }`);
 				StasisManager.logger.warn(`Stasis chamber at ${ chalk.yellow(stasis.block.position.toString()) } already contains a pearl belonging to an unknown owner, ignoring pearl ${ chalk.yellow(pearl.entity.id) } from ${ chalk.cyan(pearl.owner.username) }`);
 				return;
 			}
 
 			// Save our stasis
-			await stasis.save(pearl.owner);
+			if (!pearl.owner.uuid) {
+				StasisManager.logger.warn(`Skipping stasis save for pearl ${ chalk.yellow(pearl.entity.id) }: owner UUID missing`);
+				return;
+			}
+			const resolved = await stasis.save(pearl.owner);
+			Client.stasis.emit("stasisSaved", resolved);
 
 			// Get all stasis chambers for this player
 			const all = await Stasis.fetch(pearl.owner);

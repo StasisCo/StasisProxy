@@ -230,7 +230,7 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 				z: this.block.position.z
 			}}
 		})
-			.then(stasis => Object.assign(this, pick(stasis, [ "id", "createdAt", "owner" ])) as Stasis<true>)
+			.then(stasis => Object.assign(this, pick(stasis, [ "id", "createdAt", "ownerId" ])) as Stasis<true>)
 			.catch(() => null);
 	}
 
@@ -243,11 +243,15 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 	public async save(owner: Player): Promise<Stasis<true>> {
 
 		if (!Client.host) throw new Error("Client host is not set. Cannot save stasis without server information.");
+		if (!owner?.uuid) throw new Error("Cannot save stasis: pearl owner UUID is missing");
+
+		const ownerId = owner.uuid;
+		const ownerName = owner.username?.trim().length ? owner.username : ownerId;
 
 		await prisma.player.upsert({
-			where: { id: owner.uuid },
-			update: { username: owner.username },
-			create: { id: owner.uuid, username: owner.username }
+			where: { id: ownerId },
+			update: { username: ownerName },
+			create: { id: ownerId, username: ownerName }
 		});
 
 		const saved = await prisma.stasis.upsert({
@@ -261,7 +265,7 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 				}
 			},
 			update: {
-				ownerId: owner.uuid
+				ownerId
 			},
 			create: {
 				server: Client.host,
@@ -269,11 +273,11 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 				x: this.block.position.x,
 				y: this.block.position.y,
 				z: this.block.position.z,
-				ownerId: owner.uuid
+				ownerId
 			}
 		});
 
-		return Object.assign(this, pick(saved, [ "id", "createdAt", "owner" ])) as Stasis<true>;
+		return Object.assign(this, pick(saved, [ "id", "createdAt", "ownerId" ])) as Stasis<true>;
 
 	}
 
@@ -283,7 +287,7 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 	 * activateBlock hangs on lookAt when physics is disabled.
 	 * Resolves once the server confirms the block state changed, or rejects on timeout.
 	 */
-	public interact(): Promise<void> {
+	private interactOnce(): Promise<boolean> {
 		const block = this.block;
 		const pos = block.position;
 
@@ -293,18 +297,18 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 		Client.bot.entity.pitch = Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z));
 
 		// Listen for the raw block_change packet at this position
-		const promise = new Promise<void>(resolve => {
+		const promise = new Promise<boolean>(resolve => {
 			const timeout = setTimeout(() => {
 				Client.bot._client.removeListener("block_change", onBlockChange);
 				Stasis.logger.warn(`Trapdoor interaction timed out at ${ pos }`);
-				resolve();
+				resolve(false);
 			}, 5000);
 
 			const onBlockChange = (packet: { location: { x: number; y: number; z: number } }) => {
 				if (packet.location.x === pos.x && packet.location.y === pos.y && packet.location.z === pos.z) {
 					Client.bot._client.removeListener("block_change", onBlockChange);
 					clearTimeout(timeout);
-					resolve();
+					resolve(true);
 				}
 			};
 
@@ -349,6 +353,49 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 		return promise;
 	}
 
+	public async interact(): Promise<boolean> {
+		const interacted = await this.interactOnce();
+		if (interacted) return true;
+
+		// A failed first click can be caused by client/server sneak desync.
+		Client.bot._client.write("entity_action", {
+			entityId: Client.bot.entity.id,
+			actionId: 1,
+			jumpBoost: 0
+		});
+
+		Stasis.logger.warn(`Retrying trapdoor interaction after unsneak at ${ this.block.position }`);
+		return await this.interactOnce();
+	}
+
+	private waitForPearlBreak(initialPearlIds: Set<number>): Promise<boolean> {
+		if (initialPearlIds.size === 0) {
+			Stasis.logger.warn(`No pearls found in stasis chamber at ${ this.block.position }`);
+			return Promise.resolve(false);
+		}
+
+		return new Promise<boolean>(resolve => {
+			const timeout = setTimeout(() => {
+				Client.bot.removeListener("entityGone", onEntityGone);
+				Stasis.logger.warn(`Timed out waiting for pearl break at ${ this.block.position }`);
+				resolve(false);
+			}, 5000);
+
+			const onEntityGone = (entity: Entity) => {
+				if (!initialPearlIds.has(entity.id)) return;
+
+				const remaining = this.entities.filter(pearl => initialPearlIds.has(pearl.id));
+				if (remaining.length >= initialPearlIds.size) return;
+
+				Client.bot.removeListener("entityGone", onEntityGone);
+				clearTimeout(timeout);
+				resolve(true);
+			};
+
+			Client.bot.on("entityGone", onEntityGone);
+		});
+	}
+
 	/**
 	 * Enqueue a goal stasis
 	 */
@@ -366,12 +413,13 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 					// Check the player is still online (players is keyed by username, owner is a UUID)
 					const owner = this.ownerId && Object.values(Client.bot.players).find(p => p.uuid === this.ownerId);
 					if (!owner) return;
+					const pearlIds = new Set(this.entities.map(entity => entity.id));
 
 					// Interact with the stasis and wait for confirmation
-					await this.interact();
+					const interacted = await this.interact();
+					if (!interacted) return;
 
-					// Remove the stasis from the database
-					await this.remove();
+					await this.waitForPearlBreak(pearlIds);
 
 				});
 				break;
@@ -412,9 +460,12 @@ export class Stasis<Resolved extends boolean = false> implements Omit<PrismaStas
 					});
 
 					if (!joined) return;
+					const pearlIds = new Set(this.entities.map(entity => entity.id));
 
-					await this.interact();
-					await this.remove();
+					const interacted = await this.interact();
+					if (!interacted) return;
+
+					await this.waitForPearlBreak(pearlIds);
 
 				});
 				break;
