@@ -25,9 +25,12 @@ export class CommandManager {
 		const player = Client.bot.players[username];
 		if (!player) return;
 
+		const [ command, ...args ] = input.trim().split(/\s+/);
+		const tokens = command ? [ command.toLowerCase(), ...args ] : [];
+
 		await this.store.run({ player, method }, async() => {
 			try {
-				await this.program.parseAsync(input.split(/\s+/), { from: "user" });
+				await this.program.parseAsync(tokens, { from: "user" });
 			} catch (error) {
 
 				// Silently ignore unknown commands from IRC and public chat
