@@ -67,6 +67,19 @@ declare namespace Packets {
 			portalCooldown: number;
 		}
 
+		"entity_velocity": {
+			entityId: number;
+			velocity: {
+				x: number;
+				y: number;
+				z: number;
+			},
+		}
+
+		"entity_destroy": {
+			entityIds: number[];
+		}
+
 	}
 
 }
