@@ -5,14 +5,14 @@ import { Logger } from "./util/Logger";
 
 const logger = new Logger(chalk.hex("#a990ec")("PRISMA"));
 
-// Apply pending migrations on startup (creates tables if DB is empty)
-const migrate = Bun.spawnSync([ "bunx", "prisma", "migrate", "deploy" ]);
-if (migrate.exitCode === 0) {
-	logger.log("Database migrations applied");
-} else {
-	logger.error("Database migration failed:\n", migrate.stderr.toString());
-	process.exit(1);
-}
+// // Apply pending migrations on startup (creates tables if DB is empty)
+// const migrate = Bun.spawnSync([ "bunx", "prisma", "migrate", "deploy" ]);
+// if (migrate.exitCode === 0) {
+// 	logger.log("Database migrations applied");
+// } else {
+// 	logger.error("Database migration failed:\n", migrate.stderr.toString());
+// 	process.exit(1);
+// }
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 

@@ -80,6 +80,19 @@ declare namespace Packets {
 			entityIds: number[];
 		}
 
+		"declare_commands": {
+			nodes: {
+				flags: {
+					command_node_type: number
+				};
+				children: number[];
+				extraNodeData?: {
+					name?: string
+				};
+			}[];
+			rootIndex: number;
+		}
+
 	}
 
 }
