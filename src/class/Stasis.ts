@@ -13,46 +13,6 @@ import { Pearl } from "./Pearl";
 
 export class Stasis extends Column implements StasisData {
 
-	/** The ID of the stasis, which is a unique identifier for the stasis in the database */
-	public readonly id: string;
-
-	/** The date and time when the stasis was created */
-	public readonly createdAt: Date;
-
-	/** The dimension the stasis is located in (e.g. "overworld", "the_nether", "the_end") */
-	public readonly dimension: Dimension;
-
-	/** The UUID of the player who owns the stasis */
-	public readonly ownerId: string;
-
-	/** The server the stasis is located on */
-	public readonly server: string;
-
-	/** The X coordinate of the stasis block */
-	public readonly x: number;
-
-	/** The Y coordinate of the stasis block */
-	public readonly y: number;
-
-	/** The Z coordinate of the stasis block */
-	public readonly z: number;
-
-	/**
-	 * Creates a new Stasis instance from a Stasis object retrieved from the database
-	 * @param data - The Stasis data object retrieved from the database
-	 */
-	constructor(data: StasisData) {
-		super(data.x, data.y, data.z);
-		this.id = data.id;
-		this.createdAt = data.createdAt;
-		this.dimension = z.enum([ "overworld", "the_nether", "the_end" ]).parse(data.dimension);
-		this.ownerId = data.ownerId;
-		this.server = data.server;
-		this.x = data.x;
-		this.y = data.y;
-		this.z = data.z;
-	}
-
 	/**
 	 * Finds a stasis instance based on a position, block, pearl, or entity within it
 	 * @param search - A Vec3, Block, Entity, or Pearl to find the stasis for
@@ -117,6 +77,46 @@ export class Stasis extends Column implements StasisData {
 			.filter(s => s.pearls.filter(pearl => pearl.ownerId === player).length > 0)
 			.filter(s => s.pearls.some(({ entity }) => entity.position.distanceTo(Client.bot.entity.position) <= maxDistance));
 
+	}
+
+	/** The ID of the stasis, which is a unique identifier for the stasis in the database */
+	public readonly id: string;
+
+	/** The date and time when the stasis was created */
+	public readonly createdAt: Date;
+
+	/** The dimension the stasis is located in (e.g. "overworld", "the_nether", "the_end") */
+	public readonly dimension: Dimension;
+
+	/** The UUID of the player who owns the stasis */
+	public readonly ownerId: string;
+
+	/** The server the stasis is located on */
+	public readonly server: string;
+
+	/** The X coordinate of the stasis block */
+	public readonly x: number;
+
+	/** The Y coordinate of the stasis block */
+	public readonly y: number;
+
+	/** The Z coordinate of the stasis block */
+	public readonly z: number;
+
+	/**
+	 * Creates a new Stasis instance from a Stasis object retrieved from the database
+	 * @param data - The Stasis data object retrieved from the database
+	 */
+	constructor(data: StasisData) {
+		super(data.x, data.y, data.z);
+		this.id = data.id;
+		this.createdAt = data.createdAt;
+		this.dimension = z.enum([ "overworld", "the_nether", "the_end" ]).parse(data.dimension);
+		this.ownerId = data.ownerId;
+		this.server = data.server;
+		this.x = data.x;
+		this.y = data.y;
+		this.z = data.z;
 	}
 
 	/**

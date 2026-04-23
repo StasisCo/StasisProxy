@@ -42,8 +42,10 @@ export class Pearl extends EventEmitter<{
 		return StasisManager.pearls.get(entity.id) ?? null;
 	}
 
+	/** The UUID of the player who owns this pearl, if known */
 	public ownerId?: string;
 
+	/** The in-world entity for this pearl */
 	public readonly entity: Entity;
 
 	constructor(packet: Packets.Schema["spawn_entity"]) {
@@ -76,7 +78,7 @@ export class Pearl extends EventEmitter<{
 				return;
 			}
 			
-			// If there is no identifiable owner
+			// If there is an identifiable owner
 			if (this.suspended) Stasis.from(this).then(resolved => {
 				if (!resolved || !resolved.ownerId) return;
 				this.ownerId = resolved.ownerId;

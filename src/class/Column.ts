@@ -11,19 +11,6 @@ import { Stasis } from "./Stasis";
 
 export class Column {
 
-	/** The bottom position of the stasis column bounding box (the soul sand block) */
-	public readonly pos1: Vec3;
-
-	/** The top position of the stasis column bounding box (the trapdoor block) */
-	public readonly pos2: Vec3;
-
-	protected constructor(x: number, y: number, z: number) {
-		const box = Column.getBoundingBox(new Vec3(x, y, z));
-		if (!box) throw new Error(`No valid stasis column found at position (${ x }, ${ y }, ${ z })`);
-		this.pos1 = box.pos1;
-		this.pos2 = box.pos2;
-	}
-
 	/**
      * Checks if a block is a valid stasis trigger (a trapdoor that isn't made of iron)
      * @param block - The block to check
@@ -98,6 +85,19 @@ export class Column {
 			return null;
 		}
     
+	}
+
+	/** The bottom position of the stasis column bounding box (the soul sand block) */
+	public readonly pos1: Vec3;
+
+	/** The top position of the stasis column bounding box (the trapdoor block) */
+	public readonly pos2: Vec3;
+
+	protected constructor(x: number, y: number, z: number) {
+		const box = Column.getBoundingBox(new Vec3(x, y, z));
+		if (!box) throw new Error(`No valid stasis column found at position (${ x }, ${ y }, ${ z })`);
+		this.pos1 = box.pos1;
+		this.pos2 = box.pos2;
 	}
 
 	/**
