@@ -9,7 +9,7 @@ import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
 import { Stasis } from "./Stasis";
 
-export class StasusColumn {
+export class StasisColumn {
 
 	/**
      * Checks if a block is a valid stasis trigger (a trapdoor that isn't made of iron)
@@ -48,7 +48,7 @@ export class StasusColumn {
 		while (trapdoorY <= bottomY + height) {
 			const block = Client.bot.blockAt(new Vec3(pos.x, trapdoorY, pos.z));
 			if (!block) return null; // Chunk not loaded yet
-			if (StasusColumn.isTriggerBlock(block)) break;
+			if (StasisColumn.isTriggerBlock(block)) break;
 			trapdoorY++;
 		}
     
@@ -80,7 +80,7 @@ export class StasusColumn {
 		if (!bounds) return null;
             
 		try {
-			return new StasusColumn(position.x, position.y, position.z);
+			return new StasisColumn(position.x, position.y, position.z);
 		} catch {
 			return null;
 		}
@@ -94,7 +94,7 @@ export class StasusColumn {
 	public readonly pos2: Vec3;
 
 	protected constructor(x: number, y: number, z: number) {
-		const box = StasusColumn.getBoundingBox(new Vec3(x, y, z));
+		const box = StasisColumn.getBoundingBox(new Vec3(x, y, z));
 		if (!box) throw new Error(`No valid stasis column found at position (${ x }, ${ y }, ${ z })`);
 		this.pos1 = box.pos1;
 		this.pos2 = box.pos2;
@@ -105,9 +105,9 @@ export class StasusColumn {
 	 * @returns {Block} The trapdoor block
 	 */
 	public get block(): Block {
-		const block = [ this.pos1, this.pos2 ].map(pos => Client.bot.blockAt(pos)).find(block => block && StasusColumn.isTriggerBlock(block));
+		const block = [ this.pos1, this.pos2 ].map(pos => Client.bot.blockAt(pos)).find(block => block && StasisColumn.isTriggerBlock(block));
 		if (!block) throw new Error("Failed to find block at stasis trigger position");
-		if (!StasusColumn.isTriggerBlock(block)) throw new Error("Block at stasis trigger position is not a valid trigger");
+		if (!StasisColumn.isTriggerBlock(block)) throw new Error("Block at stasis trigger position is not a valid trigger");
 		return block;
 	}
 

@@ -2,11 +2,11 @@ import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import { Vec3 } from "vec3";
 import { Client } from "~/class/Client";
-import { Column } from "~/class/Column";
 import { Goal } from "~/class/Goal";
 import { Logger } from "~/class/Logger";
 import { Pearl } from "~/class/Pearl";
 import { Stasis } from "~/class/Stasis";
+import { StasisColumn } from "~/class/StasisColumn";
 import { STASIS_USER_MAX } from "~/config";
 
 export class StasisManager {
@@ -140,7 +140,7 @@ export class StasisManager {
 			pearl.off("destroyed", onDestroyed);
 
 			// Get the bounding box of the pearl in stasis, which we will use to find the corresponding stasis chamber
-			const column = Column.get(pearl.entity.position as Vec3);
+			const column = StasisColumn.get(pearl.entity.position as Vec3);
 			if (!column) {
 				StasisManager.logger.warn(`Failed to find a stasis chamber for pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(owner.username) }`);
 				return;

@@ -5,8 +5,8 @@ import type { Bot as Mineflayer } from "mineflayer";
 import sharp from "sharp";
 import { Vec3 } from "vec3";
 import z from "zod";
-import { Column } from "~/class/Column";
 import { Stasis } from "~/class/Stasis";
+import { StasisColumn } from "~/class/StasisColumn";
 import { ChatManager } from "~/manager/ChatManager";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
@@ -494,7 +494,7 @@ export class Proxy {
 	private hasPearlInStasis(dimension: string, x: number, y: number, z: number): boolean {
 		if (this.bot.game.dimension !== dimension) return false;
 
-		const bounds = Column.getBoundingBox(new Vec3(x, y, z));
+		const bounds = StasisColumn.getBoundingBox(new Vec3(x, y, z));
 		if (!bounds) return false;
 
 		const { pos1, pos2 } = bounds;

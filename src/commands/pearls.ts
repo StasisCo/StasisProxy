@@ -4,13 +4,12 @@ import { Client } from "~/class/Client";
 import { Stasis } from "~/class/Stasis";
 import { STASIS_LOCATION_NAME, STASIS_USER_MAX } from "~/config";
 import { CommandManager } from "~/manager/CommandManager";
-import { StasisManager } from "~/manager/StasisManager";
 
 export default function(program: Command) {
 	program
-		.command("load")
-		.description("Loads a stasis at a location")
-		.argument("[location]", "Location of the stasis to trigger")
+		.command("pearls")
+		.description("Counts the number of pearls you have registered at a location")
+		.argument("[location]", "Location to list pearls for")
 		.action(async(location?: string) => {
 			
 			const { player, method } = CommandManager.context;
@@ -38,13 +37,7 @@ export default function(program: Command) {
 							return aDist - bDist;
 						}));
 
-					// If they have no pearls, inform them and exit
-					if (!pearls[0]) throw new Error("You have no pearls registered!");
-
-					// If they have pearls, but are at the limit, inform them and exit
-					Client.chat.message(sender, `Loading your pearl, you have ${ pearls.length - 1 } / ${ STASIS_USER_MAX } pearls remaining.`);
-					StasisManager.enqueue(pearls[0]);
-					break;
+					Client.chat.message(sender, `You have ${ pearls.length } / ${ STASIS_USER_MAX } pearls.`);
 
 				}
 

@@ -8,10 +8,10 @@ import { STASIS_DISTANCE_MAX } from "~/config";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { type Stasis as StasisData } from "../generated/prisma/client";
-import { Column } from "./Column";
 import { Pearl } from "./Pearl";
+import { StasisColumn } from "./StasisColumn";
 
-export class Stasis extends Column implements StasisData {
+export class Stasis extends StasisColumn implements StasisData {
 
 	/**
 	 * Finds a stasis instance based on a position, block, pearl, or entity within it
