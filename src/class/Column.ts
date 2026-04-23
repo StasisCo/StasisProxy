@@ -9,13 +9,16 @@ import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
 import { Stasis } from "./Stasis";
 
-export class StasisColumn {
+export class Column {
 
+	/** The bottom position of the stasis column bounding box (the soul sand block) */
 	public readonly pos1: Vec3;
+
+	/** The top position of the stasis column bounding box (the trapdoor block) */
 	public readonly pos2: Vec3;
 
 	protected constructor(x: number, y: number, z: number) {
-		const box = StasisColumn.getBoundingBox(new Vec3(x, y, z));
+		const box = Column.getBoundingBox(new Vec3(x, y, z));
 		if (!box) throw new Error(`No valid stasis column found at position (${ x }, ${ y }, ${ z })`);
 		this.pos1 = box.pos1;
 		this.pos2 = box.pos2;
@@ -34,18 +37,20 @@ export class StasisColumn {
 
 	/**
      * Returns the bounding box of a stasis given a position inside it.
-     * @param position - A position inside the stasis to get the bounds for
+     * @param pos - A position inside the stasis to get the bounds for
      * @returns The top and bottom positions of the stasis bounding box, or null if no valid stasis was found
      */
 	public static getBoundingBox(position: Vec3) {
+
+		const pos = position.floored();
     
 		const bottomY = "minY" in Client.bot.game && typeof Client.bot.game.minY === "number" ? Client.bot.game.minY : -64;
 		const height = "height" in Client.bot.game && typeof Client.bot.game.height === "number" ? Client.bot.game.height : 384;
         
 		// Walk down from the starting position until we find the soul sand at the bottom
-		let soulSandY = position.y;
+		let soulSandY = pos.y;
 		while (soulSandY >= bottomY) {
-			const block = Client.bot.blockAt(new Vec3(position.x, soulSandY, position.z));
+			const block = Client.bot.blockAt(new Vec3(pos.x, soulSandY, pos.z));
 			if (!block) return null; // Chunk not loaded yet
 			if (block.name === "soul_sand") break;
 			soulSandY--;
@@ -54,15 +59,15 @@ export class StasisColumn {
 		// Walk up from the soul sand until we find the top bubble column block
 		let trapdoorY = soulSandY;
 		while (trapdoorY <= bottomY + height) {
-			const block = Client.bot.blockAt(new Vec3(position.x, trapdoorY, position.z));
+			const block = Client.bot.blockAt(new Vec3(pos.x, trapdoorY, pos.z));
 			if (!block) return null; // Chunk not loaded yet
-			if (StasisColumn.isTriggerBlock(block)) break;
+			if (Column.isTriggerBlock(block)) break;
 			trapdoorY++;
 		}
     
 		return {
-			pos1: new Vec3(position.x, soulSandY, position.z),
-			pos2: new Vec3(position.x, trapdoorY, position.z)
+			pos1: new Vec3(pos.x, soulSandY, pos.z),
+			pos2: new Vec3(pos.x, trapdoorY, pos.z)
 		};
             
 	}
@@ -88,7 +93,7 @@ export class StasisColumn {
 		if (!bounds) return null;
             
 		try {
-			return new StasisColumn(position.x, position.y, position.z);
+			return new Column(position.x, position.y, position.z);
 		} catch {
 			return null;
 		}
@@ -100,9 +105,9 @@ export class StasisColumn {
 	 * @returns {Block} The trapdoor block
 	 */
 	public get block(): Block {
-		const block = [ this.pos1, this.pos2 ].map(pos => Client.bot.blockAt(pos)).find(block => block && StasisColumn.isTriggerBlock(block));
+		const block = [ this.pos1, this.pos2 ].map(pos => Client.bot.blockAt(pos)).find(block => block && Column.isTriggerBlock(block));
 		if (!block) throw new Error("Failed to find block at stasis trigger position");
-		if (!StasisColumn.isTriggerBlock(block)) throw new Error("Block at stasis trigger position is not a valid trigger");
+		if (!Column.isTriggerBlock(block)) throw new Error("Block at stasis trigger position is not a valid trigger");
 		return block;
 	}
 

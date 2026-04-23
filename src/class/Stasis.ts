@@ -8,10 +8,10 @@ import { STASIS_DISTANCE_MAX } from "~/config";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { type Stasis as StasisData } from "../generated/prisma/client";
+import { Column } from "./Column";
 import { Pearl } from "./Pearl";
-import { StasisColumn } from "./StasisColumn";
 
-export class Stasis extends StasisColumn implements StasisData {
+export class Stasis extends Column implements StasisData {
 
 	/** The ID of the stasis, which is a unique identifier for the stasis in the database */
 	public readonly id: string;
@@ -74,24 +74,15 @@ export class Stasis extends StasisColumn implements StasisData {
 		if (!bounds) return null;
 		
 		// Lookup the stasis in the database
-		return await prisma.stasis.findFirst({
+		return await prisma.stasis.findUnique({
 			where: {
-				OR: Object.values(bounds).map(bound => ({
+				position: {
 					server: Client.host,
 					dimension: Client.bot.game.dimension,
-					x: {
-						gte: Math.floor(bound.x),
-						lte: Math.ceil(bound.x)
-					},
-					y: {
-						gte: Math.floor(bound.y),
-						lte: Math.ceil(bound.y)
-					},
-					z: {
-						gte: Math.floor(bound.z),
-						lte: Math.ceil(bound.z)
-					}
-				}))
+					x: bounds.pos2.x,
+					y: bounds.pos2.y,
+					z: bounds.pos2.z
+				}
 			}
 		}).then(data => data ? new Stasis(data) : null);
 
