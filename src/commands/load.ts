@@ -29,7 +29,7 @@ export default function(program: Command) {
 					if (!sender) return;
 
 					// Find all stasis chambers for this player, sorted by distance to the bot
-					const pearls = await Stasis.fetch(sender)
+					const pearls = await Stasis.fetch(sender.uuid)
 						.then(stasis => stasis.sort((a, b) => {
 							const aDist = a.block.position.distanceTo(Client.bot.entity.position as Vec3);
 							const bDist = b.block.position.distanceTo(Client.bot.entity.position as Vec3);

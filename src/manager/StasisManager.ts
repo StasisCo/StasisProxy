@@ -1,190 +1,275 @@
 import chalk from "chalk";
-import EventEmitter from "events";
-import { type Bot as Mineflayer } from "mineflayer";
+import { type Bot } from "mineflayer";
+import { Vec3 } from "vec3";
 import { Client } from "~/app/Client";
-import { Pearl, type OwnedPearl } from "~/class/Pearl";
+import { Goal } from "~/class/Goal";
+import { Pearl } from "~/class/Pearl";
 import { Stasis } from "~/class/Stasis";
+import { StasisColumn } from "~/class/StasisColumn";
 import { STASIS_USER_MAX } from "~/config";
 import { Logger } from "~/util/Logger";
 
-export class StasisManager extends EventEmitter<{
+export class StasisManager {
 
-	/** Emitted when a stasis chamber is saved to the database */
-	"stasisSaved": [ Stasis<true> ];
+	private static readonly logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
+	public static readonly pearls = new Map<number, Pearl>();
+	private static readonly suspended = new Set<number>();
 
-	/** Emitted when a stasis chamber is removed from the database */
-	"stasisRemoved": [ Stasis ];
-
-}> {
-
-	private static logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
-
-	constructor(private readonly bot: Mineflayer) {
-		super();
-		if (this.bot.game) this.onReady();
-		else this.bot.once("login", this.onReady);
+	constructor(private readonly bot: Bot) {
+		if (this.bot.game) this.attach();
+		else this.bot.once("login", this.attach);
 	}
 
-	private readonly onReady = () => {
+	/**
+	 * Attach event listeners for tracking pearls and their velocities, as well as handling pearl destruction
+	 */
+	private readonly attach = () => {
 
-		this.bot._client.on("spawn_entity", async(packet: Packets.Schema["spawn_entity"]) => {
+		// When an entity spawns
+		this.bot._client.on("spawn_entity", (packet: Packets.Schema["spawn_entity"]) => {
 			
 			// Get the entity
 			const entity = this.bot.entities[packet.entityId];
 			if (!entity || entity.name !== "ender_pearl" || entity.type !== "projectile") return;
 
-			// Create a pearl instance to track
+			// Create a pearl instance
 			const pearl = new Pearl(packet);
-
-			// If the pearl is not in a stasis state, track it as a normal thrown pearl
-			if (!pearl.suspended) return await StasisManager.onPearlThrown(pearl);
-			return await pearl.resolve().then(StasisManager.onPearlEnterVisualRange);
+			StasisManager.pearls.set(packet.entityId, pearl);
+			StasisManager.onPearl(pearl);
 	
 		});
 
-		this.bot.on("entityGone", async entity => {
+		// When a entity velocity updates
+		this.bot._client.on("entity_velocity", (packet: Packets.Schema["entity_velocity"]) => {
 
-			// Make sure we have a host
-			if (!Client.host) throw new Error("No host found for entityGone event");
-
-			// Make sure its an ender pearl
-			if (entity.type !== "projectile" || entity.name !== "ender_pearl") return;
-
-			// Get stasis from pearl
-			const pearl = Pearl.from(entity);
+			// Check if this is a pearl we are tracking
+			const pearl = StasisManager.pearls.get(packet.entityId);
 			if (!pearl) return;
+		
+			// Update the pearl's velocity based on the packet data
+			const velocity = new Vec3(packet.velocity.x / 8000, packet.velocity.y / 8000, packet.velocity.z / 8000);
+			pearl.entity.velocity = velocity;
+			pearl.emit("velocity", velocity);
+			
+			if (StasisManager.suspended.has(packet.entityId)) return;
+			if (pearl.suspended) {
+				StasisManager.suspended.add(packet.entityId);
+				pearl.emit("suspended");
+			}
+		
+		});
 
-			// Search for a stasis
-			const stasis = Stasis.from(pearl);
-			if (!stasis) return;
+		// When an entity is destroyed
+		this.bot._client.on("entity_destroy", (packet: Packets.Schema["entity_destroy"]) => {
+			for (const entityId of packet.entityIds) {
 
-			// If we have a stasis, remove it since the pearl is gone
-			const removed = await stasis.remove();
-			if (removed) this.emit("stasisRemoved", stasis);
+				// Check if this is a pearl we are tracking
+				const pearl = StasisManager.pearls.get(entityId);
+				if (!pearl) continue;
 
+				// If it is, emit a log and remove it from tracking
+				StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } broke or despawned`);
+				StasisManager.pearls.delete(entityId);
+				StasisManager.suspended.delete(entityId);
+				pearl.emit("destroyed", pearl.entity.id);
+				pearl.removeAllListeners();
+				
+			}
 		});
 
 	};
 
 	/**
-	 * Handle an existing pearl entering visual range (e.g. on login or when coming out of a queue), 
-	 * attempting to locate a stasis chamber for it if its already in stasis.
+	 * Handle a pearl entering visual range
 	 * @param pearl 
 	 */
-	private static async onPearlEnterVisualRange(pearl: Pearl) {
+	private static async onPearl(pearl: Pearl) {
 
 		// If there is no identifiable owner, ignore
-		if (!pearl.isOwned()) {
+		if (!pearl.ownerId) {
 
-			const stasis = Stasis.from(pearl);
-			if (!stasis) return;
+			// Wait for up to a second
+			const timeout = new Promise<void>(resolve => setTimeout(resolve, 1000));
+			const ownerIdentified = new Promise<string>(resolve => pearl.once("owner", resolve));
 			
-			const resolved = await stasis.resolve();
-			if (!resolved) return;
-			if (!resolved.ownerId) {
-				StasisManager.logger.warn(`Failed to resolve owner for existing pearl ${ chalk.yellow(`${ pearl.entity.id }`) }`);
+			// If an owner is identified within the timeout, associate the pearl with that owner, otherwise ignore the pearl
+			const ownerId = await Promise.race([ timeout, ownerIdentified ]) || null;
+			if (!ownerId) {
+				StasisManager.logger.warn(`Pearl ${ chalk.yellow(pearl.entity.id) } has no identifiable owner and will be ignored`);
 				return;
 			}
-			
-			await pearl.associate(resolved.ownerId);
-			
-			const owner = Object.values(Client.bot.players).find(player => player.uuid === resolved.ownerId);
-			if (owner) StasisManager.logger.log(`Existing pearl ${ chalk.yellow(`${ pearl.entity.id }`) } belonging to ${ chalk.cyan(owner.username) } entered visual range`);
-			return;
 
 		}
 
 		// If the pearl is not suspended, treat it as a normal thrown pearl
 		if (!pearl.suspended) return await StasisManager.onPearlThrown(pearl);
-	
-		// Locate a stasis chamber for this pearl
-		const stasis = Stasis.from(pearl);
-		if (!stasis) {
-			StasisManager.logger.warn(`Failed to find a stasis chamber for existing pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(pearl.owner.username) }`);
-			return;
-		}
-
-		StasisManager.logger.log(`Existing pearl ${ chalk.yellow(`${ pearl.entity.id }`) } belonging to ${ chalk.cyan(pearl.owner.username) } entered visual range`);
-		const resolved = await stasis.save(pearl.owner);
-		Client.stasis.emit("stasisSaved", resolved);
+		StasisManager.logger.log(`Existing pearl ${ chalk.yellow(`${ pearl.entity.id }`) } belonging to ${ chalk.cyan(pearl.ownerId) } entered visual range`);
 
 	}
 
 	/**
-	 * Handle a newly thrown pearl, waiting for it to enter stasis if necessary before attempting 
-	 * to locate a stasis chamber
+	 * Handle a pearl being thrown by a player
 	 * @param pearl 
 	 */
 	private static async onPearlThrown(pearl: Pearl) {
 
-		// Make sure we have an owned pearl
-		if (!pearl.isOwned()) return StasisManager.logger.warn(`Pearl ${ chalk.yellow(pearl.entity.id) } has no identifiable owner, skipping tracking...`);
-		StasisManager.logger.log(`Player ${ chalk.cyan(pearl.owner.username) } threw pearl ${ chalk.yellow(pearl.entity.id) }`);
+		// Locate an online owner
+		const owner = Object.values(Client.bot.players).find(player => player.uuid === pearl.ownerId);
 
-		const onDestroyed = () => StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(pearl.owner.username) } broke`);
+		// Ensure the pearl has an ownerId before proceeding
+		if (!pearl.ownerId || !owner) {
+			StasisManager.logger.warn(`Pearl ${ chalk.yellow(pearl.entity.id) } was thrown but has no identifiable owner and will be ignored`);
+			return;
+		}
+
+		StasisManager.logger.log(`Player ${ chalk.cyan(owner.username) } threw pearl ${ chalk.yellow(pearl.entity.id) }`);
+
+		const onDestroyed = () => StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(owner.username) } broke`);
 		pearl.once("destroyed", onDestroyed);
 
 		// Wait for the pearl to enter stasis
 		pearl.once("suspended", async() => {
 
 			// If the pearl gets destroyed after stasis
-			if (pearl.destroyed) return;
 			pearl.off("destroyed", onDestroyed);
 
-			// At this point, we have a pearl that is stasised, but we need to actually identify the chamber
-			const stasis = Stasis.from(pearl);
-			if (!stasis) {
-				StasisManager.logger.warn(`Failed to find a stasis chamber for pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(pearl.owner.username) }`);
+			// Get the bounding box of the pearl in stasis, which we will use to find the corresponding stasis chamber
+			const column = StasisColumn.get(pearl.entity.position as Vec3);
+			if (!column) {
+				StasisManager.logger.warn(`Failed to find a stasis chamber for pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(owner.username) }`);
 				return;
 			}
-
-			// Get any existing pearl entities in the stasis
-			const existing = stasis.entities
-				.filter(e => e.name === "ender_pearl" && e.type === "projectile" && e.id !== pearl.entity.id)
-				.map(Pearl.from)
-				.filter((p): p is Pearl => p !== null);
-
-			// Resolve all owners of existing pearls
-			const pearls = await Promise.allSettled(existing.map(pearl => pearl.resolve()))
-				.then(results => results.filter(result => result.status === "fulfilled"))
-				.then(results => results.map(result => result.value) as Array<Pearl | OwnedPearl>);
 
 			// If we have an existing pearl that belongs to a different or unknown owner, we have a conflict and need to ignore this stasis chamber since we cant be sure which pearl is ours
-			if (pearls.some(p => p.isOwned() && p.owner.uuid !== pearl.owner.uuid)) {
-				const owner = await stasis.resolve()
-					.then(stasis => stasis?.ownerId)
-					.then(ownerId => ownerId ? Object.values(Client.bot.players).find(player => player.uuid === ownerId) ?? null : null);
-				if (owner) return StasisManager.logger.warn(`Stasis chamber at ${ chalk.yellow(stasis.block.position.toString()) } already belongs to ${ chalk.cyan(owner.username) }, ignoring pearl ${ chalk.yellow(pearl.entity.id) } from ${ chalk.cyan(pearl.owner.username) }`);
-				StasisManager.logger.warn(`Stasis chamber at ${ chalk.yellow(stasis.block.position.toString()) } already contains a pearl belonging to an unknown owner, ignoring pearl ${ chalk.yellow(pearl.entity.id) } from ${ chalk.cyan(pearl.owner.username) }`);
+			if (column.pearls.some(p => p.ownerId !== pearl.ownerId || !p.ownerId)) {
+				Client.chat.message(owner, "This stasis already belongs to someone else, your pearl will be ignored.");
 				return;
 			}
 
-			// Save our stasis
-			if (!pearl.owner.uuid) {
-				StasisManager.logger.warn(`Skipping stasis save for pearl ${ chalk.yellow(pearl.entity.id) }: owner UUID missing`);
-				return;
-			}
-			const resolved = await stasis.save(pearl.owner);
-			Client.stasis.emit("stasisSaved", resolved);
+			// Save the stasis to the database
+			const stasis = await column.save(owner);
 
 			// Get all stasis chambers for this player
-			const all = await Stasis.fetch(pearl.owner);
+			const all = await Stasis.fetch(owner.uuid);
 
 			// If they have too many, break and remove excess pearls until at the limit
 			if (all.length > STASIS_USER_MAX && STASIS_USER_MAX >= 0) {
 				const excess = all.slice(STASIS_USER_MAX);
-				Client.chat.message(pearl.owner, `You already have ${ all.length - 1 } / ${ STASIS_USER_MAX } pearls, ${ excess.length } will be removed.`);
-				StasisManager.logger.warn(`Player ${ chalk.cyan(pearl.owner.username) } has too many stasis chambers (${ chalk.yellow(all.length) } / ${ chalk.yellow(STASIS_USER_MAX) }), removing ${ chalk.yellow(excess.length) } excess`);
+				Client.chat.message(owner, `You already have ${ all.length - 1 } / ${ STASIS_USER_MAX } pearls, ${ excess.length } will be removed.`);
+				StasisManager.logger.warn(`Player ${ chalk.cyan(owner.uuid) } has too many stasis chambers (${ chalk.yellow(all.length) } / ${ chalk.yellow(STASIS_USER_MAX) }), removing ${ chalk.yellow(excess.length) } excess`);
 
 				for (const extra of excess) extra.enqueue();
 				return;
 			}
 
-			Client.chat.message(pearl.owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
-			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(pearl.owner.username) }`);
+			Client.chat.message(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
+			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.username) }`);
 
 		});
 
+	}
+
+	/**
+	 * Enqueue a stasis to be activated
+	 */
+	public static enqueue(stasis: Stasis, mode: "online" | "offline" = "online") {
+	
+		// Initialize the goal
+		const goal = new Goal(stasis.block.position).setRange(5.0);
+			
+		switch (mode) {
+				
+			// Online mode
+			case "online":
+				goal.once("arrived", async() => {
+						
+					// Check the player is still online (players is keyed by username, owner is a UUID)
+					const owner = Object.values(Client.bot.players).find(p => p.uuid === stasis.ownerId);
+					if (!owner) return StasisManager.logger.warn(`Owner of stasis ${ chalk.yellow(stasis.id) } is offline, skipping activation`);
+
+					// Get the pearls in the stasis before interacting
+					const pearls = stasis.pearls;
+
+					// Interact with the stasis and wait for confirmation
+					for (let attempt = 1; attempt <= 3; attempt++) {
+						const interacted = await stasis.interact();
+						if (interacted) break;
+						StasisManager.logger.warn(`Failed to interact with stasis ${ chalk.yellow(stasis.id) } belonging to player ${ chalk.cyan(owner.username) }, attempt ${ chalk.yellow(attempt) }`);
+						if (attempt === 3) return;
+						await new Promise(res => setTimeout(res, 1000));
+					}
+					
+					// Wait for all pearls in the stasis to break, with a timeout in case something goes wrong
+					const timeout = new Promise<void>(resolve => setTimeout(resolve, 1000));
+					const pearlsDestroyed = Promise.all(pearls.map(pearl => new Promise(res => pearl.once("destroyed", res))));
+					await Promise.race([ timeout, pearlsDestroyed ]);
+
+					// Make sure all the pearls were destroyed
+					if (pearls.map(p => p.entity.id).every(id => !StasisManager.pearls.has(id))) return await stasis.remove();
+
+					// Otherwise, queue another stasis for the user
+					const next = await Stasis.fetch(stasis.ownerId).then(all => all.find(s => s.id !== stasis.id));
+					if (!next) {
+						Client.chat.message(owner, "The pearl in stasis did not break, and you have no others.");
+						return;
+					}
+					
+					Client.chat.message(owner, "The pearl in stasis did not break. Trying another...");
+					next.enqueue();
+
+				});
+				break;
+	
+			// 	// Offline mode
+			// case "offline":
+			// 	goal.once("arrived", async() => {
+	
+			// 		// 			// LegacyStasis.logger.log("Waiting for owner to join...");
+	
+			// 		// 			// // Wait for the owner to appear in an add_player player_info packet
+			// 		// 			// const joined = await new Promise<boolean>(resolve => {
+			// 		// 			// 	const timeout = setTimeout(() => {
+			// 		// 			// 		Client.bot._client.removeListener("packet", onPacket);
+			// 		// 			// 		LegacyStasis.logger.warn("Timed out waiting for owner to join");
+			// 		// 			// 		resolve(false);
+			// 		// 			// 	}, 70000);
+	
+			// 		// 			// 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol packet
+			// 		// 			// 	const onPacket = (data: any, meta: { name: string }) => {
+			// 		// 			// 		if (meta.name !== "player_info") return;
+	
+			// 		// 			// 		// Newer (1.19.3+): action is a bitmask object; Legacy: action is a string
+			// 		// 			// 		const isAddPlayer = typeof data.action === "string"
+			// 		// 			// 			? data.action === "add_player"
+			// 		// 			// 			: data.action?.add_player === true;
+			// 		// 			// 		if (!isAddPlayer) return;
+	
+			// 		// 			// 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol entry
+			// 		// 			// 		if (!data.data?.some((entry: any) => entry.uuid === this.ownerId)) return;
+	
+			// 		// 			// 		Client.bot._client.removeListener("packet", onPacket);
+			// 		// 			// 		clearTimeout(timeout);
+			// 		// 			// 		resolve(true);
+			// 		// 			// 	};
+	
+			// 		// 			// 	Client.bot._client.on("packet", onPacket);
+			// 		// 			// });
+	
+			// 		// 			// if (!joined) return;
+			// 		// 			// const pearlIds = new Set(this.entities.map(entity => entity.id));
+	
+			// 		// 			// const interacted = await this.interact();
+			// 		// 			// if (!interacted) return;
+	
+			// 		// 			// await this.waitForPearlBreak(pearlIds);
+	
+			// 	});
+			// 	break;
+	
+		}
+	
+		Client.pathfinding.pushGoal(goal);
+	
 	}
 
 }

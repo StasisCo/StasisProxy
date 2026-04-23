@@ -10,6 +10,9 @@ export class PathfindingManager {
 	private home: Vec3 | null = null;
 	private returningHome = false;
 
+	/** True while awaiting async onArrived/onTimeout listeners — blocks premature processNext and returnHome */
+	private finishing = false;
+
 	/** Tracks ticks spent without meaningful XZ movement while controls.forward is true */
 	private stuckTicks = 0;
 	private lastPos = { x: 0, z: 0 };
@@ -64,7 +67,7 @@ export class PathfindingManager {
 			this.stopMovement();
 			this.active = null;
 			this.processNext();
-		} else if (!this.active) {
+		} else if (!this.active && !this.finishing) {
 			this.processNext();
 		}
 
@@ -126,10 +129,17 @@ export class PathfindingManager {
 		// Home goals have no listeners — skip awaiting
 		if (wasReturning) return;
 
-		// Await all listeners so async handlers (interact, remove, etc.) complete
-		// before the next goal is started.
-		const listeners = goal.listeners(reason);
-		await Promise.allSettled(listeners.map(fn => fn()));
+		// Block returnHome and pushGoal→processNext while async listeners run
+		this.finishing = true;
+		try {
+
+			// Await all listeners so async handlers (interact, remove, etc.) complete
+			// before the next goal is started.
+			const listeners = goal.listeners(reason);
+			await Promise.allSettled(listeners.map(fn => fn()));
+		} finally {
+			this.finishing = false;
+		}
 	}
 
 	private stopMovement() {
@@ -146,7 +156,7 @@ export class PathfindingManager {
 
 		// No active goal — check if we've drifted from home and need to return
 		if (!this.active) {
-			if (this.home && this.bot.entity.position.distanceTo(this.home) > 1.0) {
+			if (!this.finishing && this.home && this.bot.entity.position.distanceTo(this.home) > 1.0) {
 				this.returnHome();
 			}
 			return;

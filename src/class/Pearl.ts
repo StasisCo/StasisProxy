@@ -1,13 +1,29 @@
+import { redis } from "bun";
 import EventEmitter from "events";
-import type { Player } from "mineflayer";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
-import { redis } from "~/redis";
+import { StasisManager } from "~/manager/StasisManager";
 import { Client } from "../app/Client";
-
-export type OwnedPearl = Pearl & { readonly owner: Player };
+import { Stasis } from "./Stasis";
 
 export class Pearl extends EventEmitter<{
+
+	/**
+     * Emitted when the pearl is destroyed
+	 * @param entityId The ID of the pearl entity that was destroyed
+     */
+	"destroyed": [ number ];
+
+	/**
+	 * Emitted when the pearl's owner is resolved (i.e. the owner is identified and associated with the pearl)
+	 * @param owner The player who owns the pearl
+	 */
+	"owner": [ string ];
+		
+	/**
+	 * Emitted when the pearl enters a suspended state (i.e. is moving at most 1/8 m/s vertically and is not moving horizontally)
+	 */
+	"suspended": [];
 
 	/**
      * Emitted when the pearl's velocity changes (e.g. due to gravity or collisions)
@@ -15,66 +31,20 @@ export class Pearl extends EventEmitter<{
      */
 	"velocity": [ Vec3 ];
 
-	/**
-     * Emitted when the pearl is destroyed
-     */
-	"destroyed": [];
-
-	/**
-	 * Emitted when the pearl enters a suspended state (i.e. is moving at most 1/8 m/s vertically and is not moving horizontally)
-	 */
-	"suspended": [];
-
 }> {
 
-	private static readonly instances = new Map<number, Pearl>();
-    
-	private static listening = false;
-
-	private static attach() {
-		if (Pearl.listening) return;
-		Pearl.listening = true;
-
-		Client.bot._client.on("entity_velocity", packet => {
-			const pearl = Pearl.instances.get(packet.entityId);
-			if (!pearl) return;
-
-			const velocity = new Vec3(packet.velocity.x / 8000, packet.velocity.y / 8000, packet.velocity.z / 8000);
-			pearl.entity.velocity = velocity;
-
-			if (!pearl.didSuspend && pearl.suspended) {
-				pearl.didSuspend = true;
-				pearl.emit("suspended");
-			}
-
-			pearl.emit("velocity", velocity);
-
-		});
-
-		Client.bot.on("entityGone", entity => {
-			const pearl = Pearl.instances.get(entity.id);
-			if (!pearl) return;
-			pearl.emit("destroyed");
-			pearl.isDestroyed = true;
-			pearl.removeAllListeners();
-			Pearl.instances.delete(entity.id);
-		});
-
+	/**
+	 * Finds a pearl instance from an entity
+	 * @param entity The entity to find the pearl for
+	 * @returns A Pearl instance if the entity is a pearl, or null if it is not
+	 */
+	public static from(entity: Entity) {
+		return StasisManager.pearls.get(entity.id) ?? null;
 	}
 
-	public static from(entity: Entity): Pearl | null {
-		const pearl = Pearl.instances.get(entity.id);
-		if (!pearl) return null;
-		return pearl;
-	}
+	public ownerId?: string;
 
-	private didSuspend = false;
-
-	private isDestroyed = false;
-    
 	public readonly entity: Entity;
-    
-	public owner: Player | null;
 
 	constructor(packet: Packets.Schema["spawn_entity"]) {
 		super();
@@ -88,14 +58,33 @@ export class Pearl extends EventEmitter<{
 		entity.velocity = new Vec3(packet.velocity.x / 8000, packet.velocity.y / 8000, packet.velocity.z / 8000);
 
 		// Attempt to identify an owner from objectData
-		this.owner = Object.values(Client.bot.players).find(player => player.entity && player.entity.id === packet.objectData) ?? null;
+		const owner = Object.values(Client.bot.players).find(player => player.entity && player.entity.id === packet.objectData);
+		if (owner) {
+			this.ownerId = owner.uuid;
+			this.emit("owner", this.ownerId);
+			redis.set(`pearl:${ packet.entityId }:owner`, this.ownerId);
+			return;
+		}
 
-		// Register this pearl instance for velocity tracking and cleanup on despawn
-		Pearl.attach();
-		Pearl.instances.set(entity.id, this);
+		// Check redis for owner if not found in currently loaded players
+		redis.get(`pearl:${ packet.entityId }:owner`).then(data => {
 
-		// Save owner in redis if known
-		if (this.owner) redis.set(`pearl:${ entity.id }:owner`, JSON.stringify(this.owner));
+			// If owner data is found in redis, associate it
+			if (typeof data === "string") {
+				this.ownerId = data;
+				this.emit("owner", this.ownerId);
+				return;
+			}
+			
+			// If there is no identifiable owner
+			if (this.suspended) Stasis.from(this).then(resolved => {
+				if (!resolved || !resolved.ownerId) return;
+				this.ownerId = resolved.ownerId;
+				this.emit("owner", this.ownerId);
+				redis.set(`pearl:${ packet.entityId }:owner`, this.ownerId);
+			});
+
+		});
 
 	}
 
@@ -105,54 +94,10 @@ export class Pearl extends EventEmitter<{
      * considered suspended in water).
      */
 	public get suspended() {
-		return this.entity.velocity.x === 0
-            && Math.abs(this.entity.velocity.y) <= 1 / 8
-            && this.entity.velocity.z === 0;
-	}
-
-	/**
-     * Checks if the pearl has been destroyed
-     */
-	public get destroyed() {
-		return this.isDestroyed;
-	}
-
-	/**
-	 * Type guard to check if the pearl has a known owner
-	 */
-	public isOwned(): this is OwnedPearl {
-		return this.owner !== null;
-	}
-
-	/**
-	 * Resolves the pearl's owner from Redis if not already known.
-	 * @returns The pearl as an OwnedPearl if the owner was resolved, or null if it couldn't be found
-	 */
-	public async resolve(): Promise<OwnedPearl | Pearl> {
-		if (this.isOwned()) return this;
-		const data = await redis.get(`pearl:${ this.entity.id }:owner`);
-		if (!data) return this;
-		try {
-			const owner = JSON.parse(data) as Partial<Player>;
-			if (typeof owner?.uuid !== "string" || owner.uuid.length === 0) return this;
-			this.owner = Object.values(Client.bot.players).find(p => p.uuid === owner.uuid)
-				?? ({ uuid: owner.uuid, username: owner.username ?? owner.uuid } as Player);
-		} catch {
-			return this;
-		}
-		if (this.isOwned()) return this;
-		return this;
-	}
-
-	/**
-	 * Associate a pearl with a player and save to Redis. 
-	 * @param owner The player to associate with the pearl
-	*/
-	public async associate(ownerId: string) {
-		if (typeof ownerId !== "string" || ownerId.length === 0) return;
-		this.owner = Object.values(Client.bot.players).find(p => p.uuid === ownerId)
-			?? ({ uuid: ownerId, username: ownerId } as Player);
-		await redis.set(`pearl:${ this.entity.id }:owner`, JSON.stringify(this.owner));
+		const { x, y, z } = this.entity.velocity.abs();
+		return x === 0
+            && y <= 1 / 8
+            && z === 0;
 	}
 
 }

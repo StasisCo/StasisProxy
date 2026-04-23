@@ -5,7 +5,7 @@ import type { Bot as Mineflayer } from "mineflayer";
 import sharp from "sharp";
 import { Vec3 } from "vec3";
 import z from "zod";
-import { type Stasis, Stasis as StasisClass } from "~/class/Stasis";
+import { StasisColumn } from "~/class/StasisColumn";
 import { ChatManager } from "~/manager/ChatManager";
 import { prisma } from "~/prisma";
 import { Logger } from "../util/Logger";
@@ -492,15 +492,16 @@ export class Proxy {
 	private hasPearlInStasis(dimension: string, x: number, y: number, z: number): boolean {
 		if (this.bot.game.dimension !== dimension) return false;
 
-		const bounds = StasisClass.getBounds(new Vec3(x, y, z));
+		const bounds = StasisColumn.getBoundingBox(new Vec3(x, y, z));
 		if (!bounds) return false;
 
-		const minX = Math.min(bounds[0].x, bounds[1].x);
-		const maxX = Math.max(bounds[0].x, bounds[1].x);
-		const minY = Math.min(bounds[0].y, bounds[1].y);
-		const maxY = Math.max(bounds[0].y, bounds[1].y);
-		const minZ = Math.min(bounds[0].z, bounds[1].z);
-		const maxZ = Math.max(bounds[0].z, bounds[1].z);
+		const { pos1, pos2 } = bounds;
+		const minX = Math.min(pos1.x, pos2.x);
+		const maxX = Math.max(pos1.x, pos2.x);
+		const minY = Math.min(pos1.y, pos2.y);
+		const maxY = Math.max(pos1.y, pos2.y);
+		const minZ = Math.min(pos1.z, pos2.z);
+		const maxZ = Math.max(pos1.z, pos2.z);
 
 		return Object.values(this.bot.entities)
 			.filter(e => e.type === "projectile" && e.name === "ender_pearl")
@@ -654,7 +655,7 @@ export class Proxy {
 
 		// Dynamically add/remove holograms as stasis chambers change.
 		// bot.players is keyed by username; look up owner by UUID and fall back to the DB.
-		const onStasisSaved = async(stasis: Stasis<true>) => {
+		const onStasisSaved = async(stasis: LegacyStasis<true>) => {
 			try {
 				const pos = stasis.block.position;
 				if (!this.hasPearlInStasis(stasis.dimension, pos.x, pos.y, pos.z)) return;
@@ -668,12 +669,13 @@ export class Proxy {
 				Proxy.logger.warn("Failed to spawn hologram on stasisSaved:", err);
 			}
 		};
-		const onStasisRemoved = (stasis: Stasis) => {
+		const onStasisRemoved = (stasis: LegacyStasis) => {
 			try {
 				const pos = stasis.block.position;
 				this.despawnHologram(client, stasis.dimension, pos.x, pos.y, pos.z);
 			} catch { /* block may no longer be accessible */ }
 		};
+
 		Client.stasis.on("stasisSaved", onStasisSaved);
 		Client.stasis.on("stasisRemoved", onStasisRemoved);
 
@@ -729,6 +731,7 @@ export class Proxy {
 		const cleanup = () => {
 			this.bot._client.off("packet", onServerPacket);
 			client.off("packet", onClientPacket);
+
 			Client.stasis.off("stasisSaved", onStasisSaved);
 			Client.stasis.off("stasisRemoved", onStasisRemoved);
 			this.bot.off("respawn", onRespawn);
