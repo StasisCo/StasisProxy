@@ -1,6 +1,6 @@
 import type { Bot as Mineflayer } from "mineflayer";
 import { Vec3 } from "vec3";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { Goal } from "../class/Goal";
 
 export class PathfindingManager {

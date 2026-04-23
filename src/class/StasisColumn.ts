@@ -3,7 +3,7 @@ import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import z from "zod";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";

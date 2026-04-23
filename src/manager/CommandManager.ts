@@ -3,7 +3,7 @@ import { Command, CommanderError } from "commander";
 import { readdir } from "fs/promises";
 import type { Bot, Player } from "mineflayer";
 import { join } from "path";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 
 interface CommandContext {
 	player: Player;

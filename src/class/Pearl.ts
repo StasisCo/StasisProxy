@@ -3,7 +3,7 @@ import EventEmitter from "events";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import { StasisManager } from "~/manager/StasisManager";
-import { Client } from "../app/Client";
+import { Client } from "./Client";
 import { Stasis } from "./Stasis";
 
 export class Pearl extends EventEmitter<{

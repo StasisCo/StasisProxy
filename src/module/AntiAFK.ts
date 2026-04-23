@@ -1,4 +1,4 @@
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
 
 const SPIN_TIMEOUT_MS = 5_000;

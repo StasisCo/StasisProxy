@@ -1,5 +1,5 @@
 import armorManager from "mineflayer-armor-manager";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
 
 export default class AutoArmor extends Module {

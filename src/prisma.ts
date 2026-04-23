@@ -1,7 +1,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import chalk from "chalk";
+import { Logger } from "./class/Logger";
 import { PrismaClient } from "./generated/prisma/client";
-import { Logger } from "./util/Logger";
 
 const logger = new Logger(chalk.hex("#a990ec")("PRISMA"));
 

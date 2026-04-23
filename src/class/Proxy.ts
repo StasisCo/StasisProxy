@@ -5,11 +5,13 @@ import type { Bot as Mineflayer } from "mineflayer";
 import sharp from "sharp";
 import { Vec3 } from "vec3";
 import z from "zod";
+import { Stasis } from "~/class/Stasis";
 import { StasisColumn } from "~/class/StasisColumn";
 import { ChatManager } from "~/manager/ChatManager";
+import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
-import { Logger } from "../util/Logger";
 import { Client } from "./Client";
+import { Logger } from "./Logger";
 
 /**
  * Cached packet entry with insertion order preserved via the sequence number.
@@ -655,7 +657,7 @@ export class Proxy {
 
 		// Dynamically add/remove holograms as stasis chambers change.
 		// bot.players is keyed by username; look up owner by UUID and fall back to the DB.
-		const onStasisSaved = async(stasis: LegacyStasis<true>) => {
+		const onStasisSaved = async(stasis: Stasis) => {
 			try {
 				const pos = stasis.block.position;
 				if (!this.hasPearlInStasis(stasis.dimension, pos.x, pos.y, pos.z)) return;
@@ -669,15 +671,15 @@ export class Proxy {
 				Proxy.logger.warn("Failed to spawn hologram on stasisSaved:", err);
 			}
 		};
-		const onStasisRemoved = (stasis: LegacyStasis) => {
+		const onStasisRemoved = (stasis: Stasis) => {
 			try {
 				const pos = stasis.block.position;
 				this.despawnHologram(client, stasis.dimension, pos.x, pos.y, pos.z);
 			} catch { /* block may no longer be accessible */ }
 		};
 
-		Client.stasis.on("stasisSaved", onStasisSaved);
-		Client.stasis.on("stasisRemoved", onStasisRemoved);
+		StasisManager.onSaved = onStasisSaved;
+		StasisManager.onRemoved = onStasisRemoved;
 
 		// When the bot changes dimension (respawn), all client entities are cleared.
 		// Wipe the holograms map so the guard doesn't block re-spawning, then refresh.
@@ -732,8 +734,8 @@ export class Proxy {
 			this.bot._client.off("packet", onServerPacket);
 			client.off("packet", onClientPacket);
 
-			Client.stasis.off("stasisSaved", onStasisSaved);
-			Client.stasis.off("stasisRemoved", onStasisRemoved);
+			StasisManager.onSaved = undefined;
+			StasisManager.onRemoved = undefined;
 			this.bot.off("respawn", onRespawn);
 			this.holograms.clear();
 			this.nextFakeEntityId = 0x70000000;

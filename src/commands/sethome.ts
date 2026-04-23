@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import type { Vec3 } from "vec3";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { CommandManager } from "~/manager/CommandManager";
 
 export default function(program: Command) {

@@ -3,6 +3,7 @@ import chalk from "chalk";
 import mcDataLoader from "minecraft-data";
 import { createBot, type BotOptions } from "mineflayer";
 import z from "zod";
+import { Logger } from "~/class/Logger";
 import { ChatManager } from "~/manager/ChatManager";
 import { CommandManager } from "~/manager/CommandManager";
 import { ModuleManager } from "~/manager/ModuleManager";
@@ -11,8 +12,7 @@ import { PhysicsManager } from "~/manager/PhysicsManager";
 import { PresenceManager } from "~/manager/PresenceManager";
 import { QueueManager } from "~/manager/QueueManager";
 import { StasisManager } from "~/manager/StasisManager";
-import { Logger } from "~/util/Logger";
-import { Console } from "../util/Console";
+import { Console } from "./Console";
 import { Proxy } from "./Proxy";
 
 export class Client {

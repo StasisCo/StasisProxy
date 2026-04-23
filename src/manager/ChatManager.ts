@@ -2,9 +2,9 @@ import chalk from "chalk";
 import { randomBytes } from "crypto";
 import { type Bot as Mineflayer, type Player } from "mineflayer";
 import ChatMessageConstructor from "prismarine-chat";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
+import { Logger } from "~/class/Logger";
 import { COMMAND_CHAT_PREFIX } from "~/config";
-import { Logger } from "~/util/Logger";
 import { CommandManager } from "./CommandManager";
 
 export class ChatManager {

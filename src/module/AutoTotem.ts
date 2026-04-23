@@ -1,5 +1,5 @@
 import type { Item } from "prismarine-item";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
 import { ModuleManager } from "~/manager/ModuleManager";
 import AutoEat from "./AutoEat";

@@ -1,6 +1,6 @@
 import { readdir } from "fs/promises";
 import type { Bot } from "mineflayer";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
 
 export class ModuleManager {

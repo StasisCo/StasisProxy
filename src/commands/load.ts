@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import type { Vec3 } from "vec3";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { Stasis } from "~/class/Stasis";
 import { STASIS_LOCATION_NAME, STASIS_USER_MAX } from "~/config";
 import { CommandManager } from "~/manager/CommandManager";

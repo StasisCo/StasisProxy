@@ -1,19 +1,25 @@
 import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import { Vec3 } from "vec3";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { Goal } from "~/class/Goal";
+import { Logger } from "~/class/Logger";
 import { Pearl } from "~/class/Pearl";
 import { Stasis } from "~/class/Stasis";
 import { StasisColumn } from "~/class/StasisColumn";
 import { STASIS_USER_MAX } from "~/config";
-import { Logger } from "~/util/Logger";
 
 export class StasisManager {
 
 	private static readonly logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
 	public static readonly pearls = new Map<number, Pearl>();
 	private static readonly suspended = new Set<number>();
+
+	/** Called when a stasis chamber is saved to the database */
+	public static onSaved?: (stasis: Stasis) => void;
+
+	/** Called when a stasis chamber is removed from the database */
+	public static onRemoved?: (stasis: Stasis) => void;
 
 	constructor(private readonly bot: Bot) {
 		if (this.bot.game) this.attach();
@@ -164,6 +170,7 @@ export class StasisManager {
 
 			Client.chat.message(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
 			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.username) }`);
+			StasisManager.onSaved?.(stasis);
 
 		});
 
@@ -205,7 +212,11 @@ export class StasisManager {
 					await Promise.race([ timeout, pearlsDestroyed ]);
 
 					// Make sure all the pearls were destroyed
-					if (pearls.map(p => p.entity.id).every(id => !StasisManager.pearls.has(id))) return await stasis.remove();
+					if (pearls.map(p => p.entity.id).every(id => !StasisManager.pearls.has(id))) {
+						await stasis.remove();
+						StasisManager.onRemoved?.(stasis);
+						return;
+					}
 
 					// Otherwise, queue another stasis for the user
 					const next = await Stasis.fetch(stasis.ownerId).then(all => all.find(s => s.id !== stasis.id));

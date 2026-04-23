@@ -1,7 +1,7 @@
 import mcData from "minecraft-data";
 import type { Bot as Mineflayer } from "mineflayer";
 import { Physics, PlayerState, type Controls } from "prismarine-physics";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 
 const PI = Math.PI;
 const PI_2 = Math.PI * 2;

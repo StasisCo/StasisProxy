@@ -3,7 +3,7 @@ import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import z from "zod";
-import { Client } from "~/app/Client";
+import { Client } from "~/class/Client";
 import { STASIS_DISTANCE_MAX } from "~/config";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
@@ -123,7 +123,6 @@ export class Stasis extends StasisColumn implements StasisData {
 
 		// Only keep stasis that have pearls and are within range
 		return stasis
-			.filter(s => s.state.open === true)
 			.filter(s => s.pearls.filter(pearl => pearl.ownerId === player).length > 0)
 			.filter(s => s.pearls.some(({ entity }) => entity.position.distanceTo(Client.bot.entity.position) <= maxDistance));
 

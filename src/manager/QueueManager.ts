@@ -4,7 +4,7 @@ import type { PacketMeta } from "minecraft-protocol";
 import { type GameState, type Bot as Mineflayer } from "mineflayer";
 import prettyMilliseconds from "pretty-ms";
 import { ChatMessage } from "prismarine-chat";
-import { Logger } from "~/util/Logger";
+import { Logger } from "~/class/Logger";
 import { ChatManager } from "./ChatManager";
 
 export class QueueManager extends EventEmitter<{
