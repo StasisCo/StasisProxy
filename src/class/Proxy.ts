@@ -7,6 +7,7 @@ import { ChatManager } from "~/manager/ChatManager";
 import { Client } from "./Client";
 import { Logger } from "./Logger";
 import { StasisHologram } from "./StasisHologram";
+import { StasisScoreboard } from "./StasisScoreboard";
 
 /**
  * Cached packet entry with insertion order preserved via the sequence number.
@@ -658,11 +659,16 @@ export class Proxy {
 		const holograms = new StasisHologram(client, this.bot, this.playerList);
 		holograms.attach();
 
+		// Render the sidebar scoreboard HUD on the client.
+		const scoreboard = new StasisScoreboard(client, this.bot);
+		scoreboard.attach();
+
 		// Cleanup on disconnect
 		const cleanup = () => {
 			this.bot._client.off("packet", onServerPacket);
 			client.off("packet", onClientPacket);
 			holograms.detach();
+			scoreboard.detach();
 
 			this.client = null;
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading stored field
