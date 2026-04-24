@@ -75,10 +75,22 @@ export class StasisManager {
 
 				// If it is, emit a log and remove it from tracking
 				StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } broke or despawned`);
+				const wasSuspended = StasisManager.suspended.has(entityId);
+				const pearlPosition = pearl.entity.position.clone() as Vec3;
 				StasisManager.pearls.delete(entityId);
 				StasisManager.suspended.delete(entityId);
 				pearl.emit("destroyed", pearl.entity.id);
 				pearl.removeAllListeners();
+
+				// If the pearl was in stasis, remove the stasis record and hologram immediately
+				if (wasSuspended) {
+					Stasis.from(pearlPosition).then(stasis => {
+						if (!stasis) return;
+						if (stasis.pearls.length > 0) return;
+						stasis.remove();
+						StasisManager.onRemoved?.(stasis);
+					}).catch(() => {});
+				}
 				
 			}
 		});
@@ -95,7 +107,7 @@ export class StasisManager {
 		if (!pearl.ownerId) {
 
 			// Wait for up to a second
-			const timeout = new Promise<void>(resolve => setTimeout(resolve, 1000));
+			const timeout = new Promise<void>(resolve => setTimeout(resolve, 10000));
 			const ownerIdentified = new Promise<string>(resolve => pearl.once("owner", resolve));
 			
 			// If an owner is identified within the timeout, associate the pearl with that owner, otherwise ignore the pearl

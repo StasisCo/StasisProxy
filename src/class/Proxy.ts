@@ -124,7 +124,7 @@ const ENTITY_PACKET_NAMES = [
 
 export class Proxy {
 
-	private static readonly logger = new Logger(chalk.green("PROXY"));
+	private static readonly logger = new Logger(chalk.blue("PROXY"));
 
 	/**
 	 * Packets that must be re-serialized via write() instead of writeRaw().
@@ -683,9 +683,15 @@ export class Proxy {
 
 		// When the bot changes dimension (respawn), all client entities are cleared.
 		// Wipe the holograms map so the guard doesn't block re-spawning, then refresh.
+		// For same-dimension respawns chunks are already cached so we refresh immediately.
+		// For dimension changes chunks aren't loaded yet, so we also hook the first
+		// chunkColumnLoad to retry once world data is available.
 		const onRespawn = () => {
 			this.holograms.clear();
 			this.refreshHolograms(client).catch(err => Proxy.logger.warn("Failed to refresh holograms after respawn:", err));
+			this.bot.once("chunkColumnLoad", () => {
+				this.refreshHolograms(client).catch(err => Proxy.logger.warn("Failed to refresh holograms after dimension change:", err));
+			});
 		};
 		this.bot.on("respawn", onRespawn);
 

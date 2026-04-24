@@ -10,14 +10,14 @@ const logger = new Logger(chalk.hex("#a990ec")("PRISMA"));
 logger.log("Checking required database migrations...");
 
 const migrate = $`bunx prisma migrate deploy`;
-for await (const line of migrate.lines()) {
-	if (line) logger.log(line);
-}
 
-await migrate.catch(err => {
-	logger.error("Database migration failed:\n", err);
+for await (const line of migrate.lines()) if (line) logger.log(line);
+
+const result = await migrate;
+if (result.exitCode !== 0) {
+	logger.error("Failed to apply database migrations. Exiting...");
 	process.exit(1);
-});
+}
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 

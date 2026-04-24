@@ -204,39 +204,33 @@ export class PresenceManager extends EventEmitter<{
 	private headers() {
 		return {
 			"X-IRC-Multiplayer-Server": `${ Client.host }`,
-			"User-Agent": `${ name }/${ version }`,
+			"User-Agent": Client.options.brand || `${ name }/${ version }`,
 			"Authorization": `Bearer ${ this.session!.accessToken }`
 		};
 	}
 
 	// ── SSE connection ──
 
-	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private connected = false;
 
 	private connect() {
-		if (this.reconnectTimer) {
-			clearTimeout(this.reconnectTimer);
-			this.reconnectTimer = null;
-		}
 
 		if (this.es) {
-			try {
-				this.es.close();
-			} catch {
-
-				// ignore
-			}
+			this.es.close();
 			this.es = null;
 		}
 
 		if (!this.session || !Client.host) return;
 
-		const es = new EventSource(new URL("/irc", process.env.IRC_HOST).href, {
+		const url = new URL("/irc", process.env.IRC_HOST).href;
+
+		PresenceManager.logger.log(`Connecting to IRC SSE stream: ${ chalk.cyan.underline(url) }...`);
+
+		const es = new EventSource(url, {
 			fetch: (input, init) => fetch(input, {
 				...init,
 				headers: {
-					...(init?.headers ?? {}),
+					...init.headers,
 					...this.headers(),
 					"Accept": "text/event-stream",
 					"Cache-Control": "no-cache"
@@ -261,8 +255,11 @@ export class PresenceManager extends EventEmitter<{
 			if (!data || typeof data !== "string") return;
 
 			let json: unknown;
-			try { json = JSON.parse(data); }
-			catch { return; }
+			try {
+				json = JSON.parse(data);
+			} catch {
+				return;
+			}
 
 			const parsed = zIrcPayload.safeParse(json);
 			if (!parsed.success) return;
@@ -271,16 +268,14 @@ export class PresenceManager extends EventEmitter<{
 			this.emit(payload.type, payload as never);
 		};
 
-		es.onerror = (event) => {
+		es.onerror = event => {
 			const detail = "message" in event ? (event as { message: string }).message : "";
 			if (es.readyState === EventSource.CLOSED) {
-				PresenceManager.logger.warn(`IRC SSE stream closed${ detail ? `: ${ detail }` : "" }, reconnecting in 5s...`);
+				PresenceManager.logger.warn(`IRC SSE stream closed${ detail ? `: ${ detail }` : "" }, reconnecting...`);
 				this.connected = false;
-				this.reconnectTimer = setTimeout(() => {
-					this.reconnectTimer = null;
-					this.connect();
-				}, 5000);
+				this.connect();
 			}
+
 			// CONNECTING state = normal SSE auto-reconnect, no log needed
 		};
 	}
