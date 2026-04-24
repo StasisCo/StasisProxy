@@ -106,12 +106,11 @@ export class StasisManager {
 		// If there is no identifiable owner, ignore
 		if (!pearl.ownerId) {
 
-			// Wait for up to a second
-			const timeout = new Promise<void>(resolve => setTimeout(resolve, 1000));
+			// Wait for up to 5 seconds for the pearl to emit an owner event
 			const ownerIdentified = new Promise<string>(resolve => pearl.once("owner", resolve));
 			
 			// If an owner is identified within the timeout, associate the pearl with that owner, otherwise ignore the pearl
-			const ownerId = await Promise.race([ timeout, ownerIdentified ]) || null;
+			const ownerId = await ownerIdentified;
 			if (!ownerId) {
 				StasisManager.logger.warn(`Pearl ${ chalk.yellow(pearl.entity.id) } has no identifiable owner and will be ignored`);
 				return;

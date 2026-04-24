@@ -83,7 +83,7 @@ export class Pearl extends EventEmitter<{
 				if (!resolved || !resolved.ownerId) return;
 				this.ownerId = resolved.ownerId;
 				this.emit("owner", this.ownerId);
-				redis.set(`pearl:${ packet.entityId }:owner`, this.ownerId);
+				redis.set(`pearl:${ entity.id }:owner`, this.ownerId);
 			});
 
 		});
