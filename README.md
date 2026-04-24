@@ -1,6 +1,19 @@
-# StasisProxy
-![](https://i.ibb.co/rRtRpSBV/2026-04-24-13-34-37-1.png)
+<div align="center">
+    <img
+        src="https://i.ibb.co/1JQnjdwS/Frame-36.png"
+        style="margin: 32px auto; display: block; max-width: 768px" />
+
+<p align="left">
+A self-hosted Minecraft stasis chamber proxy. Monitors active pearl chambers with an automated bot that you can connect to at any time, renders interactive holograms above active chambers, pulls pearls on demand teleporting you to the chamber at any time through chat and IRC integration. Tracks pearl ownership across multiple players, keeps the bot alive with built-in survival modules (anti-AFK, auto-eat, auto-totem, etc.), and persists all chamber data across restarts with PostgreSQL and Redis.
+</p>
+
 ![](https://img.shields.io/github/package-json/v/stasisco/stasisproxy)
+
+[![Continuous Integration](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml/badge.svg)](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml)
+[![Continuous Deployment](https://github.com/StasisCo/StasisProxy/actions/workflows/cd.yml/badge.svg)](https://github.com/StasisCo/StasisProxy/actions/workflows/cd.yml)
+
+
+</div>
 
 ## Quick Start
 
