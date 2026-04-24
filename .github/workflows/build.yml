@@ -49,5 +49,5 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
           tags: |
-            ghcr.io/stasisco/stasisproxy:${{ github.ref_name }}
+            ghcr.io/stasisco/stasisproxy:${{ github.ref_name == 'master' && 'latest' || github.ref_name}}
             ghcr.io/stasisco/stasisproxy:${{ github.sha }}
