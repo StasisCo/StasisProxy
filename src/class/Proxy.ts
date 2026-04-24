@@ -158,6 +158,9 @@ export class Proxy {
 	/** Map from stasis key (dim:x:y:z) to fake entity ID */
 	private readonly holograms = new Map<string, number>();
 
+	/** Bot's signed skin texture properties, captured from 2b2t's login_success */
+	private botProperties: Array<{ name: string; value: string; signature?: string }> = [];
+
 	private static hologramKey(dimension: string, x: number, y: number, z: number) {
 		return `${ dimension }:${ x }:${ y }:${ z }`;
 	}
@@ -182,6 +185,11 @@ export class Proxy {
 
 		bot._client.on("session", fetchFavicon);
 		if (bot._client.session) fetchFavicon(bot._client.session);
+
+		// Capture the bot's signed skin texture properties from 2b2t's login_success
+		bot._client.once("success", (packet: { properties?: Array<{ name: string; value: string; signature?: string }> }) => {
+			if (Array.isArray(packet.properties)) this.botProperties = packet.properties;
+		});
 
 		if (bot.game) {
 			this.startServer();
@@ -227,6 +235,17 @@ export class Proxy {
 				const rawId = profile.id.replace(/-/g, "");
 				client.uuid = `${ rawId.slice(0, 8) }-${ rawId.slice(8, 12) }-${ rawId.slice(12, 16) }-${ rawId.slice(16, 20) }-${ rawId.slice(20) }`;
 				client.username = profile.name;
+
+				// Inject bot skin properties into login_success (minecraft-protocol hardcodes properties: [])
+				if (this.botProperties.length > 0) {
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- monkey-patch write to inject properties
+					const origWrite = (client.write as any).bind(client);
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- params type varies by packet
+					(client as any).write = (name: string, params: Record<string, unknown>) => {
+						if (name === "success") params.properties = this.botProperties;
+						return origWrite(name, params);
+					};
+				}
 			}
 		});
 
