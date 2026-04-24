@@ -25,6 +25,8 @@ export default class AntiBot extends Module {
 	}
 
 	private walk() {
+		if (Client.proxy.connected) return;
+
 		const entity = Client.bot.entity;
 		if (!entity) return;
 
