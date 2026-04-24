@@ -655,7 +655,7 @@ export class Proxy {
 		client.on("packet", onClientPacket);
 
 		// Spawn client-side holograms above all occupied stasis chambers.
-		const holograms = new StasisHologram(client, this.bot);
+		const holograms = new StasisHologram(client, this.bot, this.playerList);
 		holograms.attach();
 
 		// Cleanup on disconnect

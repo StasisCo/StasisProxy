@@ -1,4 +1,3 @@
-import chalk from "chalk";
 import type { Dimension } from "mineflayer";
 import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
@@ -30,8 +29,8 @@ export class Stasis extends StasisColumn implements StasisData {
 		if (!position) return null;
 					
 		// Search the world for a stasis bounding box at the given position
-		const bounds = this.getBoundingBox(position);
-		if (!bounds) return null;
+		const column = this.get(position);
+		if (!column) return null;
 		
 		// Lookup the stasis in the database
 		return await prisma.stasis.findUnique({
@@ -39,9 +38,9 @@ export class Stasis extends StasisColumn implements StasisData {
 				position: {
 					server: Client.host,
 					dimension: Client.bot.game.dimension,
-					x: bounds.pos2.x,
-					y: bounds.pos2.y,
-					z: bounds.pos2.z
+					x: column.block.position.x,
+					y: column.block.position.y,
+					z: column.block.position.z
 				}
 			}
 		}).then(data => data ? new Stasis(data) : null);
@@ -70,8 +69,6 @@ export class Stasis extends StasisColumn implements StasisData {
 			}
 			return all;
 		});
-
-		console.log(`Found ${ chalk.yellow(stasis.length) } stasis chambers for player ${ chalk.yellow(player) } in the database`);
 
 		// Only keep stasis that have pearls and are within range
 		return stasis;
