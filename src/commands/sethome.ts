@@ -6,6 +6,7 @@ import { CommandManager } from "~/manager/CommandManager";
 export default function(program: Command) {
 	program
 		.command("sethome")
+		.description("Sets the home position to your current location")
 		.action(async() => {
 
 			const { player } = CommandManager.context;
