@@ -16,6 +16,28 @@ export class ChatManager {
      */
 	public static readonly parser = ChatMessageConstructor(`${ process.env.MC_VERSION }`);
 
+	/**
+	 * Recursively unwrap a protodef-parsed NBT value into a plain chat component object.
+	 * In 1.20.3+ system_chat content arrives as binary NBT, not a JSON string.
+	 */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- NBT shapes are dynamic
+	private static nbtToChat(nbt: any): any {
+		if (typeof nbt !== "object" || nbt === null) return nbt;
+		if ("type" in nbt && "value" in nbt) {
+			if (nbt.type === "compound") {
+				return Object.fromEntries(
+					Object.entries(nbt.value as Record<string, unknown>).map(([ k, v ]) => [ k, ChatManager.nbtToChat(v) ])
+				);
+			}
+			if (nbt.type === "list") {
+				const list = nbt.value as { type: string; value: unknown[] };
+				return list.value.map((v: unknown) => ChatManager.nbtToChat({ type: list.type, value: v }));
+			}
+			return nbt.value;
+		}
+		return nbt;
+	}
+
 	/** Minecraft default font rendered widths (glyph + 1px gap) */
 	private static readonly CHAR_WIDTHS: Record<string, number> = Object.fromEntries([
 		..."!.,:;'|i".split("").map(c => [ c, 3 ]),
@@ -60,7 +82,8 @@ export class ChatManager {
 		bot._client.on("packet", async function(packet, { name }) {
 			if (name !== "system_chat") return;
 
-			let message = new ChatManager.parser(JSON.parse(packet.content)).toAnsi();
+			const raw = typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content);
+			let message = new ChatManager.parser(raw).toAnsi();
 			for (const relation of Client.relations.list) {
 				for (const username of relation.usernames) {
 					if (message.includes(username)) {

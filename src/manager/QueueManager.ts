@@ -119,7 +119,7 @@ export class QueueManager extends EventEmitter<{
 
 			case "set_title_subtitle": {
 				const { position } = this;
-				this.subtitle = new ChatManager.parser(JSON.parse(event.data.text));
+				this.subtitle = new ChatManager.parser(typeof event.data.text === "string" ? JSON.parse(event.data.text) : event.data.text);
 				if (position !== this.position && this.position !== null) {
 					QueueManager.logger.log(`Position in queue: ${ chalk.yellow(this.position) }`);
 					this.emit("position-change", this.position);
@@ -128,7 +128,7 @@ export class QueueManager extends EventEmitter<{
 			}
 
 			case "set_title_text": {
-				this.title = new ChatManager.parser(JSON.parse(event.data.text));
+				this.title = new ChatManager.parser(typeof event.data.text === "string" ? JSON.parse(event.data.text) : event.data.text);
 				break;
 			}
 			
