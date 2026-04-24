@@ -7,7 +7,6 @@ import { ChatManager } from "~/manager/ChatManager";
 import { Client } from "./Client";
 import { Logger } from "./Logger";
 import { StasisHologram } from "./StasisHologram";
-import { StasisScoreboard } from "./StasisScoreboard";
 
 /**
  * Cached packet entry with insertion order preserved via the sequence number.
@@ -197,7 +196,7 @@ export class Proxy {
 	get motd(): string {
 		const lines = [ "§8§l» §3§lStasisProxy §8§l«§r" ];
 		
-		if (Client.queue.queued) lines.push(`§b§n${ Client.bot.username }§r - ${ (Client.queue.subtitle || Client.queue.title)?.toMotd() || "§6Queueing..." }`);
+		if (Client.queue.queued) lines.push(`§b§n${ Client.bot.username }§r — ${ (Client.queue.subtitle || Client.queue.title)?.toMotd() || "§6Queueing..." }`);
 		else lines.push(`§b§n${ Client.bot.username }§r - §e${ Object.keys(Client.bot.players).length } Online`);
 
 		return lines.filter(Boolean).map(line => ChatManager.center(line, 270)).join("\n");
@@ -450,6 +449,28 @@ export class Proxy {
 			this.invalidateBlocksInChunk(data.x, data.z);
 		}
 
+		// entity_equipment: merge incoming slots into the existing cache entry so that
+		// individual per-slot updates (common with ViaVersion) don't wipe previously
+		// cached slots for the same entity.
+		if (name === "entity_equipment") {
+			const existing = this.cache.get("entity_equipment")?.get(key);
+			if (existing) {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped packet data
+				const prev = (existing.data as any).equipments as Array<{ slot: number; item: unknown }>;
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped packet data
+				const incoming = (data as any).equipments as Array<{ slot: number; item: unknown }>;
+				const merged = new Map<number, { slot: number; item: unknown }>(prev.map(e => [ e.slot, e ]));
+				for (const entry of incoming) merged.set(entry.slot, entry);
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped packet data
+				(data as any).equipments = [ ...merged.values() ];
+
+				// The raw buffer is now stale — force RESERIALIZE_PACKETS to reconstruct it.
+				// We store a zero-length sentinel buffer so writeRaw is never accidentally used.
+				this.set(name, key, data, Buffer.alloc(0));
+				return;
+			}
+		}
+
 		this.set(name, key, data, buffer);
 	};
 
@@ -660,16 +681,14 @@ export class Proxy {
 		holograms.attach();
 
 		// Render the sidebar scoreboard HUD on the client.
-		const scoreboard = new StasisScoreboard(client, this.bot);
-		scoreboard.attach();
+		// const scoreboard = new StasisScoreboard(client, this.bot);
+		// scoreboard.attach();
 
 		// Cleanup on disconnect
 		const cleanup = () => {
 			this.bot._client.off("packet", onServerPacket);
 			client.off("packet", onClientPacket);
 			holograms.detach();
-			scoreboard.detach();
-
 			this.client = null;
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading stored field
 			const originalUsername: string = (client as any)._originalUsername ?? client.username;

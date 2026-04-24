@@ -31,6 +31,17 @@ jobs:
           path: hackware-server
           token: ${{ secrets.GH_TOKEN }}
 
+      - name: Get version from package.json
+        id: get_version
+        run: |
+          VERSION=$(jq -r '.version' < package.json)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            echo "VERSION_TAG=$VERSION" >> $GITHUB_ENV
+          else
+            echo "VERSION_TAG=$VERSION.${{ github.ref_name }}" >> $GITHUB_ENV
+          fi
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -51,3 +62,4 @@ jobs:
           tags: |
             ghcr.io/stasisco/stasisproxy:${{ github.ref_name == 'master' && 'latest' || github.ref_name}}
             ghcr.io/stasisco/stasisproxy:${{ github.sha }}
+            ghcr.io/stasisco/stasisproxy:${{ env.VERSION_TAG }}
