@@ -1,10 +1,10 @@
+import chalk from "chalk";
 import type { Dimension } from "mineflayer";
 import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import z from "zod";
 import { Client } from "~/class/Client";
-import { STASIS_DISTANCE_MAX } from "~/config";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { type Stasis as StasisData } from "../generated/prisma/client";
@@ -54,7 +54,6 @@ export class Stasis extends StasisColumn implements StasisData {
 	 * @returns An array of Stasis instances representing the player's valid stasis chambers within range
 	 */
 	public static async fetch(player: string) {
-		const maxDistance = STASIS_DISTANCE_MAX > 0 ? STASIS_DISTANCE_MAX : Infinity;
 		
 		const stasis = await prisma.stasis.findMany({
 			where: {
@@ -72,10 +71,10 @@ export class Stasis extends StasisColumn implements StasisData {
 			return all;
 		});
 
+		console.log(`Found ${ chalk.yellow(stasis.length) } stasis chambers for player ${ chalk.yellow(player) } in the database`);
+
 		// Only keep stasis that have pearls and are within range
-		return stasis
-			.filter(s => s.pearls.filter(pearl => pearl.ownerId === player).length > 0)
-			.filter(s => s.pearls.some(({ entity }) => entity.position.distanceTo(Client.bot.entity.position) <= maxDistance));
+		return stasis;
 
 	}
 

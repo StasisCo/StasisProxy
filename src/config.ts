@@ -7,15 +7,6 @@
 export const STASIS_USER_MAX = parseInt(process.env.STASIS_USER_MAX || "3");
 
 /**
- * The maximum distance to search for a stasis chamber when a player requests one
- * For example, if this is set to 100, the bot will only consider chambers within 100 blocks
- * This must be less then the entity broadcast range on the server (default 128)
- * Set this to -1 to disable distance limiting
- * @default 100
-*/
-export const STASIS_DISTANCE_MAX = parseInt(process.env.STASIS_DISTANCE_MAX || "100");
-
-/**
  * The prefix to use for chat commands
  * For example, if this is set to "!", the bot will respond to commands that start with "!"
  * Set this to an empty string to disable chat commands
