@@ -44,5 +44,5 @@ declare module "prismarine-physics" {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- mcData is a minecraft-data instance
 	export function Physics(mcData: any, world: any): PhysicsEngine;
 	export { PlayerState };
-    export type { Controls, PhysicsEngine };
+	export type { Controls, PhysicsEngine };
 }

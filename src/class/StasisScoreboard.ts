@@ -31,6 +31,7 @@ export class StasisScoreboard {
 		private readonly client: MinecraftClient,
 		private readonly bot: Mineflayer
 	) {
+
 		// First MOTD line — strip the centering padding by taking up to the first newline
 		this.title = (Client.proxy.motd.split("\n")[0] ?? "§3§lStasisProxy").trim();
 	}
@@ -56,6 +57,7 @@ export class StasisScoreboard {
 
 	/** Rebuild scoreboard after respawn clears all server-side scoreboard state */
 	private readonly onRespawn = () => {
+
 		// Clear cached values so refreshAll re-sends every row.
 		this.lastValues.clear();
 		this.createObjective();
@@ -73,7 +75,7 @@ export class StasisScoreboard {
 					.filter((id): id is string => id !== undefined)
 			).size;
 
-			this.setRow("pearls",  `§7Pearls:  §f${ pearlCount }`);
+			this.setRow("pearls", `§7Pearls:  §f${ pearlCount }`);
 			this.setRow("players", `§7Players: §f${ playerCount }`);
 		} catch { /* client may have disconnected mid-update */ }
 	}
