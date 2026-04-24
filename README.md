@@ -1,4 +1,6 @@
 # StasisProxy
+![](https://i.ibb.co/rRtRpSBV/2026-04-24-13-34-37-1.png)
+![](https://img.shields.io/github/package-json/v/stasisco/stasisproxy)
 
 ## Quick Start
 
