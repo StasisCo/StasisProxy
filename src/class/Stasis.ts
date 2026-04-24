@@ -57,7 +57,8 @@ export class Stasis extends StasisColumn implements StasisData {
 		const stasis = await prisma.stasis.findMany({
 			where: {
 				server: Client.host,
-				ownerId: player
+				ownerId: player,
+				dimension: Client.bot.game.dimension
 			}
 		}).then(function(results) {
 			const all = [];
@@ -67,7 +68,8 @@ export class Stasis extends StasisColumn implements StasisData {
 				} catch {
 				}
 			}
-			return all;
+			return all
+				.filter(stasis => stasis.pearls.length > 0);
 		});
 
 		// Only keep stasis that have pearls and are within range
