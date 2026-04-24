@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import { EventEmitter } from "events";
 import type { PacketMeta } from "minecraft-protocol";
-import { type GameState, type Bot as Mineflayer } from "mineflayer";
+import { type Bot, type GameState } from "mineflayer";
 import prettyMilliseconds from "pretty-ms";
 import { ChatMessage } from "prismarine-chat";
 import { Logger } from "~/class/Logger";
@@ -52,7 +52,7 @@ export class QueueManager extends EventEmitter<{
 	public subtitle?: ChatMessage;
 	public title?: ChatMessage;
 
-	constructor(private readonly bot: Mineflayer) {
+	constructor(private readonly bot: Bot) {
 		super();
 
 		// If game state is already available, try to start tracking immediately

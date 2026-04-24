@@ -7,7 +7,7 @@
 		"start": "bun .",
 		"lint": "eslint . --fix",
 		"generate": "prisma generate",
-		"build": "docker build -t stasis-proxy .",
+		"build": "docker build -t stasis-proxy ."
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",

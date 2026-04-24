@@ -4,7 +4,7 @@ import chalk from "chalk";
 import EventEmitter from "events";
 import { EventSource } from "eventsource";
 import type { PacketMeta, SessionObject } from "minecraft-protocol";
-import type { Bot as Mineflayer } from "mineflayer";
+import type { Bot } from "mineflayer";
 import type { Item } from "prismarine-item";
 import type z from "zod";
 import { Client } from "~/class/Client";
@@ -62,7 +62,7 @@ export class PresenceManager extends EventEmitter<{
 		}
 	};
 
-	constructor(private readonly bot: Mineflayer) {
+	constructor(private readonly bot: Bot) {
 		super();
 
 		// Capture session if already available

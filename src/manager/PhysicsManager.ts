@@ -1,5 +1,5 @@
 import mcData from "minecraft-data";
-import type { Bot as Mineflayer } from "mineflayer";
+import type { Bot } from "mineflayer";
 import { Physics, PlayerState, type Controls } from "prismarine-physics";
 import { Client } from "~/class/Client";
 
@@ -73,7 +73,7 @@ export class PhysicsManager {
 
 	private interval: NodeJS.Timeout | null = null;
 
-	constructor(private readonly bot: Mineflayer) {
+	constructor(private readonly bot: Bot) {
 
 		// Intercept bot._client.write to suppress mineflayer's outgoing movement packets.
 		this.rawWrite = bot._client.write.bind(bot._client);

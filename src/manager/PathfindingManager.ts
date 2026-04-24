@@ -1,4 +1,4 @@
-import type { Bot as Mineflayer } from "mineflayer";
+import type { Bot } from "mineflayer";
 import { Vec3 } from "vec3";
 import { Client } from "~/class/Client";
 import { Goal } from "../class/Goal";
@@ -17,7 +17,7 @@ export class PathfindingManager {
 	private stuckTicks = 0;
 	private lastPos = { x: 0, z: 0 };
 
-	constructor(private readonly bot: Mineflayer) {
+	constructor(private readonly bot: Bot) {
 		const init = () => {
 			Client.physics.onPreTick.push(() => this.update());
 		};
