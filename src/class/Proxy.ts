@@ -101,15 +101,24 @@ const PACKET_KEYS: Record<string, true | ((data: any) => string)> = {
 	"boss_bar": d => `${ d.entityUUID }`,
 
 	// ── Game state changes keyed by reason ──
-	"game_state_change": d => `${ d.reason }`,
-
-	// ── Player list (replace whole list each time) ──
-	"player_info": true
+	"game_state_change": d => `${ d.reason }`
 };
 
 /**
- * Entity-related packet names that should be deleted when an entity is destroyed.
+ * Per-UUID entry built from player_info ADD packets, used for warm-starting new proxy clients.
+ * Mirrors the fields needed for a synthetic ADD_PLAYER player_info on replay.
  */
+interface PlayerListEntry {
+	uuid: string;
+	name: string;
+	properties: Array<{ name: string; value: string; signature?: string }>;
+	gamemode: number;
+
+	/** varint: 1 = listed in tab, 0 = unlisted */
+	listed: number;
+	latency: number;
+}
+
 const ENTITY_PACKET_NAMES = [
 	"spawn_entity",
 	"named_entity_spawn",
@@ -157,6 +166,9 @@ export class Proxy {
 
 	/** Map from stasis key (dim:x:y:z) to fake entity ID */
 	private readonly holograms = new Map<string, number>();
+
+	/** Per-UUID player list state, built from player_info / player_remove packets. */
+	private readonly playerList = new Map<string, PlayerListEntry>();
 
 	/** Bot's signed skin texture properties, captured from 2b2t's login_success */
 	private botProperties: Array<{ name: string; value: string; signature?: string }> = [];
@@ -390,7 +402,10 @@ export class Proxy {
 		}
 
 		// ── Invalidation: player removed from player list ──
-		if (name === "player_remove") return;
+		if (name === "player_remove") {
+			for (const uuid of data.players ?? []) this.playerList.delete(uuid);
+			return;
+		}
 
 		// ── Invalidation: remove entity effect ──
 		if (name === "remove_entity_effect") {
@@ -407,6 +422,32 @@ export class Proxy {
 		// ── Invalidation: scoreboard objective removed ──
 		if (name === "scoreboard_objective" && data.action === 1) {
 			this.deleteKey("scoreboard_objective", `${ data.name }`);
+			return;
+		}
+
+		// ── Track per-UUID player list (replaces the old player_info singleton) ──
+		if (name === "player_info") {
+			const action = data.action ?? {};
+			for (const entry of data.data ?? []) {
+				const uuid: string = entry.uuid;
+				if (action.add_player) {
+					this.playerList.set(uuid, {
+						uuid,
+						name: entry.player?.name ?? "",
+						properties: entry.player?.properties ?? [],
+						gamemode: entry.gamemode ?? 0,
+						listed: entry.listed ?? 1,
+						latency: entry.latency ?? 0
+					});
+				} else {
+					const existing = this.playerList.get(uuid);
+					if (existing) {
+						if (action.update_game_mode && "gamemode" in entry) existing.gamemode = entry.gamemode;
+						if (action.update_listed && "listed" in entry) existing.listed = entry.listed;
+						if (action.update_latency && "latency" in entry) existing.latency = entry.latency;
+					}
+				}
+			}
 			return;
 		}
 
@@ -627,11 +668,49 @@ export class Proxy {
 		let replayedChunks = 0;
 		let failedPackets = 0;
 
+		// Injected once — after login/respawn but before entities/world packets
+		let playerListSent = false;
+
 		for (const pkt of packets) {
 			if (pkt.name === "position") {
 				positionPkt = pkt;
 				continue;
 			}
+
+			// Warm-start: inject the full current player list (tab list + entity skins)
+			// after login/respawn (which set up the dimension) but before any entity or
+			// chunk data — the client needs player_info to render player entities correctly.
+			if (!playerListSent && pkt.name !== "login" && pkt.name !== "respawn") {
+				playerListSent = true;
+				if (this.playerList.size > 0) {
+					try {
+						client.writeRaw(client.serializer.proto.createPacketBuffer("packet", {
+							name: "player_info",
+							params: {
+								action: {
+									add_player: true,
+									initialize_chat: false,
+									update_game_mode: true,
+									update_listed: true,
+									update_latency: true,
+									update_display_name: false
+								},
+								data: Array.from(this.playerList.values()).map(p => ({
+									uuid: p.uuid,
+									player: { name: p.name, properties: p.properties },
+									gamemode: p.gamemode,
+									listed: p.listed,
+									latency: p.latency
+								}))
+							}
+						}));
+						Proxy.logger.log(`Warm-started player list: ${ this.playerList.size } players`);
+					} catch (err) {
+						Proxy.logger.warn("Failed to warm-start player list:", err);
+					}
+				}
+			}
+
 			try {
 				if (pkt.name === "update_view_position" || Proxy.RESERIALIZE_PACKETS.has(pkt.name)) {
 
