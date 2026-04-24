@@ -40,9 +40,9 @@ export class RelationManager {
 
 	get list() {
 		const rels: z.infer<typeof zRelation>[] = [];
-		const { relations } = YAML.parse(this.cache ?? "") as { relations?: unknown[] };
-		if (!relations || !Array.isArray(relations)) return [];
-		for (const rel of relations) {
+		const relations = YAML.parse(this.cache ?? "");
+		if (!relations || typeof relations !== "object" || !("relations" in relations) || !Array.isArray(relations.relations)) return [];
+		for (const rel of relations.relations) {
 			const { success, data } = zRelation.safeParse(rel);
 			if (success) rels.push(data);
 		}
