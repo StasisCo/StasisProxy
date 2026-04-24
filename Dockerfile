@@ -9,6 +9,11 @@ COPY --from=hackware-types . ./packages/types
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile && bun add @hackware/types@file:./packages/types
 
+# Copy minimal git metadata for rev-parse
+COPY .git/HEAD .git/HEAD
+COPY .git/refs .git/refs/
+COPY .git/packed-refs* .git/
+
 # Copy prisma schema and config, then generate the client
 COPY prisma ./prisma/
 COPY prisma.config.ts ./

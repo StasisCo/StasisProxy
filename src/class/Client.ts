@@ -1,5 +1,6 @@
 import { zMojangUsername } from "@hackware/types/schema/mojang/zUsername";
 import chalk from "chalk";
+import { execSync } from "child_process";
 import mcDataLoader from "minecraft-data";
 import { createBot, type BotOptions } from "mineflayer";
 import z from "zod";
@@ -12,6 +13,7 @@ import { PhysicsManager } from "~/manager/PhysicsManager";
 import { PresenceManager } from "~/manager/PresenceManager";
 import { QueueManager } from "~/manager/QueueManager";
 import { StasisManager } from "~/manager/StasisManager";
+import { name, version } from "../../package.json";
 import { Console } from "./Console";
 import { Proxy } from "./Proxy";
 
@@ -25,6 +27,7 @@ export class Client {
 
 	public static readonly options: BotOptions = {
 		auth: "microsoft",
+		brand: `${ name }/${ version }+${ execSync("git rev-parse HEAD").toString().trim() }`,
 
 		/**
 		 * The hostname of the Minecraft server to connect to, parsed from the MC_HOST environment variable
@@ -62,6 +65,7 @@ export class Client {
 	// Register connect handler BEFORE managers so Client.host is resolved
 	// when PresenceManager's "connect"/"session" handlers fire.
 	static {
+		this.logger.log("Connecting to server:", chalk.cyan.underline(this.options.host + ":" + this.options.port) + "...");
 		Client.bot._client.on("connect", () => {
 			const socket = Client.bot._client.socket;
 			if (socket) Client.host = ("_host" in socket && typeof socket._host === "string")
@@ -86,7 +90,7 @@ export class Client {
 		// Handle disconnection
 		this.bot.on("kicked", reason => {
 			const component = new ChatManager.parser(JSON.parse(reason));
-			Client.logger.warn(component.toAnsi());
+			Client.logger.warn("Disconnected:", component.toAnsi());
 			this.exitCode = 1;
 			Client.bot.quit();
 		});
