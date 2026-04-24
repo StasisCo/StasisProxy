@@ -9,7 +9,7 @@ const logger = new Logger(chalk.hex("#a990ec")("PRISMA"));
 // Apply pending migrations on startup (creates tables if DB is empty)
 logger.log("Checking required database migrations...");
 
-const migrate = $`bunx prisma migrate deploy`;
+const migrate = $`bunx prisma migrate deploy`.quiet().throws(false);
 
 for await (const line of migrate.lines()) if (line) logger.log(line);
 

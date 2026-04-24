@@ -210,6 +210,23 @@ export class Proxy {
 			keepAlive: false,
 			errorHandler: (_client, err) => {
 				Proxy.logger.warn(`Protocol error: ${ err.message }`);
+			},
+			beforeLogin: client => {
+
+				Proxy.logger.log([
+					`UUID of player ${ client.username } is ${ client.uuid }`,
+					`${ client.username }[/${ client.socket.remoteAddress }:${ client.socket.remotePort }] logged in with entity id ${ this.bot.player?.entity?.id ?? "?" }`
+				].join("\n"));
+
+				// Make the connecting player appear as the bot: swap their UUID and
+				// username in login_success so the client thinks it IS the bot.
+				// The cached player_info from 2b2t already carries the bot's UUID with
+				// its skin textures, so on replay the client will render the bot's skin.
+				const profile = this.bot._client.session?.selectedProfile;
+				if (!profile) return;
+				const rawId = profile.id.replace(/-/g, "");
+				client.uuid = `${ rawId.slice(0, 8) }-${ rawId.slice(8, 12) }-${ rawId.slice(12, 16) }-${ rawId.slice(16, 20) }-${ rawId.slice(20) }`;
+				client.username = profile.name;
 			}
 		});
 
@@ -543,10 +560,6 @@ export class Proxy {
 		this.client = client;
 		const pos = this.bot.player?.entity?.position;
 		const hasPos = pos && Number.isFinite(pos.x);
-		Proxy.logger.log([
-			`UUID of player ${ client.username } is ${ client.uuid }`,
-			`${ client.username }[/${ client.socket.remoteAddress }:${ client.socket.remotePort }] logged in with entity id ${ this.bot.player?.entity?.id ?? "?" } at ([${ this.bot.game.dimension }]${ hasPos ? `${ Math.trunc(pos.x * 10) / 10 }, ${ Math.trunc(pos.y * 10) / 10 }, ${ Math.trunc(pos.z * 10) / 10 }` : "?, ?, ?" })`
-		].join("\n"));
 
 		// Replay cached world state to the connecting player.
 		// Update the cached position to match what 2b2t ACTUALLY thinks (lastSent),

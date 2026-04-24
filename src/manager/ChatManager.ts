@@ -57,13 +57,21 @@ export class ChatManager {
 	constructor(bot: Mineflayer) {
 
 		// Log all system chat messages to the console in a readable format
-		bot._client.on("packet", function(packet, { name }) {
+		bot._client.on("packet", async function(packet, { name }) {
 			if (name !== "system_chat") return;
 
-			const message = new ChatManager.parser(JSON.parse(packet.content));
-			ChatManager.logger.log(message.toAnsi()
-				.replaceAll(bot.username, chalk.hex("#FF55FF").underline(bot.username))
-			);
+			let message = new ChatManager.parser(JSON.parse(packet.content)).toAnsi();
+			for (const relation of Client.relations.list) {
+				for (const username of relation.usernames) {
+					if (message.includes(username)) {
+						message = message.replaceAll(username, chalk.hex(relation.type === "friend" ? "#55FFFF" : "#FF0000")(username));
+					}
+				}
+			}
+			
+			message = message.replaceAll(bot.username, chalk.hex("#FF55FF").underline(bot.username));
+
+			ChatManager.logger.log(message);
 
 		});
 		

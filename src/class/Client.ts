@@ -12,6 +12,7 @@ import { PathfindingManager } from "~/manager/PathfindingManager";
 import { PhysicsManager } from "~/manager/PhysicsManager";
 import { PresenceManager } from "~/manager/PresenceManager";
 import { QueueManager } from "~/manager/QueueManager";
+import { RelationManager } from "~/manager/RelationManager";
 import { StasisManager } from "~/manager/StasisManager";
 import { name, version } from "../../package.json";
 import { Console } from "./Console";
@@ -80,10 +81,11 @@ export class Client {
 	public static readonly presence = process.env.IRC_HOST ? new PresenceManager(this.bot) : null;
 	public static readonly queue = new QueueManager(this.bot);
 	public static readonly physics = new PhysicsManager(this.bot);
-	public static readonly pathfinding = new PathfindingManager(this.bot);
-	public static readonly stasis = new StasisManager(this.bot);
 	public static readonly commands = new CommandManager(this.bot);
 	public static readonly modules = new ModuleManager(this.bot);
+	public static readonly pathfinding = new PathfindingManager(this.bot);
+	public static readonly relations = new RelationManager(this.bot);
+	public static readonly stasis = new StasisManager(this.bot);
 
 	static {
 
