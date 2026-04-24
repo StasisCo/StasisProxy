@@ -1,15 +1,9 @@
 import chalk from "chalk";
-import crypto from "crypto";
 import { createServer, type Client as MinecraftClient, type PacketMeta, type Server, type SessionObject } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import sharp from "sharp";
-import { Vec3 } from "vec3";
 import z from "zod";
-import { Stasis } from "~/class/Stasis";
-import { StasisColumn } from "~/class/StasisColumn";
 import { ChatManager } from "~/manager/ChatManager";
-import { StasisManager } from "~/manager/StasisManager";
-import { prisma } from "~/prisma";
 import { Client } from "./Client";
 import { Logger } from "./Logger";
 
@@ -159,23 +153,11 @@ export class Proxy {
 	/** The currently connected player client, if any */
 	private client: MinecraftClient | null = null;
 
-	// ── Stasis hologram tracking ──
-
-	/** Next fake entity ID for client-side armor stands (high range to avoid real entity collisions) */
-	private nextFakeEntityId = 0x70000000;
-
-	/** Map from stasis key (dim:x:y:z) to fake entity ID */
-	private readonly holograms = new Map<string, number>();
-
 	/** Per-UUID player list state, built from player_info / player_remove packets. */
 	private readonly playerList = new Map<string, PlayerListEntry>();
 
 	/** Bot's signed skin texture properties, captured from 2b2t's login_success */
 	private botProperties: Array<{ name: string; value: string; signature?: string }> = [];
-
-	private static hologramKey(dimension: string, x: number, y: number, z: number) {
-		return `${ dimension }:${ x }:${ y }:${ z }`;
-	}
 
 	constructor(private readonly bot: Mineflayer) {
 
@@ -504,113 +486,6 @@ export class Proxy {
 
 	// ── Player connection ──
 
-	/**
-	 * Spawn a client-side invisible armor stand with a name tag above a stasis chamber.
-	 */
-	private spawnHologram(client: MinecraftClient, dimension: string, x: number, y: number, z: number, ownerName: string) {
-		const key = Proxy.hologramKey(dimension, x, y, z);
-		if (this.holograms.has(key)) return;
-
-		const entityId = this.nextFakeEntityId++;
-		this.holograms.set(key, entityId);
-		
-		const proto = client.serializer.proto;
-		client.writeRaw(proto.createPacketBuffer("packet", {
-			name: "spawn_entity",
-			params: {
-				entityId,
-				objectUUID: crypto.randomUUID(),
-				type: 2, // armor_stand
-				x: x + 0.5,
-				y: y + 1.0,
-				z: z + 0.5,
-				pitch: 0,
-				yaw: 0,
-				headPitch: 0,
-				objectData: 0,
-				velocity: { x: 0, y: 0, z: 0 }
-			}
-		}));
-
-		client.writeRaw(proto.createPacketBuffer("packet", {
-			name: "entity_metadata",
-			params: {
-				entityId,
-				metadata: [
-					{ key: 0, type: "byte", value: 0x20 }, // invisible
-					{ key: 2, type: "optional_component", value: JSON.stringify({ text: ownerName, color: "gold" }) }, // custom_name
-					{ key: 3, type: "boolean", value: true }, // custom_name_visible
-					{ key: 5, type: "boolean", value: true }, // no_gravity
-					{ key: 15, type: "byte", value: 0x08 } // marker (no hitbox)
-				]
-			}
-		}));
-	}
-
-	/**
-	 * Despawn a client-side hologram for a stasis chamber.
-	 */
-	private despawnHologram(client: MinecraftClient, dimension: string, x: number, y: number, z: number) {
-		const key = Proxy.hologramKey(dimension, x, y, z);
-		const entityId = this.holograms.get(key);
-		if (entityId === undefined) return;
-		this.holograms.delete(key);
-
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
-		const proto = (client as any).serializer.proto;
-		
-		client.writeRaw(proto.createPacketBuffer("packet", {
-			name: "entity_destroy",
-			params: { entityIds: [ entityId ]}
-		}));
-	}
-
-	/**
-	 * Query all stasis chambers in the current dimension and spawn holograms for those in loaded chunks.
-	 */
-	private hasPearlInStasis(dimension: string, x: number, y: number, z: number): boolean {
-		if (this.bot.game.dimension !== dimension) return false;
-
-		const bounds = StasisColumn.getBoundingBox(new Vec3(x, y, z));
-		if (!bounds) return false;
-
-		const { pos1, pos2 } = bounds;
-		const minX = Math.min(pos1.x, pos2.x);
-		const maxX = Math.max(pos1.x, pos2.x);
-		const minY = Math.min(pos1.y, pos2.y);
-		const maxY = Math.max(pos1.y, pos2.y);
-		const minZ = Math.min(pos1.z, pos2.z);
-		const maxZ = Math.max(pos1.z, pos2.z);
-
-		return Object.values(this.bot.entities)
-			.filter(e => e.type === "projectile" && e.name === "ender_pearl")
-			.some(e =>
-				Math.floor(e.position.x) >= minX && Math.floor(e.position.x) <= maxX
-				&& Math.floor(e.position.y) >= minY && Math.floor(e.position.y) <= maxY
-				&& Math.floor(e.position.z) >= minZ && Math.floor(e.position.z) <= maxZ
-			);
-	}
-
-	private async refreshHolograms(client: MinecraftClient) {
-		if (!Client.host) return;
-
-		const rows = await prisma.stasis.findMany({
-			where: { server: Client.host, dimension: this.bot.game.dimension },
-			include: { owner: true }
-		});
-
-		for (const row of rows) {
-
-			// Only spawn if the chunk is loaded (block data accessible)
-			const block = this.bot.blockAt(new Vec3(row.x, row.y, row.z));
-			if (!block) continue;
-			if (!this.hasPearlInStasis(row.dimension, row.x, row.y, row.z)) continue;
-			this.spawnHologram(client, row.dimension, row.x, row.y, row.z, row.owner.username || row.ownerId);
-		}
-
-		Proxy.logger.log(`Spawned ${ this.holograms.size } stasis holograms`);
-	}
-
 	private onPlayerJoin(client: MinecraftClient) {
 		if (this.client) {
 			client.end("A player is already connected.");
@@ -763,49 +638,6 @@ export class Proxy {
 		// send teleport_confirm for it, which must NOT reach 2b2t (already confirmed).
 		let replayTeleportId: number | null = (positionPkt?.data as { teleportId?: number })?.teleportId ?? null;
 
-		// Spawn client-side armor stand holograms above all known stasis chambers
-		this.refreshHolograms(client).catch(err => Proxy.logger.warn("Failed to refresh stasis holograms:", err));
-
-		// Dynamically add/remove holograms as stasis chambers change.
-		// bot.players is keyed by username; look up owner by UUID and fall back to the DB.
-		const onStasisSaved = async(stasis: Stasis) => {
-			try {
-				const pos = stasis.block.position;
-				if (!this.hasPearlInStasis(stasis.dimension, pos.x, pos.y, pos.z)) return;
-
-				const inGame = Object.values(Client.bot.players).find(p => p.uuid === stasis.ownerId);
-				const ownerName = inGame?.username
-					?? (await prisma.player.findUnique({ where: { id: stasis.ownerId }}))?.username
-					?? stasis.ownerId;
-				this.spawnHologram(client, stasis.dimension, pos.x, pos.y, pos.z, ownerName);
-			} catch (err) {
-				Proxy.logger.warn("Failed to spawn hologram on stasisSaved:", err);
-			}
-		};
-		const onStasisRemoved = (stasis: Stasis) => {
-			try {
-				const pos = stasis.block.position;
-				this.despawnHologram(client, stasis.dimension, pos.x, pos.y, pos.z);
-			} catch { /* block may no longer be accessible */ }
-		};
-
-		StasisManager.onSaved = onStasisSaved;
-		StasisManager.onRemoved = onStasisRemoved;
-
-		// When the bot changes dimension (respawn), all client entities are cleared.
-		// Wipe the holograms map so the guard doesn't block re-spawning, then refresh.
-		// For same-dimension respawns chunks are already cached so we refresh immediately.
-		// For dimension changes chunks aren't loaded yet, so we also hook the first
-		// chunkColumnLoad to retry once world data is available.
-		const onRespawn = () => {
-			this.holograms.clear();
-			this.refreshHolograms(client).catch(err => Proxy.logger.warn("Failed to refresh holograms after respawn:", err));
-			this.bot.once("chunkColumnLoad", () => {
-				this.refreshHolograms(client).catch(err => Proxy.logger.warn("Failed to refresh holograms after dimension change:", err));
-			});
-		};
-		this.bot.on("respawn", onRespawn);
-
 		// Bridge: server → player
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- need parsed data for re-serialized packets
 		const onServerPacket = (data: any, meta: PacketMeta, buffer: Buffer) => {
@@ -851,11 +683,6 @@ export class Proxy {
 			this.bot._client.off("packet", onServerPacket);
 			client.off("packet", onClientPacket);
 
-			StasisManager.onSaved = undefined;
-			StasisManager.onRemoved = undefined;
-			this.bot.off("respawn", onRespawn);
-			this.holograms.clear();
-			this.nextFakeEntityId = 0x70000000;
 			this.client = null;
 			Proxy.logger.log(`${ client.username } lost connection: Disconnected`);
 		};

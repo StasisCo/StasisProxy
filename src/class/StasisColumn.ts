@@ -190,5 +190,23 @@ export class StasisColumn {
 			}
 		}).then(data => new Stasis(data));
 	}
+
+	/** Get the surface Y level of the stasis, which is the Y level of the first water source block or waterlogged block within the bounding box, or the bottom Y level if no water is found. This is used to determine where pearls will surface when they are teleported to the stasis.
+	 * @returns {number} The surface Y level of the stasis
+	 */
+	public get surfaceY() {
+		
+		// Traverse down until we find the first waterlogged or water source block
+		for (let y = this.pos2.y; y >= this.pos1.y; y--) {
+			const block = Client.bot.blockAt(new Vec3(this.pos1.x, y, this.pos1.z));
+			if (!block) continue; // Chunk not loaded yet
+			if (block.name === "water" && (block.getProperties().level === 0 || block.getProperties().waterlogged)) {
+				return y;
+			}
+		}
+
+		return this.pos1.y;
+
+	}
 	
 }
