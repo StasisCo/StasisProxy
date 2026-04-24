@@ -8,6 +8,7 @@ A self-hosted Minecraft stasis chamber proxy. Monitors active pearl chambers wit
 </p>
 
 ![](https://img.shields.io/github/package-json/v/stasisco/stasisproxy)
+![](https://img.shields.io/github/license/stasisco/stasisproxy)
 
 [![Continuous Integration](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml/badge.svg)](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml)
 [![Continuous Deployment](https://github.com/StasisCo/StasisProxy/actions/workflows/cd.yml/badge.svg)](https://github.com/StasisCo/StasisProxy/actions/workflows/cd.yml)
@@ -15,12 +16,28 @@ A self-hosted Minecraft stasis chamber proxy. Monitors active pearl chambers wit
 
 </div>
 
-## Quick Start
+# ✨ Features
+
+Everything StasisProxy does to keep your pearls safe and your session seamless.
+
+* **Connect at any time**: connect to the proxy at any time to control or view stasis chambers
+* **IRC and Chat integration**: supports commands across in-game chat, whispers, and IRC
+* **On demand pearl loading**: pulls a player's pearl on command, teleporting you to the chamber location within seconds
+* **Pearl tracking**: detects and tracks ender pearls as they are thrown and enter stasis
+* **Survival modules**: keeps the bot alive autonomously with a suite of modules (anti-AFK, auto-eat, auto-totem, and more)
+* **Interactive holograms**: renders holograms above active chambers that update in real time and can be interacted with to pull the pearl
+* **Persistent storage**: all chamber data is persisted across restarts with PostgreSQL and Redis
+
+# 🚀 Quick Start
+
+Get up and running in seconds using Docker.
 
 ### Prerequisites
+
 - [Docker](https://www.docker.com/get-started)
 
 ### Running with Docker Compose
+
 1. Clone the repository:
     ```bash
     git clone https://github.com/StasisCo/StasisProxy.git
