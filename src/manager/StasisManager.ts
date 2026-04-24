@@ -107,7 +107,7 @@ export class StasisManager {
 		if (!pearl.ownerId) {
 
 			// Wait for up to a second
-			const timeout = new Promise<void>(resolve => setTimeout(resolve, 10000));
+			const timeout = new Promise<void>(resolve => setTimeout(resolve, 1000));
 			const ownerIdentified = new Promise<string>(resolve => pearl.once("owner", resolve));
 			
 			// If an owner is identified within the timeout, associate the pearl with that owner, otherwise ignore the pearl

@@ -25,7 +25,7 @@ export class Logger {
 		const timestamp = chalk.gray(dayjs().format("MM/DD/YYYY hh:mm:ss A"));
 		const paddedPrefix = this.prefix ? this.prefix + " ".repeat(Math.max(0, Logger.prefixLength - stripAnsi(this.prefix).length)) : undefined;
 		const prefixLine = [ paddedPrefix ? [ chalk.underline(timestamp), chalk.gray("|"), paddedPrefix ] : chalk.underline(timestamp) ].flat().filter(Boolean).join(" ");
-		return format(prefixLine, chalk.gray("|"), format(...args).replace(/\n/g, `\n${ " ".repeat(stripAnsi(prefixLine).length + 3) } ${ chalk.gray("|") } `));
+		return format(prefixLine, chalk.gray("|"), format(...args).replace(/\n/g, `\n${ " ".repeat(stripAnsi(timestamp).length + 4) }${ chalk.gray("|") } ${ paddedPrefix } ${ chalk.gray("|") } `));
 	}
 	
 	/** 
