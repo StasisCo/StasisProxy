@@ -5,8 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"start": "bun .",
-		"lint": "bunx eslint . --fix",
-		"generate": "bunx prisma generate",
+		"lint": "eslint . --fix",
+		"generate": "prisma generate",
 		"build": "docker build -t stasis-proxy ."
 	},
 	"devDependencies": {
