@@ -6,6 +6,7 @@ import z from "zod";
 import { ChatManager } from "~/manager/ChatManager";
 import { Client } from "./Client";
 import { Logger } from "./Logger";
+import { StasisHologram } from "./StasisHologram";
 
 /**
  * Cached packet entry with insertion order preserved via the sequence number.
@@ -226,6 +227,10 @@ export class Proxy {
 				// its skin textures, so on replay the client will render the bot's skin.
 				const profile = this.bot._client.session?.selectedProfile;
 				if (!profile) return;
+
+				// Preserve the real username before overwriting — used for disconnect logs.
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- storing extra field on protocol client
+				(client as any)._originalUsername = client.username;
 				const rawId = profile.id.replace(/-/g, "");
 				client.uuid = `${ rawId.slice(0, 8) }-${ rawId.slice(8, 12) }-${ rawId.slice(12, 16) }-${ rawId.slice(16, 20) }-${ rawId.slice(20) }`;
 				client.username = profile.name;
@@ -552,38 +557,9 @@ export class Proxy {
 				continue;
 			}
 
-			// Warm-start: inject the full current player list (tab list + entity skins)
-			// after login/respawn (which set up the dimension) but before any entity or
-			// chunk data — the client needs player_info to render player entities correctly.
 			if (!playerListSent && pkt.name !== "login" && pkt.name !== "respawn") {
 				playerListSent = true;
-				if (this.playerList.size > 0) {
-					try {
-						client.writeRaw(client.serializer.proto.createPacketBuffer("packet", {
-							name: "player_info",
-							params: {
-								action: {
-									add_player: true,
-									initialize_chat: false,
-									update_game_mode: true,
-									update_listed: true,
-									update_latency: true,
-									update_display_name: false
-								},
-								data: Array.from(this.playerList.values()).map(p => ({
-									uuid: p.uuid,
-									player: { name: p.name, properties: p.properties },
-									gamemode: p.gamemode,
-									listed: p.listed,
-									latency: p.latency
-								}))
-							}
-						}));
-						Proxy.logger.log(`Warm-started player list: ${ this.playerList.size } players`);
-					} catch (err) {
-						Proxy.logger.warn("Failed to warm-start player list:", err);
-					}
-				}
+				this.sendPlayerListWarmStart(client);
 			}
 
 			try {
@@ -678,13 +654,20 @@ export class Proxy {
 		this.bot._client.on("packet", onServerPacket);
 		client.on("packet", onClientPacket);
 
+		// Spawn client-side holograms above all occupied stasis chambers.
+		const holograms = new StasisHologram(client, this.bot);
+		holograms.attach();
+
 		// Cleanup on disconnect
 		const cleanup = () => {
 			this.bot._client.off("packet", onServerPacket);
 			client.off("packet", onClientPacket);
+			holograms.detach();
 
 			this.client = null;
-			Proxy.logger.log(`${ client.username } lost connection: Disconnected`);
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading stored field
+			const originalUsername: string = (client as any)._originalUsername ?? client.username;
+			Proxy.logger.log(`${ originalUsername } lost connection: Disconnected`);
 		};
 
 		client.on("end", cleanup);
@@ -696,6 +679,40 @@ export class Proxy {
 	/** Whether a player is currently controlling the bot */
 	public get connected(): boolean {
 		return this.client !== null;
+	}
+
+	/**
+	 * Send the full current player list to a freshly-connected client so the tab
+	 * list and player entity skins render immediately. Must be sent after
+	 * login/respawn (which set up the dimension) but before any entity/chunk data.
+	 */
+	private sendPlayerListWarmStart(client: MinecraftClient) {
+		if (this.playerList.size === 0) return;
+		try {
+			client.writeRaw(client.serializer.proto.createPacketBuffer("packet", {
+				name: "player_info",
+				params: {
+					action: {
+						add_player: true,
+						initialize_chat: false,
+						update_game_mode: true,
+						update_listed: true,
+						update_latency: true,
+						update_display_name: false
+					},
+					data: Array.from(this.playerList.values()).map(p => ({
+						uuid: p.uuid,
+						player: { name: p.name, properties: p.properties },
+						gamemode: p.gamemode,
+						listed: p.listed,
+						latency: p.latency
+					}))
+				}
+			}));
+			Proxy.logger.log(`Warm-started player list: ${ this.playerList.size } players`);
+		} catch (err) {
+			Proxy.logger.warn("Failed to warm-start player list:", err);
+		}
 	}
 
 	/** Shut down the proxy server and clean up resources */

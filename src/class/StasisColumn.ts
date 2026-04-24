@@ -196,11 +196,12 @@ export class StasisColumn {
 	 */
 	public get surfaceY() {
 		
-		// Traverse down until we find the first waterlogged or water source block
+		// Traverse down until we find the first water, bubble column, or waterlogged block
 		for (let y = this.pos2.y; y >= this.pos1.y; y--) {
 			const block = Client.bot.blockAt(new Vec3(this.pos1.x, y, this.pos1.z));
 			if (!block) continue; // Chunk not loaded yet
-			if (block.name === "water" && (block.getProperties().level === 0 || block.getProperties().waterlogged)) {
+			const props = block.getProperties() as Record<string, unknown>;
+			if (block.name === "water" || block.name === "bubble_column" || props.waterlogged === true) {
 				return y;
 			}
 		}
