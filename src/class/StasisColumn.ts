@@ -155,6 +155,23 @@ export class StasisColumn {
      */
 	public async save(owner: Player): Promise<Stasis | null> {
 		try {
+			const player = await prisma.player.upsert({
+				where: {
+					server_player: {
+						uuid: owner.uuid,
+						server: Client.host
+					}
+				},
+				create: {
+					uuid: owner.uuid,
+					username: owner.username,
+					server: Client.host
+				},
+				update: {
+					username: owner.username
+				}
+			});
+
 			return await prisma.stasis.upsert({
 				where: {
 					position: {
@@ -166,21 +183,7 @@ export class StasisColumn {
 					}
 				},
 				update: {
-					owner: {
-						upsert: {
-							where: {
-								server_player: { uuid: owner.uuid, server: Client.host }
-							},
-							create: {
-								uuid: owner.uuid,
-								username: owner.username,
-								server: Client.host
-							},
-							update: {
-								username: owner.username
-							}
-						}
-					}
+					ownerId: player.id
 				},
 				create: {
 					dimension: Client.bot.game.dimension,
@@ -188,16 +191,19 @@ export class StasisColumn {
 					x: this.block.position.x,
 					y: this.block.position.y,
 					z: this.block.position.z,
+					ownerId: player.id
+				},
+				include: {
 					owner: {
-						connectOrCreate: {
-							where: { server_player: { uuid: owner.uuid, server: Client.host }},
-							create: { uuid: owner.uuid, username: owner.username, server: Client.host }
+						select: {
+							id: true,
+							uuid: true
 						}
 					}
-				},
-				include: { owner: { select: { uuid: true }}}
+				}
 			}).then(data => new Stasis(data));
-		} catch {
+		} catch (e) {
+			console.error("Failed to save stasis to database", e);
 			return null;
 		}
 	}
