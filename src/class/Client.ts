@@ -7,6 +7,7 @@ import z from "zod";
 import { Logger } from "~/class/Logger";
 import { ChatManager } from "~/manager/ChatManager";
 import { CommandManager } from "~/manager/CommandManager";
+import { DiscordManager } from "~/manager/DiscordManager";
 import { ModuleManager } from "~/manager/ModuleManager";
 import { PathfindingManager } from "~/manager/PathfindingManager";
 import { PhysicsManager } from "~/manager/PhysicsManager";
@@ -79,11 +80,12 @@ export class Client {
 	public static readonly proxy = new Proxy(this.bot);
 	public static readonly chat = new ChatManager(this.bot);
 	public static readonly presence = process.env.IRC_HOST ? new PresenceManager(this.bot) : null;
-	public static readonly queue = new QueueManager(this.bot);
-	public static readonly physics = new PhysicsManager(this.bot);
 	public static readonly commands = new CommandManager(this.bot);
+	public static readonly discord = new DiscordManager(this.bot);
 	public static readonly modules = new ModuleManager(this.bot);
 	public static readonly pathfinding = new PathfindingManager(this.bot);
+	public static readonly physics = new PhysicsManager(this.bot);
+	public static readonly queue = new QueueManager(this.bot);
 	public static readonly relations = new RelationManager(this.bot);
 	public static readonly stasis = new StasisManager(this.bot);
 
