@@ -8,30 +8,48 @@ datasource db {
 }
 
 model Stasis {
-  id        String   @id @default(cuid())
+  // Unique ID
+  id String @id @default(cuid())
+
+  // Timestamp of when the stasis was created
   createdAt DateTime @default(now())
 
+  // The dimension the stasis is in (e.g., "overworld", "the_nether", "the_end")
   dimension String
-  ownerId   String
-  server    String
-  x         Int
-  y         Int
-  z         Int
 
-  owner Player @relation(fields: [ownerId], references: [id])
+  // The block coordinates of the stasis
+  x Int
+  y Int
+  z Int
 
+  // The server the stasis belongs to (e.g., "play.example.com")
+  server String
+
+  // The player who owns this stasis
+  ownerId String
+  owner   Player @relation(fields: [ownerId], references: [id])
+
+  // Only 1 stasis can exist at a given position in a given dimension on a given server
   @@unique([server, x, y, z, dimension], name: "position")
 }
 
 model Player {
-  id        String   @id @default(cuid())
+  // A unique ID for the player record
+  id String @id @default(cuid())
+
+  // Timestamp of when the player record was created
   createdAt DateTime @default(now())
 
+  // The player's UUID (from Mojang) and username
   uuid     String
   username String
-  server   String
 
+  // The server the player belongs to (e.g., "play.example.com")
+  server String
+
+  // A player can have multiple stasis records
   stasis Stasis[]
 
+  // A player can only have one record per server (since UUIDs are unique across all servers)
   @@unique([server, uuid], name: "server_player")
 }
