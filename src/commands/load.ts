@@ -36,7 +36,7 @@ export default function(program: Command) {
 							const aDist = a.block.position.distanceTo(Client.bot.entity.position as Vec3);
 							const bDist = b.block.position.distanceTo(Client.bot.entity.position as Vec3);
 							return aDist - bDist;
-						}));
+						})).catch(() => []);
 
 					// If they have no pearls, inform them and exit
 					if (!pearls[0]) throw new Error("You have no pearls registered!");
