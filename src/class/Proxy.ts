@@ -166,7 +166,7 @@ export class Proxy {
 		bot._client.on("packet", this.onPacket);
 
 		// Download favicon as soon as session is available
-		const fetchFavicon = ({ selectedProfile: { id }}: SessionObject) => void fetch(`https://mc-heads.net/head/${ id }/64`)
+		const fetchFavicon = ({ selectedProfile: { id }}: SessionObject) => void fetch(`https://mc-heads.net/head/${ id }`)
 			.then(res => res.arrayBuffer().then(Buffer.from))
 			.then(sharp)
 			.then(img => img.resize(64, 64, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 }}))

@@ -165,6 +165,8 @@ export class Stasis extends StasisColumn implements StasisData {
 		Client.bot.entity.yaw = Math.atan2(-delta.x, -delta.z);
 		Client.bot.entity.pitch = Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z));
 
+		StasisManager.interactions.set(this, Date.now());
+
 		// Listen for the raw block_change packet at this position
 		const promise = new Promise<boolean>(resolve => {
 			const timeout = setTimeout(() => {

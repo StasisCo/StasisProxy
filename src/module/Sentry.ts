@@ -1,43 +1,5 @@
-// exporimport { Embed, Webhook } from "@vermaysha/discord-webhook";
-// import type { Bot } from "mineflayer";
-// import stripAnsi from "strip-ansi";
-// import { Client } from "~/class/Client";
-
-// export class WebhookLogger {
-
-// 	constructor(private readonly bot: Bot) {
-		
-// 		this.bot.on("entitySpawn", async entity => {
-			
-// 			if (entity.type !== "player") return;
-// 			const player = Object.values(this.bot.players).find(p => p.entity && p.entity.id === entity.id);
-// 			if (!player || player.uuid === Client.bot.player.uuid) return;
-			
-// 			await this.send(new Embed()
-// 				.setTitle(`${ entity.username } Entered Visual Range`)
-// 				.setColor(0xEF4444)
-// 				.setThumbnail({ url: `https://mc-heads.net/avatar/${ player.uuid.replace(/-/g, "") }/64` })
-// 				.addField({ name: "Location", value: `${ stripAnsi(entity.position.floored().toString()) } @ ${ bot.game.dimension }` })
-// 				.addField({ name: "Username", value: `${ entity.username }` })
-// 				.addField({ name: "UUID", value: `${ entity.uuid }` })
-// 				.setFooter({ text: `${ stripAnsi(bot.entity.position.floored().toString()) } @ ${ bot.game.dimension }` })
-// 				.setTimestamp());
-			
-// 		});
-        
-// 	}
-	
-// 	public async send(embed: Embed) {
-// 		if (!process.env.DISCORD_WEBHOOK_URL) return;
-// 		const client = new Webhook(process.env.DISCORD_WEBHOOK_URL);
-// 		await client?.addEmbed(embed).send();
-// 	}
-
-// }
-
 import { Embed } from "@vermaysha/discord-webhook";
 import type { Entity } from "prismarine-entity";
-import stripAnsi from "strip-ansi";
 import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
 import { Stasis } from "~/class/Stasis";
@@ -62,15 +24,17 @@ export default class Sentry extends Module {
 		const player = Object.values(Client.bot.players).find(p => p.entity && p.entity.id === entity.id);
 		if (!player || player.uuid === Client.bot.player.uuid) return;
 
+		// If this player was pearled within the last 1s, ignore their spawn to avoid logging pearl-induced teleports as new players entering render distance
+		const lastInteraction = StasisManager.interactions.entries().find(([ key ]) => key.ownerId === player.uuid)?.[1];
+		if (lastInteraction && Date.now() - lastInteraction < 1000) return;
+
 		await Client.discord.send(new Embed()
 			.setTitle(`${ entity.username } Entered Visual Range`)
-			.setColor(0xEF4444)
-			.setThumbnail({ url: `https://mc-heads.net/avatar/${ player.uuid.replace(/-/g, "") }/64` })
-			.addField({ name: "Location", value: `${ stripAnsi(entity.position.floored().toString()) } @ ${ Client.bot.game.dimension }` })
-			.addField({ name: "Username", value: `${ entity.username }` })
+			.setColor(0x06b6d4)
+			.setThumbnail({ url: `https://mc-heads.net/head/${ player.uuid.replace(/-/g, "") }` })
 			.addField({ name: "UUID", value: `${ entity.uuid }` })
-			.setFooter({ text: `${ stripAnsi(Client.bot.entity.position.floored().toString()) } @ ${ Client.bot.game.dimension }` })
-			.setTimestamp());
+			.addField({ name: "Dimension", value: `${ Client.bot.game.dimension }`, inline: true })
+			.addField({ name: "XYZ", value: `||\`${ entity.position.floored().x }\` \`${ entity.position.floored().y }\` \`${ entity.position.floored().z }\`||`, inline: true }));
 
 	};
 
@@ -83,6 +47,10 @@ export default class Sentry extends Module {
 		// Resolve stasis
 		const stasis = await Stasis.from(pearl).catch(() => null);
 		if (!stasis) return;
+		
+		// If the stasis was interacted within the last 1s, ignore its removal to avoid logging pearl-induced stasis breaks as unexpected breakages
+		const lastInteraction = StasisManager.interactions.entries().find(([ key ]) => key.id === stasis.id)?.[1];
+		const didIntentionallyPull = lastInteraction && Date.now() - lastInteraction < 1000;
 		await stasis.remove();
 
 		const owner = await prisma.player.findUnique({ where: { id: stasis.ownerId }});
@@ -91,17 +59,26 @@ export default class Sentry extends Module {
 		// Fetch remaining stasis chambers for the owner of the pearl
 		const remaining = await Stasis.fetch(owner.id);
 
+		if (didIntentionallyPull) {
+			await Client.discord.send(new Embed()
+				.setTitle(`${ owner.username } Pearled`)
+				.setColor(0x00c3b3)
+				.setThumbnail({ url: `https://mc-heads.net/head/${ owner.id.replace(/-/g, "") }` })
+				.addField({ name: "UUID", value: `${ owner.id }` })
+				.addField({ name: "Dimension", value: `${ Client.bot.game.dimension }`, inline: true })
+				.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
+				.addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
+			return;
+		}
+
 		await Client.discord.send(new Embed()
 			.setTitle("Stasis Broke Unexpectedly")
-			.setColor(0x00c3b3)
-			.setThumbnail({ url: `https://mc-heads.net/avatar/${ owner.id.replace(/-/g, "") }/64` })
-			.addField({ name: "Username", value: `${ owner.username }`, inline: true })
-			.addField({ name: "UUID", value: `${ owner.id }`, inline: true })
-			.addField({ name: "", value: "" })
-			.addField({ name: "Remaining Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }`, inline: true })
-			.addField({ name: "Location", value: `${ stripAnsi(stasis.block.position.floored().toString()) } @ ${ Client.bot.game.dimension }`, inline: true })
-			.setFooter({ text: `${ stripAnsi(Client.bot.entity.position.floored().toString()) } @ ${ Client.bot.game.dimension }` })
-			.setTimestamp());
+			.setColor(0xf43f5e)
+			.setThumbnail({ url: `https://mc-heads.net/head/${ owner.id.replace(/-/g, "") }` })
+			.addField({ name: "UUID", value: `${ entity.uuid }` })
+			.addField({ name: "Dimension", value: `${ Client.bot.game.dimension }`, inline: true })
+			.addField({ name: "XYZ", value: `||\`${ entity.position.floored().x }\` \`${ entity.position.floored().y }\` \`${ entity.position.floored().z }\`||`, inline: true })
+			.addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
 
 	};
 

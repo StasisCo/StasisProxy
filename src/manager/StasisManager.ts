@@ -1,3 +1,4 @@
+import { Embed } from "@vermaysha/discord-webhook";
 import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import { Vec3 } from "vec3";
@@ -13,6 +14,7 @@ export class StasisManager {
 
 	private static readonly logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
 	public static readonly pearls = new Map<number, Pearl>();
+	public static readonly interactions = new Map<Stasis, number>();
 	private static readonly suspended = new Set<number>();
 
 	/** Called when a stasis chamber is saved to the database */
@@ -180,6 +182,15 @@ export class StasisManager {
 				for (const extra of excess) extra.enqueue();
 				return;
 			}
+
+			await Client.discord.send(new Embed()
+				.setTitle(`${ owner.username } Set Stasis`)
+				.setColor(0x00c3b3)
+				.setThumbnail({ url: `https://mc-heads.net/head/${ stasis.ownerId.replace(/-/g, "") }` })
+				.addField({ name: "UUID", value: `${ stasis.ownerId }` })
+				.addField({ name: "Dimension", value: `${ Client.bot.game.dimension }`, inline: true })
+				.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
+				.addField({ name: "Pearls", value: `${ all.length } / ${ STASIS_USER_MAX }` }));
 
 			Client.chat.message(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
 			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.username) }`);
