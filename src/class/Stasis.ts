@@ -31,19 +31,23 @@ export class Stasis extends StasisColumn implements StasisData {
 		// Search the world for a stasis bounding box at the given position
 		const column = this.get(position);
 		if (!column) return null;
-		
+
 		// Lookup the stasis in the database
-		return await prisma.stasis.findUnique({
-			where: {
-				position: {
-					server: Client.host,
-					dimension: Client.bot.game.dimension,
-					x: column.block.position.x,
-					y: column.block.position.y,
-					z: column.block.position.z
+		try {
+			return await prisma.stasis.findUnique({
+				where: {
+					position: {
+						server: Client.host,
+						dimension: Client.bot.game.dimension,
+						x: column.block.position.x,
+						y: column.block.position.y,
+						z: column.block.position.z
+					}
 				}
-			}
-		}).then(data => data ? new Stasis(data) : null);
+			}).then(data => data ? new Stasis(data) : null);
+		} catch {
+			return null;
+		}
 
 	}
 
