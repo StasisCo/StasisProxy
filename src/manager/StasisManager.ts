@@ -166,6 +166,7 @@ export class StasisManager {
 
 			// Save the stasis to the database
 			const stasis = await column.save(owner);
+			if (!stasis) return;
 
 			// Get all stasis chambers for this player
 			const all = await Stasis.fetch(owner.uuid);

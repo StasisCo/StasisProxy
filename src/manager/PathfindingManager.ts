@@ -17,6 +17,14 @@ export class PathfindingManager {
 	private stuckTicks = 0;
 	private lastPos = { x: 0, z: 0 };
 
+	/** Watchdog: best (closest) distance to target seen this goal, and ticks since it improved. */
+	private bestDistance = Infinity;
+	private ticksSinceProgress = 0;
+
+	/** When dodging, commit to a chosen yaw for this many ticks before reconsidering */
+	private dodgeYaw: number | null = null;
+	private dodgeTicksRemaining = 0;
+
 	constructor(private readonly bot: Bot) {
 		const init = () => {
 			Client.physics.onPreTick.push(() => this.update());
@@ -106,6 +114,11 @@ export class PathfindingManager {
 		this.active = goal;
 		Client.physics.controls.forward = true;
 		Client.physics.controls.sprint = !this.returningHome;
+		this.stuckTicks = 0;
+		this.bestDistance = Infinity;
+		this.ticksSinceProgress = 0;
+		this.dodgeYaw = null;
+		this.dodgeTicksRemaining = 0;
 
 		if (goal.timeout !== null) {
 			goal._timer = setTimeout(async() => {
@@ -172,7 +185,26 @@ export class PathfindingManager {
 			return;
 		}
 
-		// Stuck detection — track ticks without meaningful XZ movement
+		// Watchdog: track meaningful progress toward target. If we haven't gotten closer
+		// in ~15s (300 ticks), abandon the goal as a timeout so queued goals (home, other
+		// stasis activations) can run instead of being stuck behind a dead goal.
+		const PROGRESS_THRESHOLD = 0.5;
+		const NO_PROGRESS_LIMIT = 300;
+		if (distance < this.bestDistance - PROGRESS_THRESHOLD) {
+			this.bestDistance = distance;
+			this.ticksSinceProgress = 0;
+		} else {
+			this.ticksSinceProgress++;
+			if (this.ticksSinceProgress > NO_PROGRESS_LIMIT) {
+				await this.finishActive("timeout");
+				this.processNext();
+				return;
+			}
+		}
+
+		// Stuck detection — only count ticks where we're trying to move forward but XZ position
+		// isn't changing. Distance to target may not shrink for legitimate reasons (overshoot,
+		// jumping, dodging) — that's not the same as being wedged into a wall.
 		const movedDist = Math.abs(pos.x - this.lastPos.x) + Math.abs(pos.z - this.lastPos.z);
 		if (movedDist > 0.05) {
 			this.stuckTicks = 0;
@@ -188,19 +220,44 @@ export class PathfindingManager {
 		const len = Math.sqrt(dx * dx + dz * dz);
 
 		if (len > 0.01) {
-			const yaw = this.findSafeYaw(pos, dx / len, dz / len);
-			if (yaw !== null) {
-				this.bot.entity.yaw = yaw;
+			// While committed to a dodge, hold the yaw rather than re-picking every tick
+			if (this.dodgeYaw !== null && this.dodgeTicksRemaining > 0) {
+				this.dodgeTicksRemaining--;
+				this.bot.entity.yaw = this.dodgeYaw;
 				Client.physics.controls.forward = true;
 			} else {
+				const yaw = this.findSafeYaw(pos, dx / len, dz / len);
+				if (yaw !== null) {
+					this.bot.entity.yaw = yaw;
+					Client.physics.controls.forward = true;
 
-				// All checked directions blocked by hazards — stop
-				Client.physics.controls.forward = false;
+					// If we picked a non-direct heading because we're stuck, commit to it for ~20 ticks (~1s)
+					if (this.stuckTicks > 5) {
+						this.dodgeYaw = yaw;
+						this.dodgeTicksRemaining = 20;
+					}
+				} else {
+
+					// All checked directions blocked by hazards — stop
+					Client.physics.controls.forward = false;
+				}
 			}
 		}
 
 		const entity = this.bot.entity as typeof this.bot.entity & { isCollidedHorizontally?: boolean };
-		Client.physics.controls.jump = !!entity.isCollidedHorizontally && entity.onGround;
+
+		// Preemptive jump — if there's a 1-high obstacle (solid foot, air head) directly ahead in the
+		// current heading, jump now rather than waiting until we're wedged into it.
+		const headingX = -Math.sin(this.bot.entity.yaw);
+		const headingZ = -Math.cos(this.bot.entity.yaw);
+		const aheadX = pos.x + headingX * 0.6;
+		const aheadZ = pos.z + headingZ * 0.6;
+		const feetBy = Math.floor(pos.y);
+		const footAhead = this.bot.blockAt(new Vec3(Math.floor(aheadX), feetBy, Math.floor(aheadZ)));
+		const headAhead = this.bot.blockAt(new Vec3(Math.floor(aheadX), feetBy + 1, Math.floor(aheadZ)));
+		const oneHighObstacle = footAhead?.boundingBox === "block" && headAhead?.boundingBox !== "block";
+
+		Client.physics.controls.jump = (oneHighObstacle || !!entity.isCollidedHorizontally) && entity.onGround;
 	}
 
 	/**
@@ -242,18 +299,33 @@ export class PathfindingManager {
 
 	/**
 	 * Check if there is a 2-high solid wall in the given direction.
-	 * Probes the center point 0.8 blocks ahead at both feet and head level.
-	 * Only flags as blocked when BOTH levels are solid (1-high obstacles can be jumped).
+	 * Probes multiple distances ahead and offsets perpendicular to the heading
+	 * to account for the player's ~0.6-wide hitbox — otherwise a corner block
+	 * grazes the shoulder while the center ray reads clear, and we get wedged.
+	 * Only flags as blocked when both feet- and head-level cells are solid at
+	 * any probed point (1-high obstacles can be jumped).
 	 */
 	private isWallAhead(posX: number, feetBlockY: number, posZ: number, dirX: number, dirZ: number): boolean {
-		const probeX = posX + dirX * 0.8;
-		const probeZ = posZ + dirZ * 0.8;
-		const bx = Math.floor(probeX);
-		const bz = Math.floor(probeZ);
+		const distances = this.stuckTicks > 5 ? [ 0.6, 1.2, 1.8, 2.4 ] : [ 0.8, 1.6 ];
 
-		const feetBlock = this.bot.blockAt(new Vec3(bx, feetBlockY, bz));
-		const headBlock = this.bot.blockAt(new Vec3(bx, feetBlockY + 1, bz));
-		return feetBlock?.boundingBox === "block" && headBlock?.boundingBox === "block";
+		// Perpendicular unit vector for shoulder offsets
+		const perpX = -dirZ;
+		const perpZ = dirX;
+		const shoulderOffsets = [ 0, 0.3, -0.3 ];
+
+		for (const dist of distances) {
+			for (const so of shoulderOffsets) {
+				const probeX = posX + dirX * dist + perpX * so;
+				const probeZ = posZ + dirZ * dist + perpZ * so;
+				const bx = Math.floor(probeX);
+				const bz = Math.floor(probeZ);
+
+				const feetBlock = this.bot.blockAt(new Vec3(bx, feetBlockY, bz));
+				const headBlock = this.bot.blockAt(new Vec3(bx, feetBlockY + 1, bz));
+				if (feetBlock?.boundingBox === "block" && headBlock?.boundingBox === "block") return true;
+			}
+		}
+		return false;
 	}
 
 	/** Check if the block at the given position is a hazard (water, bubble column, open trapdoor). */

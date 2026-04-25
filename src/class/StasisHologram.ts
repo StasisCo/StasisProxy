@@ -40,6 +40,12 @@ export class StasisHologram {
 	/** Scoreboard team name used to hide nametags on all fake player entities */
 	private static readonly HIDDEN_NAMETAG_TEAM = "__stasis_holo__";
 
+	/** Fake window ID used for hologram container UI (chosen high to avoid conflicts with server-assigned IDs) */
+	private static readonly WINDOW_ID = 200;
+
+	/** Window ID currently open on this client, or null if none */
+	private openWindowId: number | null = null;
+
 	/** Last known proxy-client position, extracted from C→S position packets */
 	private clientPos: { x: number; y: number; z: number } | null = null;
 
@@ -460,6 +466,56 @@ export class StasisHologram {
 		} catch { /* network error — proceed without skin */ }
 
 		return [];
+	}
+
+	/**
+	 * Called by the proxy when the client sends a use_entity packet.
+	 * Returns true if the packet was consumed (entity is one of our fake holograms).
+	 */
+	public handleInteract(data: { target: number }): boolean {
+		for (const [ , entry ] of this.entities) {
+			if (entry.entityId === data.target) {
+				this.openContainer(entry);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Called by the proxy when the client sends a close_window packet.
+	 * Returns true if the packet was consumed (it was closing our fake container).
+	 */
+	public handleCloseWindow(data: { windowId: number }): boolean {
+		if (data.windowId !== StasisHologram.WINDOW_ID || this.openWindowId === null) return false;
+		this.openWindowId = null;
+		return true;
+	}
+
+	/** Open a client-side 9×3 chest container for the given hologram entry. */
+	private openContainer(entry: { ownerName: string }) {
+		const proto = this.client.serializer.proto;
+		const windowId = StasisHologram.WINDOW_ID;
+		this.openWindowId = windowId;
+
+		this.client.writeRaw(proto.createPacketBuffer("packet", {
+			name: "open_window",
+			params: {
+				windowId,
+				inventoryType: 2, // generic_9x3
+				windowTitle: JSON.stringify({ text: entry.ownerName, color: "white", bold: true })
+			}
+		}));
+
+		this.client.writeRaw(proto.createPacketBuffer("packet", {
+			name: "window_items",
+			params: {
+				windowId,
+				stateId: 0,
+				items: Array(27).fill({ present: false }),
+				carriedItem: { present: false }
+			}
+		}));
 	}
 
 }

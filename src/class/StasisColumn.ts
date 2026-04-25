@@ -151,44 +151,53 @@ export class StasisColumn {
      * Saves the stasis to the database, associating it with the given player as the owner. 
      * If a stasis already exists at this location, it will be updated with the new owner. If not, a new stasis will be created.
      * @param owner The player to associate as the owner of this stasis
-     * @returns { Promise<Stasis> }A Stasis instance representing the saved stasis from the database
+     * @returns { Promise<Stasis | null> }A Stasis instance representing the saved stasis from the database, or null if the operation failed
      */
-	public async save(owner: Player): Promise<Stasis> {
-		return await prisma.stasis.upsert({
-			where: {
-				position: {
+	public async save(owner: Player): Promise<Stasis | null> {
+		try {
+			return await prisma.stasis.upsert({
+				where: {
+					position: {
+						dimension: Client.bot.game.dimension,
+						server: Client.host,
+						x: this.block.position.x,
+						y: this.block.position.y,
+						z: this.block.position.z
+					}
+				},
+				update: {
+					owner: {
+						upsert: {
+							where: {
+								id: owner.uuid
+							},
+							create: {
+								id: owner.uuid,
+								username: owner.username
+							},
+							update: {
+								username: owner.username
+							}
+						}
+					}
+				},
+				create: {
 					dimension: Client.bot.game.dimension,
 					server: Client.host,
 					x: this.block.position.x,
 					y: this.block.position.y,
-					z: this.block.position.z
-				}
-			},
-			update: {
-				owner: {
-					upsert: {
-						where: {
-							id: owner.uuid
-						},
-						create: {
-							id: owner.uuid,
-							username: owner.username
-						},
-						update: {
-							username: owner.username
+					z: this.block.position.z,
+					owner: {
+						connectOrCreate: {
+							where: { id: owner.uuid },
+							create: { id: owner.uuid, username: owner.username }
 						}
 					}
 				}
-			},
-			create: {
-				dimension: Client.bot.game.dimension,
-				ownerId: owner.uuid,
-				server: Client.host,
-				x: this.block.position.x,
-				y: this.block.position.y,
-				z: this.block.position.z
-			}
-		}).then(data => new Stasis(data));
+			}).then(data => new Stasis(data));
+		} catch {
+			return null;
+		}
 	}
 
 	/** Get the surface Y level of the stasis, which is the Y level of the first water source block or waterlogged block within the bounding box, or the bottom Y level if no water is found. This is used to determine where pearls will surface when they are teleported to the stasis.
