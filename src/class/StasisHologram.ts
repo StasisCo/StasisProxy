@@ -2,6 +2,7 @@ import crypto from "crypto";
 import type { Client as MinecraftClient } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import { Vec3 } from "vec3";
+import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
@@ -228,7 +229,7 @@ export class StasisHologram {
 		// Resolve a friendly username — prefer the in-game player list, fall back to the DB, then UUID.
 		const ownerName = ownerId
 			? Object.values(this.bot.players).find(p => p.uuid === ownerId)?.username
-				?? (await prisma.player.findUnique({ where: { id: ownerId }}).catch(() => null))?.username
+				?? (await prisma.player.findUnique({ where: { server_player: { uuid: ownerId, server: Client.host }}}).catch(() => null))?.username
 				?? ownerId
 			: "(unknown)";
 

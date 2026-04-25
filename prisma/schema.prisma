@@ -24,10 +24,14 @@ model Stasis {
 }
 
 model Player {
-  id        String   @id @unique
+  id        String   @id @default(cuid())
   createdAt DateTime @default(now())
 
+  uuid     String
   username String
+  server   String
 
   stasis Stasis[]
+
+  @@unique([server, uuid], name: "server_player")
 }

@@ -57,14 +57,14 @@ export default class Sentry extends Module {
 		if (!owner) return;
 
 		// Fetch remaining stasis chambers for the owner of the pearl
-		const remaining = await Stasis.fetch(owner.id);
+		const remaining = await Stasis.fetch(owner.uuid);
 
 		if (didIntentionallyPull) {
 			await Client.discord.send(new Embed()
 				.setTitle(`${ owner.username } Pearled`)
 				.setColor(0x00c3b3)
-				.setThumbnail({ url: `https://mc-heads.net/head/${ owner.id.replace(/-/g, "") }` })
-				.addField({ name: "UUID", value: `${ owner.id }` })
+				.setThumbnail({ url: `https://mc-heads.net/head/${ owner.uuid.replace(/-/g, "") }` })
+				.addField({ name: "UUID", value: `${ owner.uuid }` })
 				.addField({ name: "Dimension", value: `${ Client.bot.game.dimension }`, inline: true })
 				.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
 				.addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
@@ -74,7 +74,7 @@ export default class Sentry extends Module {
 		await Client.discord.send(new Embed()
 			.setTitle("Stasis Broke Unexpectedly")
 			.setColor(0xf43f5e)
-			.setThumbnail({ url: `https://mc-heads.net/head/${ owner.id.replace(/-/g, "") }` })
+			.setThumbnail({ url: `https://mc-heads.net/head/${ owner.uuid.replace(/-/g, "") }` })
 			.addField({ name: "UUID", value: `${ entity.uuid }` })
 			.addField({ name: "Dimension", value: `${ Client.bot.game.dimension }`, inline: true })
 			.addField({ name: "XYZ", value: `||\`${ entity.position.floored().x }\` \`${ entity.position.floored().y }\` \`${ entity.position.floored().z }\`||`, inline: true })

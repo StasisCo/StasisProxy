@@ -169,11 +169,12 @@ export class StasisColumn {
 					owner: {
 						upsert: {
 							where: {
-								id: owner.uuid
+								server_player: { uuid: owner.uuid, server: Client.host }
 							},
 							create: {
-								id: owner.uuid,
-								username: owner.username
+								uuid: owner.uuid,
+								username: owner.username,
+								server: Client.host
 							},
 							update: {
 								username: owner.username
@@ -189,11 +190,12 @@ export class StasisColumn {
 					z: this.block.position.z,
 					owner: {
 						connectOrCreate: {
-							where: { id: owner.uuid },
-							create: { id: owner.uuid, username: owner.username }
+							where: { server_player: { uuid: owner.uuid, server: Client.host }},
+							create: { uuid: owner.uuid, username: owner.username, server: Client.host }
 						}
 					}
-				}
+				},
+				include: { owner: { select: { uuid: true }}}
 			}).then(data => new Stasis(data));
 		} catch {
 			return null;

@@ -43,7 +43,8 @@ export class Stasis extends StasisColumn implements StasisData {
 						y: column.block.position.y,
 						z: column.block.position.z
 					}
-				}
+				},
+				include: { owner: { select: { uuid: true }}}
 			}).then(data => data ? new Stasis(data) : null);
 		} catch {
 			return null;
@@ -61,9 +62,10 @@ export class Stasis extends StasisColumn implements StasisData {
 		const stasis = await prisma.stasis.findMany({
 			where: {
 				server: Client.host,
-				ownerId: player,
+				owner: { uuid: player, server: Client.host },
 				dimension: Client.bot.game.dimension
-			}
+			},
+			include: { owner: { select: { uuid: true }}}
 		}).then(function(results) {
 			const all = [];
 			for (const data of results) {
@@ -90,8 +92,11 @@ export class Stasis extends StasisColumn implements StasisData {
 	/** The dimension the stasis is located in (e.g. "overworld", "the_nether", "the_end") */
 	public readonly dimension: Dimension;
 
-	/** The UUID of the player who owns the stasis */
+	/** The ID (cuid) of the player record who owns the stasis */
 	public readonly ownerId: string;
+
+	/** The Minecraft UUID of the player who owns the stasis */
+	public readonly ownerUuid: string;
 
 	/** The server the stasis is located on */
 	public readonly server: string;
@@ -109,12 +114,13 @@ export class Stasis extends StasisColumn implements StasisData {
 	 * Creates a new Stasis instance from a Stasis object retrieved from the database
 	 * @param data - The Stasis data object retrieved from the database
 	 */
-	constructor(data: StasisData) {
+	constructor(data: StasisData & { owner: { uuid: string } }) {
 		super(data.x, data.y, data.z);
 		this.id = data.id;
 		this.createdAt = data.createdAt;
 		this.dimension = z.enum([ "overworld", "the_nether", "the_end" ]).parse(data.dimension);
 		this.ownerId = data.ownerId;
+		this.ownerUuid = data.owner.uuid;
 		this.server = data.server;
 		this.x = data.x;
 		this.y = data.y;

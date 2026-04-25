@@ -186,8 +186,8 @@ export class StasisManager {
 			await Client.discord.send(new Embed()
 				.setTitle(`${ owner.username } Set Stasis`)
 				.setColor(0x00c3b3)
-				.setThumbnail({ url: `https://mc-heads.net/head/${ stasis.ownerId.replace(/-/g, "") }` })
-				.addField({ name: "UUID", value: `${ stasis.ownerId }` })
+				.setThumbnail({ url: `https://mc-heads.net/head/${ owner.uuid.replace(/-/g, "") }` })
+				.addField({ name: "UUID", value: `${ owner.uuid }` })
 				.addField({ name: "Dimension", value: `${ Client.bot.game.dimension }`, inline: true })
 				.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
 				.addField({ name: "Pearls", value: `${ all.length } / ${ STASIS_USER_MAX }` }));
@@ -215,7 +215,7 @@ export class StasisManager {
 				goal.once("arrived", async() => {
 						
 					// Check the player is still online (players is keyed by username, owner is a UUID)
-					const owner = Object.values(Client.bot.players).find(p => p.uuid === stasis.ownerId);
+					const owner = Object.values(Client.bot.players).find(p => p.uuid === stasis.ownerUuid);
 					if (!owner) return StasisManager.logger.warn(`Owner of stasis ${ chalk.yellow(stasis.id) } is offline, skipping activation`);
 
 					// Get the pearls in the stasis before interacting
@@ -243,7 +243,7 @@ export class StasisManager {
 					}
 
 					// Otherwise, queue another stasis for the user
-					const next = await Stasis.fetch(stasis.ownerId).then(all => all.find(s => s.id !== stasis.id));
+					const next = await Stasis.fetch(stasis.ownerUuid).then(all => all.find(s => s.id !== stasis.id));
 					if (!next) {
 						Client.chat.message(owner, "The pearl in stasis did not break, and you have no others.");
 						return;
