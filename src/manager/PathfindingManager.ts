@@ -220,6 +220,7 @@ export class PathfindingManager {
 		const len = Math.sqrt(dx * dx + dz * dz);
 
 		if (len > 0.01) {
+
 			// While committed to a dodge, hold the yaw rather than re-picking every tick
 			if (this.dodgeYaw !== null && this.dodgeTicksRemaining > 0) {
 				this.dodgeTicksRemaining--;
@@ -257,7 +258,17 @@ export class PathfindingManager {
 		const headAhead = this.bot.blockAt(new Vec3(Math.floor(aheadX), feetBy + 1, Math.floor(aheadZ)));
 		const oneHighObstacle = footAhead?.boundingBox === "block" && headAhead?.boundingBox !== "block";
 
-		Client.physics.controls.jump = (oneHighObstacle || !!entity.isCollidedHorizontally) && entity.onGround;
+		// 2-tall tunnel detection: head-level block is clear but ceiling is exactly 2 blocks above
+		// feet. Sprint-jumping continuously in this space is faster than walking.
+		const headBlockHere = this.bot.blockAt(new Vec3(Math.floor(pos.x), feetBy + 1, Math.floor(pos.z)));
+		const ceilingBlockHere = this.bot.blockAt(new Vec3(Math.floor(pos.x), feetBy + 2, Math.floor(pos.z)));
+		const inTwoTallTunnel = headBlockHere?.boundingBox !== "block" && ceilingBlockHere?.boundingBox === "block";
+
+		if (inTwoTallTunnel && Client.physics.controls.forward) {
+			Client.physics.controls.sprint = true;
+		}
+
+		Client.physics.controls.jump = entity.onGround && (oneHighObstacle || !!entity.isCollidedHorizontally || inTwoTallTunnel);
 	}
 
 	/**
