@@ -48,7 +48,8 @@ export class Stasis extends StasisColumn implements StasisData {
 					owner: {
 						select: {
 							id: true,
-							uuid: true }
+							uuid: true
+						}
 					}
 				}
 			}).then(data => data ? new Stasis(data) : null);
