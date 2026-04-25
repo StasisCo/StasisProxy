@@ -128,7 +128,7 @@ export class ChatManager {
 	}
 
 	public message(player: Player, message: string) {
-		Client.bot.chat(`/w ${ player.username } ${ message.trim() } [${ randomBytes(6).toString("hex") }]`);
+		Client.bot.chat(`/w ${ player.username } ${ message.trim().replace(/\n|\r/g, " ") } [${ randomBytes(6).toString("hex") }]`);
 	}
 
 }
