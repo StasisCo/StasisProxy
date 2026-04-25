@@ -25,7 +25,7 @@ export class Client {
 
 	public static console?: Console;
 
-	private static exitCode = 0;
+	private static exitCode = 1; // Default to 1 (unexpected disconnect); set to 0 for intentional clean exits
 
 	public static readonly options: BotOptions = {
 		auth: "microsoft",
@@ -107,6 +107,16 @@ export class Client {
 			this.proxy.close();
 			process.exit(this.exitCode);
 		});
+
+		// Graceful shutdown — let the bot send its disconnect packet before exiting.
+		// SIGTERM (docker stop) and SIGINT (Ctrl+C) are both clean stops, so exit 0
+		// so Docker does not restart the container.
+		const gracefulShutdown = () => {
+			this.exitCode = 0;
+			Client.bot.quit();
+		};
+		process.once("SIGTERM", gracefulShutdown);
+		process.once("SIGINT", gracefulShutdown);
 
 	}
 
