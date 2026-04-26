@@ -13,7 +13,12 @@ export default class AutoTotem extends Module {
 	}
 
 	private get totems() {
-		return Client.bot.inventory.slots.filter(item => item && item.name === "totem_of_undying") as Item[];
+
+		// search hotbar first for quicker access, then rest of inventory
+		const hotbarTotems = Client.bot.inventory.slots.slice(Client.bot.inventory.hotbarStart, Client.bot.inventory.hotbarStart + 9).filter(item => item && item.name === "totem_of_undying") as Item[];
+		const inventoryTotems = Client.bot.inventory.slots.slice(9).filter(item => item && item.name === "totem_of_undying") as Item[];
+
+		return [ ...hotbarTotems, ...inventoryTotems ];
 	}
 
 	private async applyHand(hand: "hand" | "off-hand" = "off-hand", force = false) {
