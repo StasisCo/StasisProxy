@@ -30,7 +30,7 @@ export class StasisHologram {
 	private static nextEntityId = 0x70000000;
 
 	/** Map from pearl entity id → { fake entity id, fake UUID, nametag entity id } currently spawned on the client */
-	private readonly entities = new Map<number, { entityId: number; fakeUUID: string; ownerName: string; nametagEntityIds: number[] }>();
+	private readonly entities = new Map<number, { entityId: number; fakeUUID: string; fakeName: string; ownerName: string; nametagEntityIds: number[] }>();
 
 	/** Per-pearl listeners we attached, kept so we can detach them on disconnect */
 	private readonly pearlListeners = new Map<number, { suspended:() => void; destroyed: () => void }>();
@@ -241,7 +241,10 @@ export class StasisHologram {
 		// Use a random UUID so the fake player never collides with the real owner's UUID
 		// in the existing tab list (e.g. if they're already on 2b2t).
 		const fakeUUID = crypto.randomUUID();
-		this.entities.set(pearl.entity.id, { entityId, fakeUUID, ownerName, nametagEntityIds: []});
+
+		// Derive a unique fake username from the UUID so team membership never touches real players.
+		const fakeName = fakeUUID.replace(/-/g, "").substring(0, 16);
+		this.entities.set(pearl.entity.id, { entityId, fakeUUID, fakeName, ownerName, nametagEntityIds: []});
 
 		const proto = this.client.serializer.proto;
 
@@ -261,7 +264,7 @@ export class StasisHologram {
 				},
 				data: [ {
 					uuid: fakeUUID,
-					player: { name: ownerName, properties: skinProperties },
+					player: { name: fakeName, properties: skinProperties },
 					listed: false
 				} ]
 			}
@@ -294,12 +297,13 @@ export class StasisHologram {
 		}));
 
 		// Add the fake player to the hidden-nametag team so the username label is invisible.
+		// We use fakeName (not ownerName) so real players with the same username are unaffected.
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "teams",
 			params: {
 				team: StasisHologram.HIDDEN_NAMETAG_TEAM,
 				mode: 3, // add players
-				players: [ ownerName ]
+				players: [ fakeName ]
 			}
 		}));
 
@@ -391,13 +395,13 @@ export class StasisHologram {
 		}));
 
 		// Remove the fake player name from the hidden-nametag team
-		if (entry.ownerName) {
+		if (entry.fakeName) {
 			this.client.writeRaw(proto.createPacketBuffer("packet", {
 				name: "teams",
 				params: {
 					team: StasisHologram.HIDDEN_NAMETAG_TEAM,
 					mode: 4, // remove players
-					players: [ entry.ownerName ]
+					players: [ entry.fakeName ]
 				}
 			}));
 		}

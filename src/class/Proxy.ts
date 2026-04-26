@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { createServer, type Client as MinecraftClient, type PacketMeta, type Server, type SessionObject } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import sharp from "sharp";
+import type { Vec3 } from "vec3";
 import z from "zod";
 import { ChatManager } from "~/manager/ChatManager";
 import { Client } from "./Client";
@@ -690,6 +691,15 @@ export class Proxy {
 			client.off("packet", onClientPacket);
 			holograms.detach();
 			this.client = null;
+
+			// Save current bot position as the new home so pathfinding returns here after reconnect
+			const pos = this.bot.entity?.position;
+			if (pos && Number.isFinite(pos.x)) {
+				const floored = pos.floored();
+				Client.pathfinding.setHome(floored.offset(0.5, 0, 0.5) as Vec3);
+				Proxy.logger.log(`Home saved at ${ floored.x }, ${ floored.y }, ${ floored.z } on disconnect`);
+			}
+
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading stored field
 			const originalUsername: string = (client as any)._originalUsername ?? client.username;
 			Proxy.logger.log(`${ originalUsername } lost connection: Disconnected`);
