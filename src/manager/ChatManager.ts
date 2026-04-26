@@ -1,4 +1,3 @@
-import chalk from "chalk";
 import { randomBytes } from "crypto";
 import { type Bot as Mineflayer, type Player } from "mineflayer";
 import ChatMessageConstructor from "prismarine-chat";
@@ -9,19 +8,17 @@ import { CommandManager } from "./CommandManager";
 
 export class ChatManager {
 
+	private static readonly whisperQueue = new Map<string, { message: string; timestamp: number }>();
+
 	private static logger = new Logger("CHAT");
 
-	/**
-     * ChatMessage constructor factory for the current Minecraft version
-     */
 	public static readonly parser = ChatMessageConstructor(`${ process.env.MC_VERSION }`);
 
 	/**
 	 * Recursively unwrap a protodef-parsed NBT value into a plain chat component object.
 	 * In 1.20.3+ system_chat content arrives as binary NBT, not a JSON string.
 	 */
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- NBT shapes are dynamic
-	private static nbtToChat(nbt: any): any {
+	private static nbtToChat(nbt: unknown): unknown {
 		if (typeof nbt !== "object" || nbt === null) return nbt;
 		if ("type" in nbt && "value" in nbt) {
 			if (nbt.type === "compound") {
@@ -53,7 +50,7 @@ export class ChatManager {
 	private static readonly SPACE_WIDTH = 5;
 
 	/** Calculate the pixel width of Minecraft-formatted text */
-	public static getPixelWidth(text: string): number {
+	private static getPixelWidth(text: string): number {
 		let width = 0;
 		let bold = false;
 		for (let i = 0; i < text.length; i++) {
@@ -79,25 +76,15 @@ export class ChatManager {
 	constructor(bot: Mineflayer) {
 
 		// Log all system chat messages to the console in a readable format
-		bot._client.on("packet", async function(packet, { name }) {
-			if (name !== "system_chat") return;
+		bot._client.on("system_chat", async function(packet: Packets.Schema["system_chat"]) {
 
-			const raw = typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content);
-			let message = new ChatManager.parser(raw).toAnsi();
-			for (const relation of Client.relations.list) {
-				for (const username of relation.usernames) {
-					if (message.includes(username)) {
-						message = message.replaceAll(username, chalk.hex(relation.type === "friend" ? "#55FFFF" : "#FF0000")(username));
-					}
-				}
-			}
-			
-			message = message.replaceAll(bot.username, chalk.hex("#FF55FF").underline(bot.username));
-
-			ChatManager.logger.log(message);
+			// Parsed chat message objects can be deeply nested due to the way Minecraft formats text with extra components, translations, and selectors. We need to recursively unwrap these into a single string for logging.
+			const parsed = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
+			ChatManager.logger.log(parsed.toAnsi().trim().replace(/\n|\r|\s+/g, " "));
 
 		});
 		
+		// Handle whisper commands
 		bot.on("whisper", async(username, message) => {
 
 			// Prefix is optional for whisper commands, but if present, should be removed before command parsing
@@ -110,12 +97,11 @@ export class ChatManager {
 
 		});
 
+		// Handle public chat commands
 		bot.on("chat", async(username, message) => {
 
 			// Parse out green text
-			if (message.trim().startsWith(">")) {
-				message = message.trim().slice(1).trim();
-			}
+			if (message.trim().startsWith(">")) message = message.trim().slice(1).trim();
 
 			// Ignore messages that don't start with the command prefix
 			if (!message.toLowerCase().startsWith(COMMAND_CHAT_PREFIX.toLowerCase())) return;
@@ -124,11 +110,51 @@ export class ChatManager {
 			await CommandManager.handle(username, command, "chat");
 
 		});
+
+		setInterval(this.processQueue.bind(this));
 		
 	}
 
-	public message(player: Player, message: string) {
-		Client.bot.chat(`/w ${ player.username } ${ message.trim().replace(/\n|\r/g, " ") } [${ randomBytes(6).toString("hex") }]`);
+	private lastWhisper = -1;
+
+	private processQueue() {
+
+		// If lastWhisper was more then 2s ago
+		if (Date.now() - this.lastWhisper < 2000) return;
+
+		const next = Array.from(ChatManager.whisperQueue.entries())
+			.sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+		if (!next) return;
+
+		const sanitized = next[1].message.trim().replace(/\n|\r/g, " ");
+		const chars = [];
+		for (const char of sanitized.split("")) {
+			chars.push(char);
+			const length = Math.floor(Math.random() * 3);
+			for (let i = 0; i < length; i++) chars.push("\u200C");
+		}
+		const msg = `${ chars.join("") } [${ randomBytes(6).toString("hex") }]`;
+
+		Client.bot.chat(`/w ${ next[0] } ${ msg }`);
+		this.lastWhisper = Date.now();
+
+		const onSystemMessage = (packet: Packets.Schema["system_chat"]) => {
+			const content = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
+			if (content.toString().endsWith(msg)) {
+				Client.bot._client.off("system_chat", onSystemMessage);
+				ChatManager.whisperQueue.delete(next[0]);
+			}
+		};
+
+		Client.bot._client.on("system_chat", onSystemMessage);
+
+	}
+
+	public whisper(player: Player, message: string) {
+		ChatManager.whisperQueue.set(player.username, {
+			timestamp: Date.now(),
+			message: `${ message.trim().replace(/\n|\r/g, " ") }`
+		});
 	}
 
 }

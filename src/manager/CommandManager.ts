@@ -40,7 +40,7 @@ export class CommandManager {
 
 				// Commander throws on unknown commands / validation errors
 				if (error instanceof Error) {
-					Client.chat.message(player, error.message);
+					Client.chat.whisper(player, error.message);
 				}
 			}
 		});

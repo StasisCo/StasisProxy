@@ -20,7 +20,7 @@ export default function(program: Command) {
 			const home = floored.offset(0.5, 0, 0.5) as Vec3;
 			
 			Client.pathfinding.setHome(home);
-			Client.chat.message(player, "Home position set to your current location.");
+			Client.chat.whisper(player, "Home position set to your current location.");
 
 		});
 }

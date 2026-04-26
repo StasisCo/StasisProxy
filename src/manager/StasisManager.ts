@@ -162,7 +162,7 @@ export class StasisManager {
 
 			// If we have an existing pearl that belongs to a different or unknown owner, we have a conflict and need to ignore this stasis chamber since we cant be sure which pearl is ours
 			if (column.pearls.some(p => p.ownerId !== pearl.ownerId || !p.ownerId)) {
-				Client.chat.message(owner, "This stasis already belongs to someone else, your pearl will be ignored.");
+				Client.chat.whisper(owner, "This stasis already belongs to someone else, your pearl will be ignored.");
 				return;
 			}
 
@@ -176,7 +176,7 @@ export class StasisManager {
 			// If they have too many, break and remove excess pearls until at the limit
 			if (all.length > STASIS_USER_MAX && STASIS_USER_MAX >= 0) {
 				const excess = all.slice(STASIS_USER_MAX);
-				Client.chat.message(owner, `You already have ${ all.length - 1 } / ${ STASIS_USER_MAX } pearls, ${ excess.length } will be removed.`);
+				Client.chat.whisper(owner, `You already have ${ all.length - 1 } / ${ STASIS_USER_MAX } pearls, ${ excess.length } will be removed.`);
 				StasisManager.logger.warn(`Player ${ chalk.cyan(owner.uuid) } has too many stasis chambers (${ chalk.yellow(all.length) } / ${ chalk.yellow(STASIS_USER_MAX) }), removing ${ chalk.yellow(excess.length) } excess`);
 
 				for (const extra of excess) extra.enqueue();
@@ -192,7 +192,7 @@ export class StasisManager {
 				.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
 				.addField({ name: "Pearls", value: `${ all.length } / ${ STASIS_USER_MAX }` }));
 
-			Client.chat.message(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
+			Client.chat.whisper(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
 			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.username) }`);
 			StasisManager.onSaved?.(stasis);
 
@@ -245,11 +245,11 @@ export class StasisManager {
 					// Otherwise, queue another stasis for the user
 					const next = await Stasis.fetch(stasis.ownerUuid).then(all => all.find(s => s.id !== stasis.id));
 					if (!next) {
-						Client.chat.message(owner, "The pearl in stasis did not break, and you have no others.");
+						Client.chat.whisper(owner, "The pearl in stasis did not break, and you have no others.");
 						return;
 					}
 					
-					Client.chat.message(owner, "The pearl in stasis did not break. Trying another...");
+					Client.chat.whisper(owner, "The pearl in stasis did not break. Trying another...");
 					next.enqueue();
 
 				});

@@ -93,6 +93,10 @@ declare namespace Packets {
 			rootIndex: number;
 		}
 
+		"system_chat": {
+			content: string | unknown;
+		}
+
 	}
 
 }

@@ -37,7 +37,7 @@ export default function(program: Command) {
 							return aDist - bDist;
 						}));
 
-					Client.chat.message(sender, `You have ${ pearls.length } / ${ STASIS_USER_MAX } pearls.`);
+					Client.chat.whisper(sender, `You have ${ pearls.length } / ${ STASIS_USER_MAX } pearls.`);
 
 				}
 

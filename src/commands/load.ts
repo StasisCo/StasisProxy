@@ -42,7 +42,7 @@ export default function(program: Command) {
 					if (!pearls[0]) throw new Error("You have no pearls registered!");
 
 					// If they have pearls, but are at the limit, inform them and exit
-					Client.chat.message(sender, `Loading your pearl, you have ${ pearls.length - 1 } / ${ STASIS_USER_MAX } pearls remaining.`);
+					Client.chat.whisper(sender, `Loading your pearl, you have ${ pearls.length - 1 } / ${ STASIS_USER_MAX } pearls remaining.`);
 					StasisManager.enqueue(pearls[0]);
 					break;
 
