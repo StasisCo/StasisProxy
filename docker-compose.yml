@@ -11,16 +11,14 @@ services:
       - minecraft:/root/.minecraft
     restart: on-failure
     environment:
-      - MC_HOST
-      - MC_USERNAME
-      - STASIS_LOCATION_NAME
-      # - DATABASE_URL=postgresql://stasis:stasis@postgres:5432/stasis
-      # - REDIS_URL=redis://redis:6379
       - DATABASE_URL
-      - PROXY_PORT=25577
+      - DATABASE_URL=postgresql://stasis:stasis@postgres:5432/stasis
+      - MC_HOST
       - MC_PROFILE=/root/.minecraft
+      - MC_USERNAME
       - MC_VERSION=1.20.1
-      - REDIS_URL
+      - PROXY_PORT=25577
+      - REDIS_URL=redis://redis:6379
     env_file:
       - path: .env
         required: false
