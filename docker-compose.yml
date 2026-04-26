@@ -14,16 +14,36 @@ services:
       - MC_HOST
       - MC_USERNAME
       - STASIS_LOCATION_NAME
-      - DATABASE_URL=postgresql://stasis:stasis@postgres:5432/stasis
+      # - DATABASE_URL=postgresql://stasis:stasis@postgres:5432/stasis
+      # - REDIS_URL=redis://redis:6379
+      - DATABASE_URL
       - PROXY_PORT=25577
       - MC_PROFILE=/root/.minecraft
-      - MC_VERSION=1.20.1
-      - REDIS_URL=redis://redis:6379
-    ports:
-      - "25577:25577"
+      - MC_VERSION=1.20.6
+      - REDIS_URL
     env_file:
       - path: .env
         required: false
+
+  viaproxy:
+    image: ghcr.io/viaversion/viaproxy:latest
+    depends_on:
+      - stasis-proxy
+    ports:
+      - "25565:25565"
+    # Override the default config-file entrypoint so we can use CLI mode.
+    # proxy-online-mode true: ViaProxy authenticates the player at the frontend,
+    # then uses their session to satisfy StasisProxy's online-mode handshake.
+    entrypoint: [ "java", "-jar", "/app/ViaProxy.jar" ]
+    command:
+      - cli
+      - --bind-address
+      - 0.0.0.0:25565
+      - --target-address
+      - stasis-proxy:25577
+      - --proxy-online-mode
+      - "true"
+    restart: unless-stopped
 
   postgres:
     image: postgres:17

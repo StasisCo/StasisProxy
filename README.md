@@ -54,4 +54,4 @@ Get up and running in seconds using Docker.
     ```bash
     docker compose up -d
     ```
-    This brings up the proxy, PostgreSQL, and Redis. The proxy listens on port `25577` by default.
+    This brings up the proxy, PostgreSQL, and Redis. The proxy listens on port `25565` by default.
