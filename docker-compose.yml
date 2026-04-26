@@ -19,7 +19,7 @@ services:
       - DATABASE_URL
       - PROXY_PORT=25577
       - MC_PROFILE=/root/.minecraft
-      - MC_VERSION=1.20.6
+      - MC_VERSION=1.20.1
       - REDIS_URL
     env_file:
       - path: .env
