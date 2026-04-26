@@ -116,6 +116,15 @@ export class PhysicsManager {
 			this.lastSent.onGround = bot.entity.onGround;
 			this.lastSent.time = performance.now();
 
+			// When a proxy client is connected, they handle movement themselves — don't
+			// send a bot position_look that would conflict with the client's own packets.
+			if (Client.proxy?.connected) {
+				// Still resync sprint/sneak in case the server reset action state
+				this.lastSprint = !this.controls.sprint;
+				this.lastSneak = !this.controls.sneak;
+				return;
+			}
+
 			this.rawWrite("position_look", {
 				x: bot.entity.position.x,
 				y: bot.entity.position.y,

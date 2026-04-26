@@ -5,6 +5,7 @@ import sharp from "sharp";
 import type { Vec3 } from "vec3";
 import z from "zod";
 import { ChatManager } from "~/manager/ChatManager";
+import { StasisManager } from "~/manager/StasisManager";
 import { Client } from "./Client";
 import { Logger } from "./Logger";
 import { StasisHologram } from "./StasisHologram";
@@ -195,12 +196,46 @@ export class Proxy {
 	}
 
 	get motd(): string {
-		const lines = [ "§8§l» §3§lStasisProxy §8§l«§r" ];
-		
-		if (Client.queue.queued) lines.push(`§b§n${ Client.bot.username }§r — ${ (Client.queue.subtitle || Client.queue.title)?.toMotd() || "§6Queueing..." }`);
-		else lines.push(`§b§n${ Client.bot.username }§r - §e${ Object.keys(Client.bot.players).length } Online`);
 
-		return lines.filter(Boolean).map(line => ChatManager.center(line, 270)).join("\n");
+		const HEADER = "§8§l» §3§lStasisProxy §8§l«§r";
+		const BODY = [ `§b§n${ Client.bot.username }` ];
+		
+		// If in queue
+		if (Client.queue.queued) {
+			const title = (Client.queue.title || Client.queue.subtitle)?.toMotd();
+			BODY.push(title || "§6Waiting for position...");
+		} else {
+
+			// consistantly alternate 
+			if (Date.now() % 2000 >= 1000) {
+				BODY.push(`§6${ Client.host }`);
+				BODY.push(`§e${ Object.entries(Client.bot.players).length } Online`);
+			} else {
+				BODY.push(`§d${ StasisManager.pearls.size } Pearls`);
+
+				const unique = StasisManager.pearls.values()
+					.filter(p => p.ownerId !== undefined)
+					.map(p => p.ownerId!)
+					.reduce((set, ownerId) => set.add(ownerId), new Set<string>()).size;
+				BODY.push(`§a${ unique } Players`);
+
+			}
+
+			// if (Math.random() >= 0.5) {
+			// 	lines.push(`§b§n${ Client.bot.username }§r — §a${ StasisManager.pearls.values()
+			// 		.filter(p => p.ownerId !== undefined)
+			// 		.map(p => p.ownerId!)
+			// 		.reduce((set, ownerId) => set.add(ownerId), new Set<string>()).size
+			// 	} Players §r— §d${ StasisManager.pearls.size } Pearls`);
+			// } else {
+			// 	lines.push(`§b§n${ Client.bot.username }§r — §6${ Client.host }§r — §e${ Object.entries(Client.bot.players).length } Online`);
+			// }
+		};
+
+		// return lines.filter(Boolean).map(line => ChatManager.center(line, 270)).join("\n");
+
+		return [ HEADER, BODY.join("§r — ") ].map(line => ChatManager.center(line, 270)).filter(Boolean).join("\n");
+
 	}
 
 	private startServer() {
@@ -217,10 +252,7 @@ export class Proxy {
 			},
 			beforeLogin: client => {
 
-				Proxy.logger.log([
-					`UUID of player ${ client.username } is ${ client.uuid }`,
-					`${ client.username }[/${ client.socket.remoteAddress }:${ client.socket.remotePort }] logged in with entity id ${ this.bot.player?.entity?.id ?? "?" }`
-				].join("\n"));
+				Proxy.logger.log(`UUID of player ${ client.username } is ${ client.uuid }`);
 
 				// Make the connecting player appear as the bot: swap their UUID and
 				// username in login_success so the client thinks it IS the bot.
@@ -230,23 +262,25 @@ export class Proxy {
 				if (!profile) return;
 
 				// Preserve the real username before overwriting — used for disconnect logs.
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- storing extra field on protocol client
-				(client as any)._originalUsername = client.username;
+				const _originalUsername = client.username;
 				const rawId = profile.id.replace(/-/g, "");
+				
 				client.uuid = `${ rawId.slice(0, 8) }-${ rawId.slice(8, 12) }-${ rawId.slice(12, 16) }-${ rawId.slice(16, 20) }-${ rawId.slice(20) }`;
 				client.username = profile.name;
 
 				// Inject bot skin properties into login_success (minecraft-protocol hardcodes properties: [])
 				if (this.botProperties.length > 0) {
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- monkey-patch write to inject properties
-					const origWrite = (client.write as any).bind(client);
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- params type varies by packet
-					(client as any).write = (name: string, params: Record<string, unknown>) => {
+					const origWrite = client.write.bind(client);
+					client.write = (name: string, params: Record<string, unknown>) => {
 						if (name === "success") params.properties = this.botProperties;
 						return origWrite(name, params);
 					};
 				}
+				
+				Proxy.logger.log(`${ _originalUsername }[/${ client.socket.remoteAddress }:${ client.socket.remotePort }] logged in with entity id ${ this.bot.player?.entity?.id ?? "?" }`);
+
 			}
+			
 		});
 
 		// Apply favicon if it was fetched before the server started
@@ -440,39 +474,48 @@ export class Proxy {
 		}
 
 		// ── Store cacheable packets ──
-		const keySpec = PACKET_KEYS[name];
-		if (keySpec === undefined) return;
+		// Wrapped in try-catch: if the key spec or structuredClone throws (e.g. due to an
+		// unexpected ViaProxy packet structure), the error must NOT propagate out of this
+		// listener. Node.js EventEmitter stops calling subsequent listeners the moment one
+		// throws — which would silently prevent onServerPacket from forwarding the packet
+		// to the proxy client.
+		try {
+			const keySpec = PACKET_KEYS[name];
+			if (keySpec === undefined) return;
 
-		const key = keySpec === true ? "_" : keySpec(data);
+			const key = keySpec === true ? "_" : keySpec(data);
 
-		// When a new map_chunk arrives, invalidate stale block/tile entries in that chunk
-		if (name === "map_chunk") {
-			this.invalidateBlocksInChunk(data.x, data.z);
-		}
-
-		// entity_equipment: merge incoming slots into the existing cache entry so that
-		// individual per-slot updates (common with ViaVersion) don't wipe previously
-		// cached slots for the same entity.
-		if (name === "entity_equipment") {
-			const existing = this.cache.get("entity_equipment")?.get(key);
-			if (existing) {
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped packet data
-				const prev = (existing.data as any).equipments as Array<{ slot: number; item: unknown }>;
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped packet data
-				const incoming = (data as any).equipments as Array<{ slot: number; item: unknown }>;
-				const merged = new Map<number, { slot: number; item: unknown }>(prev.map(e => [ e.slot, e ]));
-				for (const entry of incoming) merged.set(entry.slot, entry);
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped packet data
-				(data as any).equipments = [ ...merged.values() ];
-
-				// The raw buffer is now stale — force RESERIALIZE_PACKETS to reconstruct it.
-				// We store a zero-length sentinel buffer so writeRaw is never accidentally used.
-				this.set(name, key, data, Buffer.alloc(0));
-				return;
+			// When a new map_chunk arrives, invalidate stale block/tile entries in that chunk
+			if (name === "map_chunk") {
+				this.invalidateBlocksInChunk(data.x, data.z);
 			}
-		}
 
-		this.set(name, key, data, buffer);
+			// entity_equipment: merge incoming slots into the existing cache entry so that
+			// individual per-slot updates (common with ViaVersion) don't wipe previously
+			// cached slots for the same entity.
+			if (name === "entity_equipment") {
+				const existing = this.cache.get("entity_equipment")?.get(key);
+				if (existing) {
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped packet data
+					const prev = (existing.data as any).equipments as Array<{ slot: number; item: unknown }>;
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped packet data
+					const incoming = (data as any).equipments as Array<{ slot: number; item: unknown }>;
+					const merged = new Map<number, { slot: number; item: unknown }>(prev.map(e => [ e.slot, e ]));
+					for (const entry of incoming) merged.set(entry.slot, entry);
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped packet data
+					(data as any).equipments = [ ...merged.values() ];
+
+					// The raw buffer is now stale — force RESERIALIZE_PACKETS to reconstruct it.
+					// We store a zero-length sentinel buffer so writeRaw is never accidentally used.
+					this.set(name, key, data, Buffer.alloc(0));
+					return;
+				}
+			}
+
+			this.set(name, key, data, buffer);
+		} catch (err) {
+			Proxy.logger.warn(`Cache error for ${ name } (packet will still be forwarded):`, err);
+		}
 	};
 
 	// ── Replay ──
@@ -657,16 +700,33 @@ export class Proxy {
 			} catch { /* client may have disconnected */ }
 		};
 
+		// Movement packet names (C→S). These must not reach 2b2t until the client
+		// has acknowledged the replayed position — ViaVersion on 2b2t's side tracks
+		// the teleport-confirm handshake and kicks if movement arrives first.
+		const MOVEMENT_PACKETS_CS = new Set([ "position", "position_look", "look", "flying" ]);
+
+		// Allow movement immediately only if there was no position in the cache
+		// (nothing to confirm), otherwise block until teleport_confirm is received.
+		let movementAllowed = replayTeleportId === null;
+
 		// Bridge: player → server (raw buffers — player sends standard packets)
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- need to inspect teleport_confirm data
 		const onClientPacket = (data: any, meta: PacketMeta, _buffer: Buffer, fullBuffer: Buffer) => {
 			if (meta.name === "keep_alive") return;
 
-			// Filter the teleport_confirm for our replayed position packet
+			// Filter the teleport_confirm for our replayed position packet.
+			// We also use it as the signal to unblock movement forwarding — ViaVersion
+			// requires teleport_confirm before it will accept movement from the client,
+			// and since we filtered the confirm the client would otherwise be kicked
+			// the moment it sends its first position_look.
 			if (meta.name === "teleport_confirm" && replayTeleportId !== null && data?.teleportId === replayTeleportId) {
 				replayTeleportId = null;
+				movementAllowed = true;
 				return;
 			}
+
+			// Drop movement packets until the replayed position has been confirmed.
+			if (!movementAllowed && MOVEMENT_PACKETS_CS.has(meta.name)) return;
 
 			try {
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- writeRaw bypasses serialization
