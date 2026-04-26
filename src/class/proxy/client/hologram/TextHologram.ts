@@ -36,14 +36,6 @@ export interface SpawnVisualParams {
 export interface SpawnVisualResult {
 	nametagY: number;
 	eyeY: number;
-
-	/**
-	 * Optional extra entity IDs that should be treated as interact targets for
-	 * this hologram (e.g. an invisible armor stand spawned to catch right-clicks
-	 * for a non-collidable spectator-mode head). Will be auto-destroyed on
-	 * despawn alongside the main entity.
-	 */
-	interactEntityIds?: number[];
 }
 
 type EntityEntry = {
@@ -52,7 +44,6 @@ type EntityEntry = {
 	fakeName: string;
 	ownerName: string;
 	nametagEntityIds: number[];
-	interactEntityIds: number[];
 	eyeY: number;
 };
 
@@ -75,9 +66,7 @@ export abstract class TextHologram {
 	private readonly skinCache = new Map<string, SkinProperty[]>();
 
 	protected static readonly HIDDEN_NAMETAG_TEAM = "__stasis_holo__";
-	private static readonly WINDOW_ID = 200;
 
-	private openWindowId: number | null = null;
 	private clientPos: { x: number; y: number; z: number } | null = null;
 
 	/**
@@ -241,17 +230,16 @@ export abstract class TextHologram {
 		const fakeUUID = crypto.randomUUID();
 		const fakeName = fakeUUID.replace(/-/g, "").substring(0, 16);
 
-		this.entities.set(pearl.entity.id, { entityId, fakeUUID, fakeName, ownerName, nametagEntityIds: [], interactEntityIds: [], eyeY: 0 });
+		this.entities.set(pearl.entity.id, { entityId, fakeUUID, fakeName, ownerName, nametagEntityIds: [], eyeY: 0 });
 
 		const proto = this.client.serializer.proto;
 
 		// Delegate entity registration + visual spawning to the subclass.
 		// Returns the Y level where the nametag lines should float and the
 		// visual entity's eye Y (used to aim entity_look rotation).
-		const { nametagY, eyeY, interactEntityIds } = this.spawnVisual({ entityId, fakeUUID, fakeName, skinProperties, column, proto });
+		const { nametagY, eyeY } = this.spawnVisual({ entityId, fakeUUID, fakeName, skinProperties, column, proto });
 		const entry = this.entities.get(pearl.entity.id)!;
 		entry.eyeY = eyeY;
-		if (interactEntityIds) entry.interactEntityIds = interactEntityIds;
 
 		// All skin layers (hat, jacket, sleeves, pants legs): 0x7f — same for both renderers.
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
@@ -334,7 +322,7 @@ export abstract class TextHologram {
 		const proto = this.client.serializer.proto;
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "entity_destroy",
-			params: { entityIds: [ entry.entityId, ...entry.nametagEntityIds, ...entry.interactEntityIds ]}
+			params: { entityIds: [ entry.entityId, ...entry.nametagEntityIds ]}
 		}));
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "player_remove",
@@ -430,126 +418,5 @@ export abstract class TextHologram {
 		} catch { /* network error — continue without skin */ }
 
 		return [];
-	}
-
-	// ──────────────────────────── container interaction ──────────────────────
-
-	/**
-	 * Call when the client sends `use_entity`. Returns `true` if consumed
-	 * (the target is one of our fake hologram entities).
-	 */
-	public handleInteract(data: { target: number; mouse?: number }): boolean {
-
-		// mouse: 0=interact, 1=attack, 2=interact_at. Skip attacks.
-		if (data.mouse === 1) return false;
-		for (const [ , entry ] of this.entities) {
-			if (entry.entityId === data.target || entry.interactEntityIds.includes(data.target)) {
-				this.openContainer(entry.ownerName);
-				return true;
-			}
-		}
-		return false;
-	}
-
-	/**
-	 * Call when the client right-clicks a block. If the block lies inside a
-	 * stasis column's bounding box, opens the empty proxy container and
-	 * returns `true`. The label is the column's coordinates.
-	 */
-	public handleBlockInteract(location: { x: number; y: number; z: number }, sequence?: number): boolean {
-
-		// Only consider blocks that are actually part of a stasis structure.
-		const block = Client.bot.blockAt(new Vec3(location.x, location.y, location.z));
-		if (!block) return false;
-		const isStasisBlock =
-			StasisColumn.isTriggerBlock(block) ||
-			block.name === "soul_sand" ||
-			block.name === "water" ||
-			block.name === "bubble_column";
-		if (!isStasisBlock) return false;
-
-		const column = StasisColumn.get(new Vec3(location.x, location.y, location.z));
-		if (!column) return false;
-		if (location.y < column.pos1.y || location.y > column.pos2.y + 1) return false;
-
-		// Ack the sequence so the client flushes its pending block prediction
-		// queue. Without this, the reverted block_change is held back until the
-		// next interaction acks something.
-		if (typeof sequence === "number") this.ackSequence(sequence);
-
-		// Revert any client-side prediction (e.g. trapdoor flip) by echoing
-		// the real block state back to the client.
-		this.revertBlock(location);
-
-		this.openContainer(`${ column.pos2.x } ${ column.pos2.y } ${ column.pos2.z }`);
-		return true;
-	}
-
-	/**
-	 * Acknowledge a client block-action sequence id so the client flushes its
-	 * predicted block changes. Required since 1.19+ for any cancelled
-	 * block_place / block_dig.
-	 */
-	private ackSequence(sequenceId: number) {
-		try {
-			this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
-				name: "acknowledge_player_digging",
-				params: { sequenceId }
-			}));
-		} catch { /* client may be mid-disconnect */ }
-	}
-
-	/**
-	 * Send the upstream block state back to the client to undo a client-side
-	 * prediction. Used when we cancel a block_place that the client already
-	 * applied locally (e.g. flipping a trapdoor).
-	 */
-	private revertBlock(location: { x: number; y: number; z: number }) {
-		const block = Client.bot.blockAt(new Vec3(location.x, location.y, location.z));
-		if (!block) return;
-		try {
-			this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
-				name: "block_change",
-				params: {
-					location: { x: location.x, y: location.y, z: location.z },
-					type: block.stateId
-				}
-			}));
-		} catch { /* client may be mid-disconnect */ }
-	}
-
-	/**
-	 * Call when the client sends `close_window`. Returns `true` if consumed
-	 * (it was closing our fake container).
-	 */
-	public handleCloseWindow(data: { windowId: number }): boolean {
-		if (data.windowId !== TextHologram.WINDOW_ID || this.openWindowId === null) return false;
-		this.openWindowId = null;
-		return true;
-	}
-
-	private openContainer(label: string) {
-		const proto = this.client.serializer.proto;
-		const windowId = TextHologram.WINDOW_ID;
-		this.openWindowId = windowId;
-
-		this.client.writeRaw(proto.createPacketBuffer("packet", {
-			name: "open_window",
-			params: {
-				windowId,
-				inventoryType: 2, // generic_9x3
-				windowTitle: JSON.stringify({ text: label, color: "white", bold: true })
-			}
-		}));
-
-		this.client.writeRaw(proto.createPacketBuffer("packet", {
-			name: "window_items",
-			params: {
-				windowId,
-				stateId: 0,
-				items: Array(27).fill({ present: false }),
-				carriedItem: { present: false }
-			}
-		}));
 	}
 }

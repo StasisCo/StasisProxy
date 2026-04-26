@@ -243,16 +243,6 @@ export class ServerClient {
 			// Drop movement until the replayed position has been confirmed.
 			if (!movementAllowed && MOVEMENT_PACKETS_CS.has(meta.name)) return;
 
-			// Right-click on a hologram entity → open empty proxy container.
-			if (meta.name === "use_entity" && this.holograms?.handleInteract(data)) return;
-
-			// Right-click on a block inside a stasis column → open empty proxy container.
-			if (meta.name === "block_place" && data?.location && this.holograms?.handleBlockInteract(data.location, data.sequence)) return;
-
-			// Closing our fake container → swallow so the upstream server
-			// doesn't get a close for a window it never opened.
-			if (meta.name === "close_window" && this.holograms?.handleCloseWindow(data)) return;
-
 			// Intercept commands. tryHandle is async but commands are local
 			// so the latency is negligible; we await before forwarding the
 			// fall-through case so unknown commands aren't dispatched twice.
