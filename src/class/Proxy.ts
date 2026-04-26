@@ -8,7 +8,7 @@ import { ChatManager } from "~/manager/ChatManager";
 import { StasisManager } from "~/manager/StasisManager";
 import { Client } from "./Client";
 import { Logger } from "./Logger";
-import { SpectatorHologram } from "./proxy/client/hologram/renderer/SpectatorHologram";
+import { createHologram } from "./proxy/client/hologram";
 
 /**
  * Cached packet entry with insertion order preserved via the sequence number.
@@ -753,7 +753,7 @@ export class Proxy {
 		client.on("packet", onClientPacket);
 
 		// Spawn client-side holograms above all occupied stasis chambers.
-		const holograms = new SpectatorHologram(client, this.bot, this.playerList);
+		const holograms = createHologram(client, this.bot, this.playerList);
 		holograms.attach();
 
 		// Render the sidebar scoreboard HUD on the client.
