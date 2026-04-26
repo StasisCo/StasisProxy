@@ -17,6 +17,11 @@ export class StasisManager {
 	public static readonly interactions = new Map<Stasis, number>();
 	private static readonly suspended = new Set<number>();
 
+	/** Returns true if the pearl with the given entity ID is currently suspended in stasis. */
+	public static isSuspended(entityId: number): boolean {
+		return StasisManager.suspended.has(entityId);
+	}
+
 	/** Called when a stasis chamber is saved to the database */
 	public static onSaved?: (stasis: Stasis) => void;
 

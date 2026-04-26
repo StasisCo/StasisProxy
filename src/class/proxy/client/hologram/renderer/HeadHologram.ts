@@ -3,20 +3,22 @@ import type { Bot as Mineflayer } from "mineflayer";
 import { type PlayerListLike, type SpawnVisualParams, TextHologram } from "../TextHologram";
 
 /**
- * Renders a full-opacity standing player entity above each stasis chamber.
+ * Renders a semi-transparent (spectator-mode) ghost player head above each stasis chamber.
  *
- * The entity is spawned in the default game mode (survival/creative) so it
- * appears fully opaque at the water surface.
+ * The entity is spawned in gamemode 3 (spectator) so it appears at ~50% opacity.
+ * Entity feet are placed at pos2.y (trapdoor level) so the head and eyes sit at
+ * the natural standing eye height of a player at the chamber floor.
  */
-export class FullBodyHologram extends TextHologram {
+export class HeadHologram extends TextHologram {
 
 	constructor(client: MinecraftClient, bot: Mineflayer, playerList?: Map<string, PlayerListLike>) {
 		super(client, bot, playerList);
 	}
 
 	/**
-	 * Register in player_info with no gamemode update (fully opaque appearance).
-	 * Entity feet placed at surfaceY + 19/16 (standing in the water block above the trapdoor).
+	 * Register in player_info with spectator gamemode (50% opacity ghost).
+	 * Entity feet placed at pos2.y (trapdoor level) so eyes align with a
+	 * standing player's eye height at the chamber floor.
 	 *
 	 * @returns The Y level at which nametag armor stands should be placed.
 	 */
@@ -27,7 +29,7 @@ export class FullBodyHologram extends TextHologram {
 				action: {
 					add_player: true,
 					initialize_chat: false,
-					update_game_mode: false,
+					update_game_mode: true,
 					update_listed: true,
 					update_latency: false,
 					update_display_name: false
@@ -35,6 +37,7 @@ export class FullBodyHologram extends TextHologram {
 				data: [ {
 					uuid: fakeUUID,
 					player: { name: fakeName, properties: skinProperties },
+					gamemode: 3, // spectator — renders the entity at 50% opacity
 					listed: false
 				} ]
 			}
@@ -46,13 +49,13 @@ export class FullBodyHologram extends TextHologram {
 				entityId,
 				playerUUID: fakeUUID,
 				x: column.pos2.x + 0.5,
-				y: column.surfaceY + 19 / 16,
+				y: column.pos2.y, // feet at trapdoor level — eyes at pos2.y + 1.62 (natural standing eye height)
 				z: column.pos2.z + 0.5,
 				yaw: 0,
 				pitch: 0
 			}
 		}));
 
-		return column.surfaceY + 3; // nametag Y: above player's head
+		return column.pos2.y + 2; // nametag Y: above player's head
 	}
 }

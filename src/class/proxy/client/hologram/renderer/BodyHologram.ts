@@ -3,20 +3,20 @@ import type { Bot as Mineflayer } from "mineflayer";
 import { type PlayerListLike, type SpawnVisualParams, TextHologram } from "../TextHologram";
 
 /**
- * Renders a semi-transparent (spectator-mode) ghost player above each stasis chamber.
+ * Renders a full-opacity standing player entity above each stasis chamber.
  *
- * The entity is spawned in gamemode 3 (spectator) so it appears at ~50% opacity,
- * phased into the water surface.
+ * The entity is spawned in the default game mode (survival/creative) so it
+ * appears fully opaque at the water surface.
  */
-export class SpectatorHologram extends TextHologram {
+export class BodyHologram extends TextHologram {
 
 	constructor(client: MinecraftClient, bot: Mineflayer, playerList?: Map<string, PlayerListLike>) {
 		super(client, bot, playerList);
 	}
 
 	/**
-	 * Register in player_info with spectator gamemode (50% opacity ghost).
-	 * Entity feet placed at surfaceY + 3/16 (slightly inside the water block).
+	 * Register in player_info with no gamemode update (fully opaque appearance).
+	 * Entity feet placed at surfaceY + 19/16 (standing in the water block above the trapdoor).
 	 *
 	 * @returns The Y level at which nametag armor stands should be placed.
 	 */
@@ -27,7 +27,7 @@ export class SpectatorHologram extends TextHologram {
 				action: {
 					add_player: true,
 					initialize_chat: false,
-					update_game_mode: true,
+					update_game_mode: false,
 					update_listed: true,
 					update_latency: false,
 					update_display_name: false
@@ -35,7 +35,6 @@ export class SpectatorHologram extends TextHologram {
 				data: [ {
 					uuid: fakeUUID,
 					player: { name: fakeName, properties: skinProperties },
-					gamemode: 3, // spectator — renders the entity at 50% opacity
 					listed: false
 				} ]
 			}
@@ -47,13 +46,13 @@ export class SpectatorHologram extends TextHologram {
 				entityId,
 				playerUUID: fakeUUID,
 				x: column.pos2.x + 0.5,
-				y: column.surfaceY + 3 / 16,
+				y: column.surfaceY + 19 / 16,
 				z: column.pos2.z + 0.5,
 				yaw: 0,
 				pitch: 0
 			}
 		}));
 
-		return column.surfaceY + 2; // nametag Y: above player's head
+		return column.surfaceY + 3; // nametag Y: above player's head
 	}
 }

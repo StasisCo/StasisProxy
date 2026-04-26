@@ -596,6 +596,20 @@ export class Proxy {
 			}
 		}
 
+		// ── Suspended-pearl filter ──
+		// Pearls in stasis (StasisManager.suspended) are hidden from the proxy client entirely.
+		const isSuspendedPearl = (entityId: number) => StasisManager.isSuspended(entityId);
+
+		const hideSuspendedPearl = (entityId: number) => {
+			try {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
+				(client as any).writeRaw((client as any).serializer.proto.createPacketBuffer("packet", {
+					name: "entity_destroy",
+					params: { entityIds: [ entityId ] }
+				}));
+			} catch { /* client may have disconnected */ }
+		};
+
 		const packets = this.getReplayPackets();
 		const chunkCount = this.cache.get("map_chunk")?.size ?? 0;
 		const lightCount = this.cache.get("update_light")?.size ?? 0;
@@ -616,6 +630,10 @@ export class Proxy {
 				positionPkt = pkt;
 				continue;
 			}
+
+			// Never replay entity packets for suspended pearls — they are hidden client-side
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw packet data
+			if ((pkt.data as any).entityId !== undefined && isSuspendedPearl((pkt.data as any).entityId)) continue;
 
 			if (!playerListSent && pkt.name !== "login" && pkt.name !== "respawn") {
 				playerListSent = true;
@@ -670,27 +688,6 @@ export class Proxy {
 			}
 		}
 
-		// Snap suspended pearls to their actual current position with zero velocity.
-		// The cached spawn_entity carries the original throw position + velocity, which
-		// causes the client to re-simulate the entire flight on every login. Sending
-		// entity_teleport + entity_velocity overrides that immediately after replay.
-		for (const pearl of StasisManager.pearls.values()) {
-			if (!pearl.suspended) continue;
-			const { x, y, z } = pearl.entity.position;
-			try {
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
-				(client as any).writeRaw((client as any).serializer.proto.createPacketBuffer("packet", {
-					name: "entity_teleport",
-					params: { entityId: pearl.entity.id, x, y, z, yaw: 0, pitch: 0, onGround: false }
-				}));
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
-				(client as any).writeRaw((client as any).serializer.proto.createPacketBuffer("packet", {
-					name: "entity_velocity",
-					params: { entityId: pearl.entity.id, velocity: { x: 0, y: 0, z: 0 }}
-				}));
-			} catch { /* client may be mid-disconnect */ }
-		}
-
 		// The replayed position packet has a stale teleportId — the client will
 		// send teleport_confirm for it, which must NOT reach 2b2t (already confirmed).
 		let replayTeleportId: number | null = (positionPkt?.data as { teleportId?: number })?.teleportId ?? null;
@@ -699,6 +696,22 @@ export class Proxy {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- need parsed data for re-serialized packets
 		const onServerPacket = (data: any, meta: PacketMeta, buffer: Buffer) => {
 			if (meta.name === "keep_alive" || meta.name === "kick_disconnect") return;
+
+			// Filter entity packets for suspended pearls
+			if (data != null && data.entityId !== undefined && isSuspendedPearl(data.entityId)) return;
+			if (meta.name === "entity_destroy" && data != null && Array.isArray(data.entityIds)) {
+				const ids = data.entityIds as number[];
+				const filtered = ids.filter((id: number) => !isSuspendedPearl(id));
+				if (filtered.length === 0) return;
+				if (filtered.length !== ids.length) {
+					try {
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
+						(client as any).writeRaw((client as any).serializer.proto.createPacketBuffer("packet", { name: "entity_destroy", params: { entityIds: filtered } }));
+					} catch { /* client may have disconnected */ }
+					return;
+				}
+			}
+
 			try {
 				if (Proxy.RESERIALIZE_PACKETS.has(meta.name)) {
 
@@ -756,6 +769,24 @@ export class Proxy {
 		const holograms = createHologram(client, this.bot, this.playerList);
 		holograms.attach();
 
+		// Watch non-suspended pearls: send entity_destroy the moment they enter stasis.
+		for (const pearl of StasisManager.pearls.values()) {
+			if (!StasisManager.isSuspended(pearl.entity.id)) {
+				pearl.once("suspended", () => hideSuspendedPearl(pearl.entity.id));
+			}
+		}
+
+		// Also watch pearls that spawn while this client is connected.
+		// Fires AFTER StasisManager's own spawn_entity handler, so the pearl is
+		// already in StasisManager.pearls by the time we reach it.
+		const onPearlSpawn = (packet: { entityId: number }) => {
+			const pearl = StasisManager.pearls.get(packet.entityId);
+			if (pearl && !StasisManager.isSuspended(pearl.entity.id)) {
+				pearl.once("suspended", () => hideSuspendedPearl(pearl.entity.id));
+			}
+		};
+		this.bot._client.on("spawn_entity", onPearlSpawn);
+
 		// Render the sidebar scoreboard HUD on the client.
 		// const scoreboard = new StasisScoreboard(client, this.bot);
 		// scoreboard.attach();
@@ -763,6 +794,7 @@ export class Proxy {
 		// Cleanup on disconnect
 		const cleanup = () => {
 			this.bot._client.off("packet", onServerPacket);
+			this.bot._client.off("spawn_entity", onPearlSpawn);
 			client.off("packet", onClientPacket);
 			holograms.detach();
 			this.client = null;
