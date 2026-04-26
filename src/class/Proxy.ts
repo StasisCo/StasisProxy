@@ -197,6 +197,8 @@ export class Proxy {
 
 	get motd(): string {
 
+		const CYCLE_DUR = 3000;
+
 		const HEADER = "§8§l» §3§lStasisProxy §8§l«§r";
 		const BODY = [ `§b§n${ Client.bot.username }` ];
 		
@@ -207,7 +209,7 @@ export class Proxy {
 		} else {
 
 			// consistantly alternate 
-			if (Date.now() % 2000 >= 1000) {
+			if (Date.now() % CYCLE_DUR * 2 >= CYCLE_DUR) {
 				BODY.push(`§6${ Client.host }`);
 				BODY.push(`§e${ Object.entries(Client.bot.players).length } Online`);
 			} else {
@@ -221,15 +223,6 @@ export class Proxy {
 
 			}
 
-			// if (Math.random() >= 0.5) {
-			// 	lines.push(`§b§n${ Client.bot.username }§r — §a${ StasisManager.pearls.values()
-			// 		.filter(p => p.ownerId !== undefined)
-			// 		.map(p => p.ownerId!)
-			// 		.reduce((set, ownerId) => set.add(ownerId), new Set<string>()).size
-			// 	} Players §r— §d${ StasisManager.pearls.size } Pearls`);
-			// } else {
-			// 	lines.push(`§b§n${ Client.bot.username }§r — §6${ Client.host }§r — §e${ Object.entries(Client.bot.players).length } Online`);
-			// }
 		};
 
 		// return lines.filter(Boolean).map(line => ChatManager.center(line, 270)).join("\n");
