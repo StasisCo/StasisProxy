@@ -1,7 +1,6 @@
 import { zMojangUsername } from "@hackware/types/schema/mojang/zUsername";
 import chalk from "chalk";
 import { execSync } from "child_process";
-import mcDataLoader from "minecraft-data";
 import { createBot, type BotOptions } from "mineflayer";
 import z from "zod";
 import { Logger } from "~/class/Logger";
@@ -13,7 +12,6 @@ import { PathfindingManager } from "~/manager/PathfindingManager";
 import { PhysicsManager } from "~/manager/PhysicsManager";
 import { PresenceManager } from "~/manager/PresenceManager";
 import { QueueManager } from "~/manager/QueueManager";
-import { RelationManager } from "~/manager/RelationManager";
 import { StasisManager } from "~/manager/StasisManager";
 import { name, version } from "../../package.json";
 import { Console } from "./Console";
@@ -60,7 +58,6 @@ export class Client {
 	};
 	
 	public static readonly bot = createBot(this.options);
-	public static readonly registry = mcDataLoader(this.bot.version);
 
 	public static host = "";
 
@@ -86,7 +83,6 @@ export class Client {
 	public static readonly pathfinding = new PathfindingManager(this.bot);
 	public static readonly physics = new PhysicsManager(this.bot);
 	public static readonly queue = new QueueManager(this.bot);
-	public static readonly relations = new RelationManager(this.bot);
 	public static readonly stasis = new StasisManager(this.bot);
 
 	static {
