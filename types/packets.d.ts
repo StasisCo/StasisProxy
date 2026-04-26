@@ -97,6 +97,12 @@ declare namespace Packets {
 			content: string | unknown;
 		}
 
+		"set_slot": {
+			windowId: number;
+			slot: number;
+			item: unknown | null;
+		}
+
 	}
 
 }

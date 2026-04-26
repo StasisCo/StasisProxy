@@ -70,6 +70,7 @@ const PACKET_KEYS: Record<string, true | ((data: any) => string)> = {
 	"entity_update_attributes": d => `${ d.entityId }`,
 	"entity_head_rotation": d => `${ d.entityId }`,
 	"entity_teleport": d => `${ d.entityId }`,
+	"entity_velocity": d => `${ d.entityId }`,
 	"set_passengers": d => `${ d.entityId }`,
 	"entity_effect": d => `${ d.entityId }:${ d.effectId }`,
 
@@ -667,6 +668,27 @@ export class Proxy {
 			} catch (err) {
 				Proxy.logger.warn("Failed to replay position:", err);
 			}
+		}
+
+		// Snap suspended pearls to their actual current position with zero velocity.
+		// The cached spawn_entity carries the original throw position + velocity, which
+		// causes the client to re-simulate the entire flight on every login. Sending
+		// entity_teleport + entity_velocity overrides that immediately after replay.
+		for (const pearl of StasisManager.pearls.values()) {
+			if (!pearl.suspended) continue;
+			const { x, y, z } = pearl.entity.position;
+			try {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
+				(client as any).writeRaw((client as any).serializer.proto.createPacketBuffer("packet", {
+					name: "entity_teleport",
+					params: { entityId: pearl.entity.id, x, y, z, yaw: 0, pitch: 0, onGround: false }
+				}));
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- access proto for manual serialization
+				(client as any).writeRaw((client as any).serializer.proto.createPacketBuffer("packet", {
+					name: "entity_velocity",
+					params: { entityId: pearl.entity.id, velocity: { x: 0, y: 0, z: 0 }}
+				}));
+			} catch { /* client may be mid-disconnect */ }
 		}
 
 		// The replayed position packet has a stale teleportId — the client will
