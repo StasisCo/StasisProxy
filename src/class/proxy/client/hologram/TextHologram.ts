@@ -25,12 +25,26 @@ export interface SpawnVisualParams {
 	proto: any;
 }
 
+/**
+ * Result returned by {@link TextHologram.spawnVisual}.
+ *
+ * - `nametagY` — Y level for the floating armor-stand nametag lines.
+ * - `eyeY` — Y of the visual entity's head/eyes, used to aim the entity_look
+ *   rotation packets so the head tracks the player. For renderers without a
+ *   visual entity (e.g. text-only) this still drives a no-op rotation.
+ */
+export interface SpawnVisualResult {
+	nametagY: number;
+	eyeY: number;
+}
+
 type EntityEntry = {
 	entityId: number;
 	fakeUUID: string;
 	fakeName: string;
 	ownerName: string;
 	nametagEntityIds: number[];
+	eyeY: number;
 };
 
 /**
@@ -57,19 +71,34 @@ export abstract class TextHologram {
 	private openWindowId: number | null = null;
 	private clientPos: { x: number; y: number; z: number } | null = null;
 
+	/**
+	 * Optional callback invoked once the hologram has fully spawned its visual
+	 * (fake player + nametag stands) for a given pearl. Used by
+	 * {@link PearlFilter} to send the synthetic entity_destroy that hides the
+	 * underlying real pearl entity from the client — only pearls with a live
+	 * hologram should be hidden.
+	 */
+	public onTracked?: (pearlId: number) => void;
+
 	constructor(
 		protected readonly client: MinecraftClient,
 		protected readonly bot: Mineflayer,
 		protected readonly playerList?: Map<string, PlayerListLike>
 	) {}
 
+	/** Whether this hologram is currently rendering a visual for the given pearl. */
+	public isTracking(pearlId: number): boolean {
+		return this.entities.has(pearlId);
+	}
+
 	/**
 	 * Register the fake player in the tab list and spawn the visual entity at
 	 * the chamber location. Called after all shared setup is done.
 	 *
-	 * @returns The Y level at which floating nametag armor stands should appear.
+	 * @returns Y levels for the nametag stack and the visual entity's eyes
+	 *          (the latter drives rotation so the head tracks the player).
 	 */
-	protected abstract spawnVisual(params: SpawnVisualParams): number;
+	protected abstract spawnVisual(params: SpawnVisualParams): SpawnVisualResult;
 
 	// ─────────────────────────────── lifecycle ───────────────────────────────
 
@@ -87,6 +116,19 @@ export abstract class TextHologram {
 		this.bot._client.off("spawn_entity", this.onSpawnEntity);
 		(this.client as unknown as NodeJS.EventEmitter).off("packet", this.onClientPositionPacket);
 		this.bot.off("respawn", this.onRespawn);
+
+		// Despawn each spawned visual first — this sends entity_destroy +
+		// player_remove + teams mode 4 so the client actually drops the fake
+		// entities and tab entries. Without this, swapping renderers leaves
+		// orphaned ghost players and floating nametag stands behind.
+		for (const pearlId of Array.from(this.entities.keys())) {
+			try {
+				this.despawn(pearlId);
+			} catch { /* client may have disconnected */ }
+		}
+
+		// Clean up listeners for pearls that were tracked but never spawned
+		// (despawn() above already cleaned listeners for spawned ones).
 		for (const [ pearlId, listeners ] of this.pearlListeners) {
 			const pearl = StasisManager.pearls.get(pearlId);
 			pearl?.off("suspended", listeners.suspended);
@@ -141,7 +183,7 @@ export abstract class TextHologram {
 			const column = StasisColumn.get(new Vec3(pearl.entity.position.x, pearl.entity.position.y, pearl.entity.position.z));
 			if (!column) continue;
 			try {
-				this.sendRotation(entry.entityId, column.pos2.x + 0.5, column.surfaceY + 19 / 16 + 1.62, column.pos2.z + 0.5);
+				this.sendRotation(entry.entityId, column.pos2.x + 0.5, entry.eyeY, column.pos2.z + 0.5);
 			} catch { /* client may be mid-disconnect */ }
 		}
 	};
@@ -190,13 +232,15 @@ export abstract class TextHologram {
 		const fakeUUID = crypto.randomUUID();
 		const fakeName = fakeUUID.replace(/-/g, "").substring(0, 16);
 
-		this.entities.set(pearl.entity.id, { entityId, fakeUUID, fakeName, ownerName, nametagEntityIds: []});
+		this.entities.set(pearl.entity.id, { entityId, fakeUUID, fakeName, ownerName, nametagEntityIds: [], eyeY: 0 });
 
 		const proto = this.client.serializer.proto;
 
 		// Delegate entity registration + visual spawning to the subclass.
-		// Returns the Y level where the nametag lines should float.
-		const nametagY = this.spawnVisual({ entityId, fakeUUID, fakeName, skinProperties, column, proto });
+		// Returns the Y level where the nametag lines should float and the
+		// visual entity's eye Y (used to aim entity_look rotation).
+		const { nametagY, eyeY } = this.spawnVisual({ entityId, fakeUUID, fakeName, skinProperties, column, proto });
+		this.entities.get(pearl.entity.id)!.eyeY = eyeY;
 
 		// All skin layers (hat, jacket, sleeves, pants legs): 0x7f — same for both renderers.
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
@@ -253,8 +297,14 @@ export abstract class TextHologram {
 		}
 
 		try {
-			this.sendRotation(entityId, column.pos2.x + 0.5, column.surfaceY + 19 / 16 + 1.62, column.pos2.z + 0.5);
+			this.sendRotation(entityId, column.pos2.x + 0.5, eyeY, column.pos2.z + 0.5);
 		} catch { /* bot position may not be available yet */ }
+
+		// Notify subscribers (PearlFilter) that this pearl now has a live
+		// hologram and should be hidden from the client.
+		try {
+			this.onTracked?.(pearl.entity.id);
+		} catch { /* listener errors must not break spawn */ }
 	}
 
 	private despawn(pearlId: number) {

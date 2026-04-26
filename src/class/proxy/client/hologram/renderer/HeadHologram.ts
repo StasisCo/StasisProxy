@@ -1,6 +1,6 @@
 import type { Client as MinecraftClient } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
-import { type PlayerListLike, type SpawnVisualParams, TextHologram } from "../TextHologram";
+import { type PlayerListLike, type SpawnVisualParams, type SpawnVisualResult, TextHologram } from "../TextHologram";
 
 /**
  * Renders a semi-transparent (spectator-mode) ghost player head above each stasis chamber.
@@ -22,7 +22,7 @@ export class HeadHologram extends TextHologram {
 	 *
 	 * @returns The Y level at which nametag armor stands should be placed.
 	 */
-	protected override spawnVisual({ entityId, fakeUUID, fakeName, skinProperties, column, proto }: SpawnVisualParams): number {
+	protected override spawnVisual({ entityId, fakeUUID, fakeName, skinProperties, column, proto }: SpawnVisualParams): SpawnVisualResult {
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "player_info",
 			params: {
@@ -49,13 +49,16 @@ export class HeadHologram extends TextHologram {
 				entityId,
 				playerUUID: fakeUUID,
 				x: column.pos2.x + 0.5,
-				y: column.pos2.y, // feet at trapdoor level — eyes at pos2.y + 1.62 (natural standing eye height)
+				y: column.pos2.y + 0.5, // feet at trapdoor level — eyes at pos2.y + 1.62 (natural standing eye height)
 				z: column.pos2.z + 0.5,
 				yaw: 0,
 				pitch: 0
 			}
 		}));
 
-		return column.pos2.y + 2; // nametag Y: above player's head
+		return {
+			nametagY: column.pos2.y + 2.5, // above player's head
+			eyeY: column.pos2.y + 2.12 // feet at pos2.y + standing eye offset
+		};
 	}
 }

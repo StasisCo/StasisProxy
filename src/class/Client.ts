@@ -15,7 +15,7 @@ import { QueueManager } from "~/manager/QueueManager";
 import { StasisManager } from "~/manager/StasisManager";
 import { name, version } from "../../package.json";
 import { Console } from "./Console";
-import { Proxy } from "./Proxy";
+import { Server } from "./proxy/Server";
 
 export class Client {
 
@@ -74,7 +74,7 @@ export class Client {
 		});
 	}
 	
-	public static readonly proxy = new Proxy(this.bot);
+	public static readonly proxy = new Server(this.bot);
 	public static readonly chat = new ChatManager(this.bot);
 	public static readonly presence = process.env.IRC_HOST ? new PresenceManager(this.bot) : null;
 	public static readonly commands = new CommandManager(this.bot);

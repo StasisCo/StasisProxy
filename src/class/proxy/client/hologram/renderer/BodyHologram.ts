@@ -1,6 +1,6 @@
 import type { Client as MinecraftClient } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
-import { type PlayerListLike, type SpawnVisualParams, TextHologram } from "../TextHologram";
+import { type PlayerListLike, type SpawnVisualParams, type SpawnVisualResult, TextHologram } from "../TextHologram";
 
 /**
  * Renders a full-opacity standing player entity above each stasis chamber.
@@ -20,7 +20,7 @@ export class BodyHologram extends TextHologram {
 	 *
 	 * @returns The Y level at which nametag armor stands should be placed.
 	 */
-	protected override spawnVisual({ entityId, fakeUUID, fakeName, skinProperties, column, proto }: SpawnVisualParams): number {
+	protected override spawnVisual({ entityId, fakeUUID, fakeName, skinProperties, column, proto }: SpawnVisualParams): SpawnVisualResult {
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "player_info",
 			params: {
@@ -53,6 +53,9 @@ export class BodyHologram extends TextHologram {
 			}
 		}));
 
-		return column.surfaceY + 3; // nametag Y: above player's head
+		return {
+			nametagY: column.surfaceY + 3, // above player's head
+			eyeY: column.surfaceY + 19 / 16 + 1.62 // feet at surfaceY + 19/16 + standing eye offset
+		};
 	}
 }

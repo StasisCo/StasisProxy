@@ -1,6 +1,6 @@
 import type { Client as MinecraftClient } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
-import { type PlayerListLike, type SpawnVisualParams, TextHologram } from "../TextHologram";
+import { type PlayerListLike, type SpawnVisualParams, type SpawnVisualResult, TextHologram } from "../TextHologram";
 
 /**
  * Renders only floating text labels above each stasis chamber — no player entity.
@@ -19,7 +19,10 @@ export class TextOnlyHologram extends TextHologram {
 	 *
 	 * @returns The Y level at which nametag armor stands should be placed.
 	 */
-	protected override spawnVisual({ column }: SpawnVisualParams): number {
-		return column.surfaceY + 1; // float labels just above the water surface
+	protected override spawnVisual({ column }: SpawnVisualParams): SpawnVisualResult {
+		return {
+			nametagY: column.surfaceY + 1, // float labels just above the water surface
+			eyeY: column.surfaceY + 1 // no entity — rotation is a no-op, value is irrelevant
+		};
 	}
 }
