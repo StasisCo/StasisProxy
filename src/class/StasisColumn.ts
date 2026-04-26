@@ -7,7 +7,7 @@ import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
-import { Stasis } from "./Stasis";
+import { Stasis, STASIS_OWNER_INCLUDE } from "./Stasis";
 
 export class StasisColumn {
 
@@ -193,14 +193,7 @@ export class StasisColumn {
 					z: this.block.position.z,
 					ownerId: player.id
 				},
-				include: {
-					owner: {
-						select: {
-							id: true,
-							uuid: true
-						}
-					}
-				}
+				include: STASIS_OWNER_INCLUDE
 			}).then(data => new Stasis(data));
 		} catch (e) {
 			console.error("Failed to save stasis to database", e);

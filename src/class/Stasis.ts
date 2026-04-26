@@ -6,9 +6,25 @@ import z from "zod";
 import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
-import { type Stasis as StasisData } from "../generated/prisma/client";
+import { type Player as PlayerData, type Stasis as StasisData } from "../generated/prisma/client";
 import { Pearl } from "./Pearl";
 import { StasisColumn } from "./StasisColumn";
+
+/** The owner Player fields included with every {@link Stasis} lookup. */
+export type StasisOwner = Pick<PlayerData, "id" | "uuid" | "username" | "server" | "createdAt">;
+
+/** Prisma `include` clause used everywhere a {@link Stasis} is loaded. */
+export const STASIS_OWNER_INCLUDE = {
+	owner: {
+		select: {
+			id: true,
+			uuid: true,
+			username: true,
+			server: true,
+			createdAt: true
+		}
+	}
+} as const;
 
 export class Stasis extends StasisColumn implements StasisData {
 
@@ -44,14 +60,7 @@ export class Stasis extends StasisColumn implements StasisData {
 						z: column.block.position.z
 					}
 				},
-				include: {
-					owner: {
-						select: {
-							id: true,
-							uuid: true
-						}
-					}
-				}
+				include: STASIS_OWNER_INCLUDE
 			}).then(data => data ? new Stasis(data) : null);
 		} catch {
 			return null;
@@ -75,13 +84,7 @@ export class Stasis extends StasisColumn implements StasisData {
 				},
 				dimension: Client.bot.game.dimension
 			},
-			include: {
-				owner: {
-					select: {
-						id: true, uuid: true
-					}
-				}
-			}
+			include: STASIS_OWNER_INCLUDE
 		}).then(function(results) {
 			const all = [];
 			for (const data of results) {
@@ -111,8 +114,14 @@ export class Stasis extends StasisColumn implements StasisData {
 	/** The ID (cuid) of the player record who owns the stasis */
 	public readonly ownerId: string;
 
+	/** Full owner record (id, uuid, username, server, createdAt) */
+	public readonly owner: StasisOwner;
+
 	/** The Minecraft UUID of the player who owns the stasis */
 	public readonly ownerUuid: string;
+
+	/** The Minecraft username of the player who owns the stasis */
+	public readonly ownerUsername: string;
 
 	/** The server the stasis is located on */
 	public readonly server: string;
@@ -130,13 +139,15 @@ export class Stasis extends StasisColumn implements StasisData {
 	 * Creates a new Stasis instance from a Stasis object retrieved from the database
 	 * @param data - The Stasis data object retrieved from the database
 	 */
-	constructor(data: StasisData & { owner: { id: string; uuid: string } }) {
+	constructor(data: StasisData & { owner: StasisOwner }) {
 		super(data.x, data.y, data.z);
 		this.id = data.id;
 		this.createdAt = data.createdAt;
 		this.dimension = z.enum([ "overworld", "the_nether", "the_end" ]).parse(data.dimension);
+		this.owner = data.owner;
 		this.ownerId = data.owner.id;
 		this.ownerUuid = data.owner.uuid;
+		this.ownerUsername = data.owner.username;
 		this.server = data.server;
 		this.x = data.x;
 		this.y = data.y;

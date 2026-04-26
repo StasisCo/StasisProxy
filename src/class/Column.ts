@@ -7,7 +7,7 @@ import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
-import { Stasis } from "./Stasis";
+import { Stasis, STASIS_OWNER_INCLUDE } from "./Stasis";
 
 export class StasusColumn {
 
@@ -187,7 +187,8 @@ export class StasusColumn {
 				x: this.block.position.x,
 				y: this.block.position.y,
 				z: this.block.position.z
-			}
+			},
+			include: STASIS_OWNER_INCLUDE
 		}).then(data => new Stasis(data));
 	}
 	
