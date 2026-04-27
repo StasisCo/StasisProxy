@@ -1,13 +1,25 @@
+import z from "zod";
 import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
 
-const SPIN_TIMEOUT_MS = 5_000;
-const SWING_TIMEOUT_MS = 300_000;
+const zConfigSchema = z.object({
+	spinTimeout: z
+		.number()
+		.default(5_000)
+		.describe("Start spinning the camera after this many ms of no movement"),
+	swingTimeout: z
+		.number()
+		.default(300_000)
+		.describe("Swing the arm after this many ms of no movement or swinging"),
+	spinSpeed: z
+		.number()
+		.default(Math.PI / 20)
+		.describe("Radians per tick (50 ms) when spinning")
+});
 
-/** Radians per tick (50 ms) — one full rotation every ~6.3 seconds */
-const SPIN_SPEED = Math.PI / 20;
+export default class AntiAFK extends Module<typeof zConfigSchema> {
 
-export default class AntiAFK extends Module {
+	public override readonly zConfigSchema = zConfigSchema;
 
 	private lastPosition = { x: 0, y: 0, z: 0 };
 	private lastMoveTime = Date.now();
@@ -36,7 +48,7 @@ export default class AntiAFK extends Module {
 		const entity = Client.bot.entity;
 		if (!entity) return;
 
-		entity.yaw = (entity.yaw - SPIN_SPEED) % (Math.PI * 2);
+		entity.yaw = (entity.yaw - this.config.spinSpeed) % (Math.PI * 2);
 	}
 
 	/** Called every 1 s to check idle timers */
@@ -58,12 +70,12 @@ export default class AntiAFK extends Module {
 		}
 
 		// Start spinning after 30 s of no movement
-		if (!this.spinning && now - this.lastMoveTime >= SPIN_TIMEOUT_MS) {
+		if (!this.spinning && now - this.lastMoveTime >= this.config.spinTimeout) {
 			this.spinning = true;
 		}
 
 		// Swing arm after 300 s of no movement or swinging
-		if (now - this.lastSwingTime >= SWING_TIMEOUT_MS) {
+		if (now - this.lastSwingTime >= this.config.swingTimeout) {
 			this.lastSwingTime = now;
 			Client.bot._client.write("arm_animation", { hand: 0 });
 		}

@@ -1,18 +1,25 @@
 import type { Item } from "prismarine-item";
+import z from "zod";
 import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
 
-export default class AutoXP extends Module {
+const zConfigSchema = z.object({
+	minDurability: z
+		.number()
+		.default(0.7)
+		.describe("Start mending when armor durability falls below this fraction (0..1)"),
+	idleThreshold: z
+		.number()
+		.default(10_000)
+		.describe("After this many ms of no movement, repair to 100% instead of minDurability")
+});
+
+export default class AutoXP extends Module<typeof zConfigSchema> {
+
+	public override readonly zConfigSchema = zConfigSchema;
 
 	private lastPosition = { x: 0, y: 0, z: 0 };
 	private lastMoveTime = Date.now();
-
-	private static readonly MINIMUM_DURABILITY = 0.7;
-
-	/** When idle for this long, repair to 100% instead of MINIMUM_DURABILITY */
-	private static readonly IDLE_THRESHOLD_MS = 10_000;
-
-	private static readonly ARMOR_SLOTS = [ 5, 6, 7, 8 ];
 
 	public isMending = false;
 
@@ -29,7 +36,7 @@ export default class AutoXP extends Module {
 	private getLowestDurabilityItem(): Item | null {
 		let lowestItem : Item | null = null;
 		let lowestDurability = 1;
-		for (const slot of AutoXP.ARMOR_SLOTS) {
+		for (const slot of [ 5, 6, 8, 7 ]) {
 			const item = Client.bot.inventory.slots[slot];
 			if (!item || !item.durabilityUsed || !item.maxDurability) continue;
 			const durability = 1 - item.durabilityUsed / item.maxDurability;
@@ -41,7 +48,7 @@ export default class AutoXP extends Module {
 		return lowestItem;
 	}
 
-	public override async onTick() {
+	public override async onTickPre() {
 
 		const entity = Client.bot.entity;
 		if (!entity) return;
@@ -67,8 +74,8 @@ export default class AutoXP extends Module {
 		}
 
 		const durability = 1 - lowest.durabilityUsed! / lowest.maxDurability!;
-		const idle = now - this.lastMoveTime >= AutoXP.IDLE_THRESHOLD_MS;
-		const threshold = idle ? 1 : AutoXP.MINIMUM_DURABILITY;
+		const idle = now - this.lastMoveTime >= this.config.idleThreshold;
+		const threshold = idle ? 1 : this.config.minDurability;
 		if (durability >= threshold) {
 			if (this.isMending) this.stopMending();
 			return;

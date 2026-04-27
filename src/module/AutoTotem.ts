@@ -2,7 +2,6 @@ import { Embed } from "@vermaysha/discord-webhook";
 import type { Item } from "prismarine-item";
 import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
-import { ModuleManager } from "~/manager/ModuleManager";
 import AutoEat from "./AutoEat";
 import type AutoXP from "./AutoXP";
 
@@ -10,6 +9,43 @@ export default class AutoTotem extends Module {
 
 	constructor() {
 		super("AutoTotem");
+	}
+
+	public override async onPacketReceive({ name, data }: Packets.PacketEvent) {
+		switch (name) {
+
+			// Totem pop event
+			case "entity_status":
+				if (data.entityId !== Client.bot.entity.id) return;
+				if (data.entityStatus !== 35) return;
+
+				// Apply totem to off-hand
+				this.applyHand("off-hand", true);
+
+				// Send Discord notification
+				await Client.discord.send(new Embed()
+					.setTitle("Popped Totem")
+					.setColor(0xFACC15)
+					.addField({ name: "Remaining Totems", value: `${ this.totems.map(_ => "<:totem_of_undying:1420233210347913357>").join("") } (${ this.totems.length })` }));
+				break;
+
+		}
+	}
+
+	public override onTickPre() {
+
+		// Verify offhand and reequip if needed
+		this.applyHand();
+
+		// Don't mainhand if were eating
+		if (Module.get<AutoEat>("AutoEat").isEating) return;
+		
+		// Don't mainhand if were mending
+		if (Module.get<AutoXP>("AutoXP").isMending) return;
+        
+		// Apply mainhand
+		this.applyHand("hand");
+
 	}
 
 	public get totems() {
@@ -44,43 +80,6 @@ export default class AutoTotem extends Module {
 		// Equip the totem if we found one
 		if (totem) await Client.bot.equip(totem, hand);
         
-	}
-
-	public override async onPacket({ name, data }: Packets.PacketEvent) {
-		switch (name) {
-
-			// Totem pop event
-			case "entity_status":
-				if (data.entityId !== Client.bot.entity.id) return;
-				if (data.entityStatus !== 35) return;
-
-				// Apply totem to off-hand
-				this.applyHand("off-hand", true);
-
-				// Send Discord notification
-				await Client.discord.send(new Embed()
-					.setTitle("Popped Totem")
-					.setColor(0xFACC15)
-					.addField({ name: "Remaining Totems", value: `${ this.totems.map(_ => "<:totem_of_undying:1420233210347913357>").join("") } (${ this.totems.length })` }));
-				break;
-
-		}
-	}
-
-	public override onTick() {
-
-		// Verify offhand and reequip if needed
-		this.applyHand();
-
-		// Don't mainhand if were eating
-		if (ModuleManager.get<AutoEat>("AutoEat").isEating) return;
-		
-		// Don't mainhand if were mending
-		if (ModuleManager.get<AutoXP>("AutoXP").isMending) return;
-        
-		// Apply mainhand
-		this.applyHand("hand");
-
 	}
 
 }

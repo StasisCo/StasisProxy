@@ -1,0 +1,83 @@
+modules:
+  AntiAFK:
+    # Whether this module is active
+    enabled: true
+    config:
+      # Start spinning the camera after this many ms of no movement
+      spinTimeout: 5000
+      # Swing the arm after this many ms of no movement or swinging
+      swingTimeout: 300000
+      # Radians per tick (50 ms) when spinning
+      spinSpeed: 0.15
+  AntiBot:
+    # Whether this module is active
+    enabled: true
+  AutoArmor:
+    # Whether this module is active
+    enabled: true
+  AutoDisconnect:
+    # Whether this module is active
+    enabled: true
+    config:
+      # Disconnect when health drops to this value or below
+      minHealth: 8
+      # Stay connected as long as this many totems remain in the inventory
+      minTotems: 2
+      # Per-dimension Y-level safety floors
+      yLevel:
+        # Disconnect when Y is below this in the_end
+        the_end: 0
+  AutoEat:
+    # Whether this module is active
+    enabled: true
+    config:
+      # Minimum health (including absorption) before eating
+      minHealth: 12
+      # Minimum hunger before eating
+      minHunger: 20
+      # Food selection priority when choosing what to eat
+      priority: effectiveQuality
+      # List of food item names to never eat
+      bannedFood:
+        - rotten_flesh
+        - pufferfish
+        - chorus_fruit
+        - poisonous_potato
+        - spider_eye
+  AutoEject:
+    # Whether this module is active
+    enabled: true
+    config:
+      # Item names that should be tossed out of the inventory on sight
+      items:
+        - shulker_box
+        - white_shulker_box
+        - orange_shulker_box
+        - magenta_shulker_box
+        - light_blue_shulker_box
+        - yellow_shulker_box
+        - lime_shulker_box
+        - pink_shulker_box
+        - gray_shulker_box
+        - light_gray_shulker_box
+        - cyan_shulker_box
+        - purple_shulker_box
+        - blue_shulker_box
+        - brown_shulker_box
+        - green_shulker_box
+        - red_shulker_box
+        - black_shulker_box
+  AutoTotem:
+    # Whether this module is active
+    enabled: true
+  AutoXP:
+    # Whether this module is active
+    enabled: true
+    config:
+      # Start mending when armor durability falls below this fraction (0..1)
+      minDurability: 0.7
+      # After this many ms of no movement, repair to 100% instead of minDurability
+      idleThreshold: 10000
+  Sentry:
+    # Whether this module is active
+    enabled: true

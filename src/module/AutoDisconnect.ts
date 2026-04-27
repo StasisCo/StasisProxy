@@ -1,18 +1,29 @@
 import chalk from "chalk";
+import z from "zod";
 import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
-import { ModuleManager } from "~/manager/ModuleManager";
 import AutoTotem from "./AutoTotem";
 
-export default class AutoDisconnect extends Module {
+const zConfigSchema = z.object({
+	minHealth: z
+		.number()
+		.default(8)
+		.describe("Disconnect when health drops to this value or below"),
+	minTotems: z
+		.number()
+		.default(2)
+		.describe("Stay connected as long as this many totems remain in the inventory"),
+	yLevel: z
+		.object({
+			the_end: z.number().default(0).describe("Disconnect when Y is below this in the_end")
+		})
+		.default({ the_end: 0 })
+		.describe("Per-dimension Y-level safety floors")
+});
 
-	private static readonly options = {
-		minHealth: 8,
-		minTotems: 2,
-		yLevel: {
-			the_end: 0
-		}
-	};
+export default class AutoDisconnect extends Module<typeof zConfigSchema> {
+
+	public override readonly zConfigSchema = zConfigSchema;
 
 	constructor() {
 		super("AutoDisconnect");
@@ -25,7 +36,7 @@ export default class AutoDisconnect extends Module {
 		Client.bot.quit(reason);
 	}
 
-	public override onPacket({ data, name }: Packets.PacketEvent) {
+	public override onPacketReceive({ data, name }: Packets.PacketEvent) {
 
 		// Exclude non us packets
 		if (Client.bot.entity && typeof data === "object" && "entityId" in data && data.entityId !== Client.bot.entity.id) return;
@@ -37,8 +48,8 @@ export default class AutoDisconnect extends Module {
 				const { y, flags } = data;
 				const ny = flags & 0x02 ? cur?.y ?? 0 + y : y;
 				if (Client.bot.game.gameMode !== "survival") return;
-				if (Client.bot.game.dimension in AutoDisconnect.options.yLevel) {
-					const yLevel = AutoDisconnect.options.yLevel[Client.bot.game.dimension as keyof typeof AutoDisconnect.options.yLevel];
+				if (Client.bot.game.dimension in this.config.yLevel) {
+					const yLevel = this.config.yLevel[Client.bot.game.dimension as keyof typeof this.config.yLevel];
 					if (typeof yLevel === "number" && ny < yLevel) {
 						this.disconnect(`Y level was ${ ny } in ${ Client.bot.game.dimension }`);
 					}
@@ -52,15 +63,15 @@ export default class AutoDisconnect extends Module {
 
 				// Check if health is below threshold
 				const health = data.health;
-				if (health <= AutoDisconnect.options.minHealth) {
+				if (health <= this.config.minHealth) {
 
 					// Get the totems from autototem
-					const autototem = ModuleManager.get<AutoTotem>("AutoTotem");
+					const autototem = Module.get<AutoTotem>("AutoTotem");
 					const totems = autototem.totems.length;
 					const holdingTotem = autototem.hasMainHand || autototem.hasOffHand;
 
 					// If we have more totems than the threshold, don't disconnect yet
-					if (totems > AutoDisconnect.options.minTotems && holdingTotem) return;
+					if (totems > this.config.minTotems && holdingTotem) return;
 
 					// Disconnect if totems are below threshold
 					if (totems === 0) this.disconnect(`Health was ${ health }`);
@@ -75,11 +86,11 @@ export default class AutoDisconnect extends Module {
 				if (data.entityStatus !== 35) return;
 
 				// Get the totems from autototem
-				const autototem = ModuleManager.get<AutoTotem>("AutoTotem");
+				const autototem = Module.get<AutoTotem>("AutoTotem");
 				const totems = autototem.totems.length;
 
 				// If we have more totems than the threshold, don't disconnect yet
-				if (totems > AutoDisconnect.options.minTotems) return;
+				if (totems > this.config.minTotems) return;
 				this.disconnect(`Popped a totem with only ${ totems } left.`);
 				break;
 

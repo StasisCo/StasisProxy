@@ -1,22 +1,47 @@
 import mcData from "minecraft-data";
 import type { Item } from "prismarine-item";
+import z from "zod";
 import { Client } from "~/class/Client";
 import { Module } from "~/class/Module";
 
-export default class AutoEat extends Module {
-
-	private static readonly options = {
-		minHealth: 12,
-		minHunger: 20,
-		priority: "effectiveQuality",
-		bannedFood: [
+const zConfigSchema = z.object({
+	minHealth: z
+		.number()
+		.default(12)
+		.describe("Minimum health (including absorption) before eating"),
+	minHunger: z
+		.number()
+		.default(20)
+		.describe("Minimum hunger before eating"),
+	priority: z
+		.enum([
+			"effectiveQuality",
+			"hungerSaturation",
+			"saturation",
+			"hunger"
+		])
+		.describe("Food selection priority when choosing what to eat")
+		.default("effectiveQuality"),
+	bannedFood: z
+		.string()
+		.array()
+		.describe("List of food item names to never eat")
+		.default([
 			"rotten_flesh",
 			"pufferfish",
 			"chorus_fruit",
 			"poisonous_potato",
 			"spider_eye"
-		]
-	};
+		])
+});
+
+export default class AutoEat extends Module<typeof zConfigSchema> {
+
+	public override readonly zConfigSchema = zConfigSchema;
+
+	constructor() {
+		super("AutoEat");
+	}
 
 	public absorption = 0;
 
@@ -31,10 +56,6 @@ export default class AutoEat extends Module {
 
 	/** The slot the food was in when we started eating (to detect item changes) */
 	private eatingSlot = -1;
-
-	constructor() {
-		super("AutoEat");
-	}
 
 	/** Whether we are currently eating */
 	public get isEating(): boolean {
@@ -75,7 +96,7 @@ export default class AutoEat extends Module {
 		Client.bot.activateItem(false);
 	}
 
-	public override onPacket({ name, data }: Packets.PacketEvent) {
+	public override onPacketReceive({ name, data }: Packets.PacketEvent) {
 		switch (name) {
 
 			// Track absorption
@@ -131,11 +152,11 @@ export default class AutoEat extends Module {
 	private getBestFood() {
 		const foods = mcData(Client.bot.version).foodsByName;
 		return Client.bot.inventory.items()
-			.filter(item => item.name in foods && !AutoEat.options.bannedFood.includes(item.name))
+			.filter(item => item.name in foods && !this.config.bannedFood.includes(item.name))
 			.sort((a, b) => (foods[b.name]?.effectiveQuality ?? 0) - (foods[a.name]?.effectiveQuality ?? 0))[0];
 	}
 
-	public override onTick() {
+	public override onTickPre() {
 
 		// If currently eating, resend use_item every tick to keep the action alive
 		if (this.eating) {
@@ -158,7 +179,7 @@ export default class AutoEat extends Module {
 		const hasFireResistance = Client.bot.entity.effects[12] !== undefined;
 		const onFire = Client.bot.entity.isValid && ((Client.bot.entity.metadata[0] as unknown as number) & 0x01) !== 0;
 
-		if ((this.health + this.absorption <= AutoEat.options.minHealth) || (onFire && !hasFireResistance)) {
+		if ((this.health + this.absorption <= this.config.minHealth) || (onFire && !hasFireResistance)) {
 			const food = this.getGap();
 			if (food) {
 				this.startEating(food);
@@ -167,7 +188,7 @@ export default class AutoEat extends Module {
 		}
 
 		// Normal hunger eat check
-		if (this.hunger < AutoEat.options.minHunger) {
+		if (this.hunger < this.config.minHunger) {
 			const food = this.getBestFood();
 			if (food) {
 				this.startEating(food);
