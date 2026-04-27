@@ -12,19 +12,17 @@
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
-		"@prisma/client": "^7.7.0",
+		"@prisma/client": "^7.8.0",
 		"@stylistic/eslint-plugin": "^5.10.0",
 		"@types/bun": "latest",
 		"@types/lodash": "^4.17.24",
 		"@types/node": "^25.6.0",
-		"eslint": "^10.2.0",
-		"typescript-eslint": "^8.58.2"
-	},
-	"peerDependencies": {
-		"typescript": "^5"
+		"eslint": "^10.2.1",
+		"typescript": "^6.0.3",
+		"typescript-eslint": "^8.59.0"
 	},
 	"dependencies": {
-		"@prisma/adapter-pg": "^7.7.0",
+		"@prisma/adapter-pg": "^7.8.0",
 		"@vermaysha/discord-webhook": "^1.4.0",
 		"chalk": "^5.6.2",
 		"commander": "^14.0.3",
@@ -37,7 +35,7 @@
 		"mineflayer-armor-manager": "^2.0.1",
 		"mineflayer-movement": "^0.4.4",
 		"pretty-ms": "^9.3.0",
-		"prisma": "^7.7.0",
+		"prisma": "^7.8.0",
 		"prismarine-block": "^1.23.0",
 		"prismarine-chat": "^1.13.0",
 		"prismarine-entity": "^2.6.0",
