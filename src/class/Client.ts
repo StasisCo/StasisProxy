@@ -19,11 +19,11 @@ import { Server } from "./proxy/Server";
 
 export class Client {
 
-	private static logger = new Logger(chalk.blue("CLIENT"));
+	public static logger = new Logger(chalk.cyan("CLIENT"));
 
 	public static console?: Console;
 
-	private static exitCode = 1; // Default to 1 (unexpected disconnect); set to 0 for intentional clean exits
+	public static exitCode = 1; // Default to 1 (unexpected disconnect); set to 0 for intentional clean exits
 
 	public static readonly options: BotOptions = {
 		auth: "microsoft",

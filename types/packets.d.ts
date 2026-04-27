@@ -103,6 +103,72 @@ declare namespace Packets {
 			item: unknown | null;
 		}
 
+		/** Sent on inventory open / full sync. `items[i]` is the slot at index `i`. `carriedItem` is the cursor stack. */
+		"window_items": {
+			windowId: number;
+			stateId: number;
+			items: (unknown | null)[];
+			carriedItem: unknown | null;
+		}
+
+		/**
+		 * Equipment update for an entity. Each entry's `slot` is:
+		 * 0=main hand, 1=off hand, 2=boots, 3=leggings, 4=chestplate, 5=helmet.
+		 */
+		"entity_equipment": {
+			entityId: number;
+			equipments: {
+				slot: number;
+				item: unknown | null;
+			}[];
+		}
+
+		/** Relative entity move — deltas are fixed-point shorts (delta/4096 = blocks). */
+		"rel_entity_move": {
+			entityId: number;
+			dX: number;
+			dY: number;
+			dZ: number;
+			onGround: boolean;
+		}
+
+		/** Relative entity move + rotation. yaw/pitch are angle bytes (value*360/256 = degrees). */
+		"entity_move_look": {
+			entityId: number;
+			dX: number;
+			dY: number;
+			dZ: number;
+			yaw: number;
+			pitch: number;
+			onGround: boolean;
+		}
+
+		/** Absolute entity teleport. */
+		"entity_teleport": {
+			entityId: number;
+			x: number;
+			y: number;
+			z: number;
+			yaw: number;
+			pitch: number;
+			onGround: boolean;
+		}
+
+		/**
+		 * Clientbound Player Position And Look — server forcibly sets the player's own position.
+		 * `flags` is a bitmask: 0x01=X relative, 0x02=Y relative, 0x04=Z relative, 0x08=Y_ROT relative, 0x10=X_ROT relative.
+		 * yaw/pitch are floats in degrees.
+		 */
+		"position": {
+			x: number;
+			y: number;
+			z: number;
+			yaw: number;
+			pitch: number;
+			flags: number;
+			teleportId: number;
+		}
+
 	}
 
 }

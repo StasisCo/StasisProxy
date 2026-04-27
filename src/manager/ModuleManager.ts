@@ -7,8 +7,10 @@ export class ModuleManager {
 
 	public static readonly modules = new Map<string, Module>();
 
-	public static get<T extends Module>(name: string): T | undefined {
-		return this.modules.get(name) as T | undefined;
+	public static get<T extends Module>(name: string): T {
+		const module = this.modules.get(name) as T;
+		if (!module) throw new Error(`Module ${ name } not registered`);
+		return module;
 	}
 
 	private static async init() {
