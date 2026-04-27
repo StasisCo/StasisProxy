@@ -212,8 +212,48 @@ export class PresenceManager extends EventEmitter<{
 	// ── SSE connection ──
 
 	private connected = false;
+	private reconnectTimer: NodeJS.Timeout | null = null;
+	private heartbeatTimer: NodeJS.Timeout | null = null;
+	private reconnectAttempts = 0;
+
+	/** Force-reconnect if no bytes (events OR comments) arrive within this window. */
+	private static readonly HEARTBEAT_TIMEOUT_MS = 60_000;
+
+	/** Cap on backoff between manual reconnect attempts. */
+	private static readonly MAX_RECONNECT_DELAY_MS = 30_000;
+
+	private resetHeartbeat() {
+		if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
+		this.heartbeatTimer = setTimeout(() => {
+			PresenceManager.logger.warn(`IRC SSE stream stalled (no data for ${ PresenceManager.HEARTBEAT_TIMEOUT_MS / 1000 }s), forcing reconnect`);
+			this.connected = false;
+			this.connect();
+		}, PresenceManager.HEARTBEAT_TIMEOUT_MS);
+	}
+
+	private scheduleReconnect() {
+		if (this.reconnectTimer) return;
+		const delay = Math.min(
+			PresenceManager.MAX_RECONNECT_DELAY_MS,
+			1000 * Math.pow(2, this.reconnectAttempts++)
+		);
+		PresenceManager.logger.log(`Retrying IRC SSE in ${ delay }ms (attempt ${ this.reconnectAttempts })`);
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = null;
+			this.connect();
+		}, delay);
+	}
 
 	private connect() {
+
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
+		if (this.heartbeatTimer) {
+			clearTimeout(this.heartbeatTimer);
+			this.heartbeatTimer = null;
+		}
 
 		if (this.es) {
 			this.es.close();
@@ -240,18 +280,22 @@ export class PresenceManager extends EventEmitter<{
 				return res;
 			})
 		});
-		
+
 		this.es = es;
+		this.resetHeartbeat();
 
 		es.onopen = () => {
+			this.reconnectAttempts = 0;
 			if (!this.connected) {
 				PresenceManager.logger.log("Connected to IRC SSE stream");
 				this.connected = true;
 			}
+			this.resetHeartbeat();
 			this.requestPost();
 		};
 
 		es.onmessage = ({ data }) => {
+			this.resetHeartbeat();
 			if (!data || typeof data !== "string") return;
 
 			let json: unknown;
@@ -269,14 +313,24 @@ export class PresenceManager extends EventEmitter<{
 		};
 
 		es.onerror = event => {
-			const detail = "message" in event ? (event as { message: string }).message : "";
-			if (es.readyState === EventSource.CLOSED) {
-				PresenceManager.logger.warn(`IRC SSE stream closed${ detail ? `: ${ detail }` : "" }, reconnecting...`);
-				this.connected = false;
-				this.connect();
-			}
+			// Ignore stale handlers from a closed/replaced EventSource.
+			if (this.es !== es) return;
 
-			// CONNECTING state = normal SSE auto-reconnect, no log needed
+			const detail = "message" in event ? (event as { message: string }).message : "";
+			const code = "code" in event ? (event as { code?: number }).code : undefined;
+
+			if (es.readyState === EventSource.CLOSED) {
+				// CLOSED = the library gave up (HTTP 204, non-200, bad content-type).
+				// We must reconnect ourselves, with backoff so we don't hammer.
+				PresenceManager.logger.warn(`IRC SSE closed${ code ? ` (HTTP ${ code })` : "" }${ detail ? `: ${ detail }` : "" }`);
+				this.connected = false;
+				this.es = null;
+				this.scheduleReconnect();
+			} else {
+				// CONNECTING = library is going to retry in 3s on its own. Log so
+				// stuck retry loops are visible.
+				PresenceManager.logger.warn(`IRC SSE error${ code ? ` (HTTP ${ code })` : "" }${ detail ? `: ${ detail }` : "" }, library will retry`);
+			}
 		};
 	}
 
