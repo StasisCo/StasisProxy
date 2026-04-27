@@ -8,7 +8,7 @@ import { CommandManager } from "./CommandManager";
 
 export class ChatManager {
 
-	private static readonly whisperQueue = new Map<string, { message: string; timestamp: number }>();
+	private static readonly whisperQueue = new Map<string, { message: string; timestamp: number, retries?: number }>();
 
 	private static logger = new Logger("CHAT");
 
@@ -131,11 +131,12 @@ export class ChatManager {
 		for (const char of sanitized.split("")) {
 			chars.push(char);
 			const length = Math.floor(Math.random() * 3);
-			for (let i = 0; i < length; i++) chars.push("\u200C");
+			for (let i = 0; i < length; i++) chars.push("\u200C".repeat(Math.floor(Math.random() * ((next[1].retries ?? 0) + 1))));
 		}
 		const msg = `${ chars.join("") } [${ randomBytes(6).toString("hex") }]`;
 
 		Client.bot.chat(`/w ${ next[0] } ${ msg }`);
+		ChatManager.whisperQueue.set(next[0], { ...next[1], retries: (next[1].retries ?? 0) + 1 });
 		this.lastWhisper = Date.now();
 
 		const onSystemMessage = (packet: Packets.Schema["system_chat"]) => {
