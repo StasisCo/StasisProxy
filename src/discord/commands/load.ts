@@ -18,28 +18,6 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 	const username = interaction.options.getString("username");
 	const location = interaction.options.getString("location");
-	
-	// const accounts = await prisma.discord.findUnique({
-	// 	where: {
-	// 		id: interaction.user.id
-	// 	},
-	// 	include: {
-	// 		players: {
-	// 			where: {
-	// 				server: Client.host,
-	// 				OR: username ? [ {
-	// 					username: username
-	// 				}, {
-	// 					uuid: username
-	// 				} ] : undefined
-	// 			},
-	// 			select: {
-	// 				uuid: true,
-	// 				username: true
-	// 			}
-	// 		}
-	// 	}
-	// });
 
 	const accounts = await prisma.player.findMany({
 		where: {
@@ -55,7 +33,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 				}
 			}
 		}
-	});
+	}).catch(() => []);
 
 	// const embed = new EmbedBuilder()
 	// 	.setColor(0x00c3b3);
@@ -63,9 +41,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 	if (accounts.length === 0) {
 		const embed = new EmbedBuilder()
 			.setTitle("No Linked Minecraft Accounts")
-			.setDescription("You don't have any Minecraft accounts linked to your Discord account! use `/connect` to link an account before using this command.")
+			.setDescription("You don't have any Minecraft accounts connected to your Discord account! use `/connect` to link an account before using this command.")
+			.setTimestamp()
 			.setColor(0xf43f5e);
-		interaction.reply({ embeds: [ embed ]});
+		interaction.reply({ embeds: [ embed ], flags: "Ephemeral" });
 	}
 
 	// .setTitle(`${ owner.username } Pearled`)
@@ -74,6 +53,6 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 	// .addField({ name: "Dimension", value: `${ Client.bot.game.dimension }`, inline: true })
 	// .addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
 	// .addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
-	interaction.reply({ embeds: [ embed ]});
+	// interaction.reply({ embeds: [ embed ]});
 
 }

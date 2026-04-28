@@ -26,8 +26,7 @@ export default function(program: Command) {
 					},
 					create: {
 						id: player.uuid,
-						username: player.username,
-						server: Client.host
+						username: player.username
 					}
 				}
 			};
