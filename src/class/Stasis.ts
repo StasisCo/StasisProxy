@@ -74,8 +74,7 @@ export class Stasis extends StasisColumn implements StasisData {
 			where: {
 				server: Client.host,
 				owner: {
-					id: player,
-					server: Client.host
+					id: player
 				},
 				dimension: Client.bot.game.dimension
 			},
