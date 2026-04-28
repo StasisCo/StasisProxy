@@ -23,7 +23,7 @@ export default class AutoTotem extends Module {
 				this.applyHand("off-hand", true);
 
 				// Send Discord notification
-				await Client.discord.send(new Embed()
+				await Client.discord.webhook(new Embed()
 					.setTitle("Popped Totem")
 					.setColor(0xFACC15)
 					.addField({ name: "Remaining Totems", value: `${ this.totems.map(_ => "<:totem_of_undying:1420233210347913357>").join("") } (${ this.totems.length })` }));

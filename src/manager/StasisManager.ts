@@ -165,7 +165,7 @@ export class StasisManager {
 				return;
 			}
 
-			await Client.discord.send(new Embed()
+			await Client.discord.webhook(new Embed()
 				.setTitle(`${ owner.username } Set Stasis`)
 				.setColor(0x00c3b3)
 				.setThumbnail({ url: `https://mc-heads.net/head/${ owner.uuid.replace(/-/g, "") }` })

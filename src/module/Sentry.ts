@@ -28,7 +28,7 @@ export default class Sentry extends Module {
 		const lastInteraction = StasisManager.interactions.entries().find(([ key ]) => key.ownerId === player.uuid)?.[1];
 		if (lastInteraction && Date.now() - lastInteraction < 1000) return;
 
-		await Client.discord.send(new Embed()
+		await Client.discord.webhook(new Embed()
 			.setTitle(`${ entity.username } Entered Visual Range`)
 			.setColor(0x06b6d4)
 			.setThumbnail({ url: `https://mc-heads.net/head/${ player.uuid.replace(/-/g, "") }` })
@@ -60,7 +60,7 @@ export default class Sentry extends Module {
 		const remaining = await Stasis.fetch(owner.uuid);
 
 		if (didIntentionallyPull) {
-			await Client.discord.send(new Embed()
+			await Client.discord.webhook(new Embed()
 				.setTitle(`${ owner.username } Pearled`)
 				.setColor(0x00c3b3)
 				.setThumbnail({ url: `https://mc-heads.net/head/${ owner.uuid.replace(/-/g, "") }` })
@@ -71,7 +71,7 @@ export default class Sentry extends Module {
 			return;
 		}
 
-		await Client.discord.send(new Embed()
+		await Client.discord.webhook(new Embed()
 			.setTitle("Stasis Broke Unexpectedly")
 			.setColor(0xf43f5e)
 			.setThumbnail({ url: `https://mc-heads.net/head/${ owner.uuid.replace(/-/g, "") }` })
