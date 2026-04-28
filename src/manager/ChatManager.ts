@@ -135,13 +135,13 @@ export class ChatManager {
 		}
 		const msg = `${ chars.join("") } [${ randomBytes(6).toString("hex") }]`;
 
-		Client.bot.chat(`/w ${ next[0] } ${ msg }`);
+		Client.bot.chat(`/w ${ next[0] } ${ msg }`.slice(0, 256));
 		ChatManager.whisperQueue.set(next[0], { ...next[1], retries: (next[1].retries ?? 0) + 1 });
 		this.lastWhisper = Date.now();
 
 		const onSystemMessage = (packet: Packets.Schema["system_chat"]) => {
 			const content = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
-			if (content.toString().endsWith(msg)) {
+			if (content.toString().replace(/\u200C/g, "").endsWith(msg.replace(/\u200C/g, ""))) {
 				Client.bot._client.off("system_chat", onSystemMessage);
 				ChatManager.whisperQueue.delete(next[0]);
 			}
