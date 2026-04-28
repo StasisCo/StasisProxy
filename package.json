@@ -1,6 +1,6 @@
 {
 	"name": "stasis-proxy",
-	"version": "1.0.37",
+	"version": "1.0.38",
 	"module": "src/index.ts",
 	"type": "module",
 	"scripts": {
