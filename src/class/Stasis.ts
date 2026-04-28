@@ -182,7 +182,6 @@ export class Stasis extends StasisColumn<{
 
 	public async releaseManagement() {
 		if (this.botId === null) return;
-
 		await prisma.stasis.update({
 			where: {
 				id: this.id
@@ -191,7 +190,6 @@ export class Stasis extends StasisColumn<{
 				botId: null
 			}
 		}).catch(() => {});
-
 		this.botId = null;
 	}
 
