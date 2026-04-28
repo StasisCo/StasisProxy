@@ -64,7 +64,7 @@ jobs:
 
       - name: Copy Types
         run: |
-          cp -r hackware-server/packages/types node_modules/@types/hackware-server
+          cp -r hackware-server/packages/types node_modules/@hackware/types
           bun run copy-types
 
       - name: Build and push (with BuildKit cache)
