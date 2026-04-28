@@ -19,6 +19,11 @@ export class Pearl extends EventEmitter<{
 	 * @param owner The player who owns the pearl
 	 */
 	"owner": [ string ];
+
+	/**
+	 * Emitted when the pearl's owner fails to be resolved after every identification method is exhausted
+	 */
+	"owner-failed": [];
 		
 	/**
 	 * Emitted when the pearl enters a suspended state (i.e. is moving at most 1/8 m/s vertically and is not moving horizontally)
@@ -80,10 +85,12 @@ export class Pearl extends EventEmitter<{
 			
 			// If there is an identifiable owner
 			if (this.suspended) Stasis.from(this).then(resolved => {
-				if (!resolved || !resolved.ownerId) return;
-				this.ownerId = resolved.ownerId;
+				if (!resolved || !resolved.ownerUuid) throw new Error("Failed to resolve owner from suspended pearl");
+				this.ownerId = resolved.ownerUuid;
 				this.emit("owner", this.ownerId);
 				redis.set(`pearl:${ entity.id }:owner`, this.ownerId);
+			}).catch(() => {
+				this.emit("owner-failed");
 			});
 
 		});

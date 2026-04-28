@@ -17,17 +17,6 @@ export class StasisManager {
 	public static readonly interactions = new Map<Stasis, number>();
 	private static readonly suspended = new Set<number>();
 
-	/** Returns true if the pearl with the given entity ID is currently suspended in stasis. */
-	public static isSuspended(entityId: number): boolean {
-		return StasisManager.suspended.has(entityId);
-	}
-
-	/** Called when a stasis chamber is saved to the database */
-	public static onSaved?: (stasis: Stasis) => void;
-
-	/** Called when a stasis chamber is removed from the database */
-	public static onRemoved?: (stasis: Stasis) => void;
-
 	constructor(private readonly bot: Bot) {
 		if (this.bot.game) this.attach();
 		else this.bot.once("login", this.attach);
@@ -82,24 +71,11 @@ export class StasisManager {
 
 				// If it is, emit a log and remove it from tracking
 				StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } broke or despawned`);
-
-				// const wasSuspended = StasisManager.suspended.has(entityId);
-				// const pearlPosition = pearl.entity.position.clone() as Vec3;
 				StasisManager.pearls.delete(entityId);
 				StasisManager.suspended.delete(entityId);
 				pearl.emit("destroyed", pearl.entity.id);
 				pearl.removeAllListeners();
 
-				// // If the pearl was in stasis, remove the stasis record and hologram immediately
-				// if (wasSuspended) {
-				// 	Stasis.from(pearlPosition).then(stasis => {
-				// 		if (!stasis) return;
-				// 		if (stasis.pearls.length > 0) return;
-				// 		stasis.remove();
-				// 		StasisManager.onRemoved?.(stasis);
-				// 	}).catch(() => {});
-				// }
-				
 			}
 		});
 
@@ -116,9 +92,10 @@ export class StasisManager {
 
 			// Wait for up to 5 seconds for the pearl to emit an owner event
 			const ownerIdentified = new Promise<string>(resolve => pearl.once("owner", resolve));
+			const ownerFailed = new Promise<void>(resolve => pearl.once("owner-failed", resolve));
 			
 			// If an owner is identified within the timeout, associate the pearl with that owner, otherwise ignore the pearl
-			const ownerId = await ownerIdentified;
+			const ownerId = await Promise.race([ ownerIdentified, ownerFailed ]) || null;
 			if (!ownerId) {
 				StasisManager.logger.warn(`Pearl ${ chalk.yellow(pearl.entity.id) } has no identifiable owner and will be ignored`);
 				return;
@@ -199,7 +176,6 @@ export class StasisManager {
 
 			Client.chat.whisper(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
 			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.username) }`);
-			StasisManager.onSaved?.(stasis);
 
 		});
 
@@ -243,7 +219,6 @@ export class StasisManager {
 					// Make sure all the pearls were destroyed
 					if (pearls.map(p => p.entity.id).every(id => !StasisManager.pearls.has(id))) {
 						await stasis.remove();
-						StasisManager.onRemoved?.(stasis);
 						return;
 					}
 
