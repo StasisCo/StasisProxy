@@ -48,8 +48,20 @@ model Player {
   server String
 
   // A player can have multiple stasis records
-  stasis Stasis[]
+  stasis   Stasis[]
+  discords Discord[]
 
   // A player can only have one record per server (since UUIDs are unique across all servers)
   @@unique([server, uuid], name: "server_player")
+}
+
+model Discord {
+  // The discord user ID
+  id String @id @unique
+
+  // Timestamp of when the discord record was created
+  createdAt DateTime @default(now())
+
+  // All uuids that this user
+  players Player[]
 }
