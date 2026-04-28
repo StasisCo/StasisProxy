@@ -95,8 +95,8 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 
 					if (filter.includes(":")) {
 						const [ key, value ] = filter.split(":");
-						switch (key) {
-							case "mobType":
+						switch (key?.toLowerCase()) {
+							case "mobtype":
 								if (entity.mobType === value) return true;
 								break;
 							default:
