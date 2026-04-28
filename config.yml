@@ -84,3 +84,12 @@ modules:
   Viewer:
     # Whether this module is active
     enabled: true
+  KillAura:
+    # Whether this module is active
+    enabled: true
+    config:
+      # Reach range for attacking entities
+      reachRange: 3
+      # List of entity names to attack
+      list:
+        - mobtype:hostile

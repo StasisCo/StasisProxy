@@ -119,6 +119,7 @@ export class PhysicsManager {
 			// When a proxy client is connected, they handle movement themselves — don't
 			// send a bot position_look that would conflict with the client's own packets.
 			if (Client.proxy?.connected) {
+
 				// Still resync sprint/sneak in case the server reset action state
 				this.lastSprint = !this.controls.sprint;
 				this.lastSneak = !this.controls.sneak;
@@ -231,6 +232,7 @@ export class PhysicsManager {
 	/**
 	 * Run one tick of physics simulation (called every 50ms / 20 tps)
 	 */
+
 	private tick() {
 		if (!this.engine || !this.bot.entity) return;
 
@@ -238,7 +240,13 @@ export class PhysicsManager {
 		// physics and sends movement packets directly to the server. Our simulation
 		// must NOT run — it would overwrite bot.entity.position with stale values,
 		// causing desync between what 2b2t knows and what we replay on reconnect.
-		if (Client.proxy?.connected) return;
+		if (Client.proxy?.connected) {
+
+			// Modules still need to tick (KillAura, AntiAFK, etc.) — they observe
+			// state and emit their own packets independently of the physics sim.
+			for (const fn of this.onPreTick) fn();
+			return;
+		}
 
 		// Sanitize position: NaN entering tick — something external corrupted position
 		if (isNaN(this.bot.entity.position.x) || isNaN(this.bot.entity.position.y) || isNaN(this.bot.entity.position.z)) {
