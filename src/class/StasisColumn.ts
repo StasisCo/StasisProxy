@@ -1,3 +1,4 @@
+import EventEmitter from "events";
 import type { Player } from "mineflayer";
 import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
@@ -7,9 +8,11 @@ import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
-import { Stasis, STASIS_OWNER_INCLUDE } from "./Stasis";
+import { Stasis } from "./Stasis";
 
-export class StasisColumn {
+type StasisColumnEventMap = Record<string | symbol, unknown[]>;
+
+export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap> extends EventEmitter<T> {
 
 	/**
      * Checks if a block is a valid stasis trigger (a trapdoor that isn't made of iron)
@@ -94,6 +97,7 @@ export class StasisColumn {
 	public readonly pos2: Vec3;
 
 	protected constructor(x: number, y: number, z: number) {
+		super();
 		const box = StasisColumn.getBoundingBox(new Vec3(x, y, z));
 		if (!box) throw new Error(`No valid stasis column found at position (${ x }, ${ y }, ${ z })`);
 		this.pos1 = box.pos1;
@@ -155,6 +159,8 @@ export class StasisColumn {
      */
 	public async save(owner: Player): Promise<Stasis | null> {
 		try {
+			const botId = Client.bot.player.uuid.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
+
 			const player = await prisma.player.upsert({
 				where: {
 					id: owner.uuid
@@ -179,7 +185,8 @@ export class StasisColumn {
 					}
 				},
 				update: {
-					ownerId: player.id
+					ownerId: player.id,
+					botId
 				},
 				create: {
 					dimension: Client.bot.game.dimension,
@@ -187,9 +194,18 @@ export class StasisColumn {
 					x: this.block.position.x,
 					y: this.block.position.y,
 					z: this.block.position.z,
-					ownerId: player.id
+					ownerId: player.id,
+					botId
 				},
-				include: STASIS_OWNER_INCLUDE
+				include: {
+					owner: {
+						select: {
+							id: true,
+							username: true,
+							createdAt: true
+						}
+					}
+				}
 			}).then(data => new Stasis(data));
 		} catch (e) {
 			console.error("Failed to save stasis to database", e);

@@ -13,6 +13,7 @@ model Stasis {
 
   // Timestamp of when the stasis was created
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   // The dimension the stasis is in (e.g., "overworld", "the_nether", "the_end")
   dimension String
@@ -28,6 +29,10 @@ model Stasis {
   // The player who owns this stasis
   ownerId String
   owner   Player @relation(fields: [ownerId], references: [id])
+
+  // The bot that is managing this stasis (if any)
+  botId String?
+  bot   Bot?    @relation(fields: [botId], references: [id])
 
   // Only 1 stasis can exist at a given position in a given dimension on a given server
   @@unique([server, x, y, z, dimension], name: "position")
@@ -46,6 +51,23 @@ model Player {
   // A player can have multiple stasis records
   stasis   Stasis[]
   discords Discord[]
+
+  // Players can sometimes be bots themselves
+  bot Bot?
+}
+
+model Bot {
+  // A unique ID for the bot record
+  id String @id @unique
+
+  // Timestamp of when the bot record was created
+  createdAt DateTime @default(now())
+
+  // The player instance that this bot is associated with
+  player Player @relation(fields: [id], references: [id])
+
+  // Observing stasis
+  managing Stasis[]
 }
 
 model Discord {

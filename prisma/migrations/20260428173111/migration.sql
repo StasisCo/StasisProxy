@@ -1,0 +1,20 @@
+-- AlterTable
+ALTER TABLE "Stasis" ADD COLUMN     "botId" TEXT,
+ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- CreateTable
+CREATE TABLE "Bot" (
+    "id" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Bot_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Bot_id_key" ON "Bot"("id");
+
+-- AddForeignKey
+ALTER TABLE "Stasis" ADD CONSTRAINT "Stasis_botId_fkey" FOREIGN KEY ("botId") REFERENCES "Bot"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Bot" ADD CONSTRAINT "Bot_id_fkey" FOREIGN KEY ("id") REFERENCES "Player"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

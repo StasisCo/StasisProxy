@@ -10,18 +10,18 @@ import { type Stasis as StasisData } from "../generated/prisma/client";
 import { Pearl } from "./Pearl";
 import { StasisColumn } from "./StasisColumn";
 
-/** Prisma `include` clause used everywhere a {@link Stasis} is loaded. */
-export const STASIS_OWNER_INCLUDE = {
-	owner: {
-		select: {
-			id: true,
-			username: true,
-			createdAt: true
-		}
-	}
-} as const;
+export class Stasis extends StasisColumn<{
+	"add": [ Stasis ];
+	"remove": [ Stasis ];
+}> implements StasisData {
 
-export class Stasis extends StasisColumn implements StasisData {
+	public static readonly instances = new Map<string, Stasis>();
+
+	private static materialize(data: StasisData): Stasis {
+		const existing = Stasis.instances.get(data.id);
+		if (existing) return existing;
+		return new Stasis(data);
+	}
 
 	/**
 	 * Finds a stasis instance based on a position, block, pearl, or entity within it
@@ -55,8 +55,16 @@ export class Stasis extends StasisColumn implements StasisData {
 						z: column.block.position.z
 					}
 				},
-				include: STASIS_OWNER_INCLUDE
-			}).then(data => data ? new Stasis(data) : null);
+				include: {
+					owner: {
+						select: {
+							id: true,
+							username: true,
+							createdAt: true
+						}
+					}
+				}
+			}).then(data => data ? Stasis.materialize(data) : null);
 		} catch {
 			return null;
 		}
@@ -78,17 +86,24 @@ export class Stasis extends StasisColumn implements StasisData {
 				},
 				dimension: Client.bot.game.dimension
 			},
-			include: STASIS_OWNER_INCLUDE
+			include: {
+				owner: {
+					select: {
+						id: true,
+						username: true,
+						createdAt: true
+					}
+				}
+			}
 		}).then(function(results) {
 			const all = [];
 			for (const data of results) {
 				try {
-					all.push(new Stasis(data));
+					all.push(Stasis.materialize(data));
 				} catch {
 				}
 			}
-			return all
-				.filter(stasis => stasis.pearls.length > 0);
+			return all.filter(stasis => stasis.pearls.length > 0);
 		});
 
 		// Only keep stasis that have pearls and are within range
@@ -102,11 +117,16 @@ export class Stasis extends StasisColumn implements StasisData {
 	/** The date and time when the stasis was created */
 	public readonly createdAt: Date;
 
+	public readonly updatedAt: Date;
+
 	/** The dimension the stasis is located in (e.g. "overworld", "the_nether", "the_end") */
 	public readonly dimension: Dimension;
 
 	/** The Minecraft UUID of the player who owns the stasis */
 	public readonly ownerId: string;
+
+	/** The ID of the bot associated with the stasis, if any */
+	public botId: string | null;
 
 	/** The server the stasis is located on */
 	public readonly server: string;
@@ -126,14 +146,53 @@ export class Stasis extends StasisColumn implements StasisData {
 	 */
 	constructor(data: StasisData) {
 		super(data.x, data.y, data.z);
-		this.id = data.id;
 		this.createdAt = data.createdAt;
 		this.dimension = z.enum([ "overworld", "the_nether", "the_end" ]).parse(data.dimension);
+		this.id = data.id;
 		this.ownerId = data.ownerId;
+		this.botId = data.botId;
 		this.server = data.server;
+		this.updatedAt = data.updatedAt;
 		this.x = data.x;
 		this.y = data.y;
 		this.z = data.z;
+		Stasis.instances.set(this.id, this);
+		void this.claimManagement();
+		this.emit("add", this);
+	}
+
+	private async claimManagement() {
+		const rawBotId = Client.bot.player?.uuid;
+		if (!rawBotId) return;
+
+		const botId = rawBotId.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
+		if (this.botId === botId) return;
+
+		await prisma.stasis.update({
+			where: {
+				id: this.id
+			},
+			data: {
+				botId
+			}
+		});
+
+		this.botId = botId;
+	}
+
+	public async releaseManagement() {
+		if (this.botId === null) return;
+
+		await prisma.stasis.update({
+			where: {
+				id: this.id
+			},
+			data: {
+				botId: null
+			}
+		});
+
+		this.botId = null;
 	}
 
 	/**

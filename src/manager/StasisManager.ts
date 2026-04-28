@@ -12,7 +12,7 @@ import { STASIS_USER_MAX } from "~/config";
 
 export class StasisManager {
 
-	private static readonly logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
+	public static readonly logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
 	public static readonly pearls = new Map<number, Pearl>();
 	public static readonly interactions = new Map<Stasis, number>();
 	private static readonly suspended = new Set<number>();
@@ -68,6 +68,7 @@ export class StasisManager {
 				// Check if this is a pearl we are tracking
 				const pearl = StasisManager.pearls.get(entityId);
 				if (!pearl) continue;
+				void Stasis.from(pearl).then(stasis => stasis?.releaseManagement());
 
 				// If it is, emit a log and remove it from tracking
 				StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } broke or despawned`);
@@ -102,6 +103,9 @@ export class StasisManager {
 			}
 
 		}
+
+		// .From a stasis
+		await Stasis.from(pearl);
 
 		// If the pearl is not suspended, treat it as a normal thrown pearl
 		if (!pearl.suspended) return await StasisManager.onPearlThrown(pearl);
