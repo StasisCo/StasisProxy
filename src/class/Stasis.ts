@@ -190,7 +190,7 @@ export class Stasis extends StasisColumn<{
 			data: {
 				botId: null
 			}
-		});
+		}).catch(() => {});
 
 		this.botId = null;
 	}
