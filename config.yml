@@ -92,4 +92,4 @@ modules:
       reachRange: 3
       # List of entity names to attack
       list:
-        - mobtype:hostile
+        - hostile_mobs

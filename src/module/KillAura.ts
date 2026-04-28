@@ -1,3 +1,4 @@
+import mcData from "minecraft-data";
 import type { Entity } from "prismarine-entity";
 import type { Item } from "prismarine-item";
 import z from "zod";
@@ -93,19 +94,14 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 			.filter(entity => {
 				for (const filter of this.config.list) {
 
-					if (filter.includes(":")) {
-						const [ key, value ] = filter.split(":");
-						switch (key?.toLowerCase()) {
-							case "mobtype":
-								if (entity.mobType === value) return true;
-								break;
-							default:
-								console.warn(`Unknown filter key: ${ key }`);
-								break;
-						}
-					}
+					if (!entity.name) continue;
 
-					if (entity.name === filter) return true;
+					if (entity.name.toLowerCase().replace(/\s/g, "_") === filter.toLowerCase().replace(/\s/g, "_")) return true;
+
+					const e = mcData(Client.bot.version).entitiesByName[entity.name];
+					if (!e) continue;
+
+					if (e.category && filter.toLowerCase().replace(/\s/g, "_") === e.category.toLowerCase().replace(/\s/g, "_")) return true;
 
 				}
 
@@ -128,14 +124,13 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 			const targetSlot = quickBarSlot >= Client.bot.inventory.hotbarStart && quickBarSlot < Client.bot.inventory.hotbarStart + 9 ? quickBarSlot : Client.bot.inventory.hotbarStart;
 			Client.bot.moveSlotItem(sword.slot, targetSlot);
 			slot = targetSlot - 36;
-			console.log(`Swapped sword to hotbar slot ${ targetSlot }`);
 
 		}
 		
 		// Save current rotation, then force-send target rotation before attack.
 		const { pitch, yaw } = Client.bot.entities[Client.bot.entity.id] as Entity;
 		await Client.bot.lookAt(entity.position, true);
-		Client.physics.sendLook(Client.bot.entity.yaw, Client.bot.entity.pitch);
+		Client.physics.sendLook(entity.position);
 
 		// Silent swap to sword if we have one
 		if (slot >= 0) Client.bot.setQuickBarSlot(slot);

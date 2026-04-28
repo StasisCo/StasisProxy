@@ -9,6 +9,8 @@ const TO_DEG = 180 / PI;
 const TO_RAD = PI / 180;
 const PHYSICS_INTERVAL_MS = 50;
 
+type LookTarget = { x: number; y: number; z: number };
+
 function toNotchianYaw(yaw: number): number {
 	return TO_DEG * (PI - yaw);
 }
@@ -417,9 +419,31 @@ export class PhysicsManager {
 	 * Used by modules that need the server to have the correct pitch/yaw
 	 * BEFORE a subsequent packet (e.g. use_item) in the same tick.
 	 */
-	public sendLook(yaw: number, pitch: number) {
+	public sendLook(target: LookTarget): void;
+	public sendLook(yaw: number, pitch: number): void;
+	public sendLook(targetOrYaw: LookTarget | number, pitch?: number) {
+		let yaw: number;
+		let resolvedPitch: number;
+
+		if (typeof targetOrYaw === "number") {
+			yaw = targetOrYaw;
+			resolvedPitch = pitch ?? this.bot.entity.pitch;
+		} else {
+			const eye = this.bot.entity.position.offset(0, this.bot.entity.height, 0);
+			const dx = targetOrYaw.x - eye.x;
+			const dy = targetOrYaw.y - eye.y;
+			const dz = targetOrYaw.z - eye.z;
+			const xz = Math.sqrt(dx * dx + dz * dz);
+
+			yaw = Math.atan2(-dx, -dz);
+			resolvedPitch = Math.atan2(dy, xz);
+		}
+
+		this.bot.entity.yaw = yaw;
+		this.bot.entity.pitch = resolvedPitch;
+
 		const notchYaw = Math.fround(toNotchianYaw(yaw));
-		const notchPitch = Math.fround(toNotchianPitch(pitch));
+		const notchPitch = Math.fround(toNotchianPitch(resolvedPitch));
 		const onGround = this.bot.entity.onGround;
 
 		this.lastSent.yaw = notchYaw;
