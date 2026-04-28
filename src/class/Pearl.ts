@@ -85,8 +85,8 @@ export class Pearl extends EventEmitter<{
 			
 			// If there is an identifiable owner
 			if (this.suspended) Stasis.from(this).then(resolved => {
-				if (!resolved || !resolved.ownerUuid) throw new Error("Failed to resolve owner from suspended pearl");
-				this.ownerId = resolved.ownerUuid;
+				if (!resolved || !resolved.ownerId) throw new Error("Failed to resolve owner from suspended pearl");
+				this.ownerId = resolved.ownerId;
 				this.emit("owner", this.ownerId);
 				redis.set(`pearl:${ entity.id }:owner`, this.ownerId);
 			}).catch(() => {

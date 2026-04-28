@@ -157,15 +157,11 @@ export class StasisColumn {
 		try {
 			const player = await prisma.player.upsert({
 				where: {
-					server_player: {
-						uuid: owner.uuid,
-						server: Client.host
-					}
+					id: owner.uuid
 				},
 				create: {
-					uuid: owner.uuid,
-					username: owner.username,
-					server: Client.host
+					id: owner.uuid,
+					username: owner.username
 				},
 				update: {
 					username: owner.username

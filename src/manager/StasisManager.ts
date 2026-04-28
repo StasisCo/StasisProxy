@@ -196,7 +196,7 @@ export class StasisManager {
 				goal.once("arrived", async() => {
 						
 					// Check the player is still online (players is keyed by username, owner is a UUID)
-					const owner = Object.values(Client.bot.players).find(p => p.uuid === stasis.ownerUuid);
+					const owner = Object.values(Client.bot.players).find(p => p.uuid === stasis.ownerId);
 					if (!owner) return StasisManager.logger.warn(`Owner of stasis ${ chalk.yellow(stasis.id) } is offline, skipping activation`);
 
 					// Get the pearls in the stasis before interacting
@@ -223,7 +223,7 @@ export class StasisManager {
 					}
 
 					// Otherwise, queue another stasis for the user
-					const next = await Stasis.fetch(stasis.ownerUuid).then(all => all.find(s => s.id !== stasis.id));
+					const next = await Stasis.fetch(stasis.ownerId).then(all => all.find(s => s.id !== stasis.id));
 					if (!next) {
 						Client.chat.whisper(owner, "The pearl in stasis did not break, and you have no others.");
 						return;

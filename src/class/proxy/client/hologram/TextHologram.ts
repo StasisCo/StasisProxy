@@ -2,7 +2,6 @@ import crypto from "crypto";
 import type { Client as MinecraftClient } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import { Vec3 } from "vec3";
-import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "../../../Pearl";
@@ -207,10 +206,12 @@ export abstract class TextHologram {
 
 		const ownerId = pearl.ownerId ?? await new Promise<string | null>(resolve => {
 			const onOwner = (uuid: string) => {
-				pearl.off("destroyed", onDestroy); resolve(uuid);
+				pearl.off("destroyed", onDestroy);
+				resolve(uuid);
 			};
 			const onDestroy = () => {
-				pearl.off("owner", onOwner); resolve(null);
+				pearl.off("owner", onOwner);
+				resolve(null);
 			};
 			pearl.once("owner", onOwner);
 			pearl.once("destroyed", onDestroy);
@@ -221,7 +222,7 @@ export abstract class TextHologram {
 
 		const ownerName = ownerId
 			? Object.values(this.bot.players).find(p => p.uuid === ownerId)?.username
-				?? (await prisma.player.findUnique({ where: { server_player: { uuid: ownerId, server: Client.host }}}).catch(() => null))?.username
+				?? (await prisma.player.findUnique({ where: { id: ownerId }}).catch(() => null))?.username
 				?? ownerId
 			: "(unknown)";
 

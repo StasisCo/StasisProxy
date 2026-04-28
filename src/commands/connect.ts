@@ -22,13 +22,10 @@ export default function(program: Command) {
 			const players = {
 				connectOrCreate: {
 					where: {
-						server_player: {
-							uuid: player.uuid,
-							server: Client.host
-						}
+						id: player.uuid
 					},
 					create: {
-						uuid: player.uuid,
+						id: player.uuid,
 						username: player.username,
 						server: Client.host
 					}

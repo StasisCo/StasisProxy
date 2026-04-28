@@ -35,24 +35,17 @@ model Stasis {
 
 model Player {
   // A unique ID for the player record
-  id String @id @default(cuid())
+  id String @id @unique
 
   // Timestamp of when the player record was created
   createdAt DateTime @default(now())
 
   // The player's UUID (from Mojang) and username
-  uuid     String
   username String
-
-  // The server the player belongs to (e.g., "play.example.com")
-  server String
 
   // A player can have multiple stasis records
   stasis   Stasis[]
   discords Discord[]
-
-  // A player can only have one record per server (since UUIDs are unique across all servers)
-  @@unique([server, uuid], name: "server_player")
 }
 
 model Discord {
