@@ -29,10 +29,6 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
       - name: Checkout Types
         uses: actions/checkout@v4
         with:
@@ -58,12 +54,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GH_TOKEN }}
-
-      - name: Copy Types
-        run: |
-          mkdir -p node_modules/@hackware/types/schema
-          cp -r hackware-server/packages/types/schema node_modules/@hackware/types/schema
-          bun run copy-types
 
       - name: Build and push (with BuildKit cache)
         uses: docker/build-push-action@v5
