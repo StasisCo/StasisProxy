@@ -17,8 +17,7 @@ COPY prisma ./prisma/
 COPY prisma.config.ts ./
 RUN bun run generate
 
-# Copy and generate type definitions
+# Copy remaining source (includes pre-generated types in src/generated)
 COPY . .
-RUN bun run copy-types
 
 CMD ["bun", "start"]
