@@ -7,7 +7,8 @@
 		"start": "bun .",
 		"dev": "bun . --skip-migrations",
 		"lint": "eslint . --fix",
-		"generate": "prisma generate",
+		"generate": "cross-env DATABASE_URL=\"postgresql://\" prisma generate",
+		"copy-types": "mkdir -p src/generated/@hackware/types && cp -RL node_modules/@hackware/types/schema src/generated/@hackware/types",
 		"build": "docker build -t stasis-proxy ."
 	},
 	"devDependencies": {
@@ -17,6 +18,7 @@
 		"@types/bun": "latest",
 		"@types/lodash": "^4.17.24",
 		"@types/node": "^25.6.0",
+		"cross-env": "^10.1.0",
 		"eslint": "^10.2.1",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.59.0"

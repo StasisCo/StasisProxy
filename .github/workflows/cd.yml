@@ -55,12 +55,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GH_TOKEN }}
 
+      - name: Copy Types
+        run: bun run copy-types
+
       - name: Build and push (with BuildKit cache)
         uses: docker/build-push-action@v5
         with:
           context: .
-          build-contexts: |
-            hackware-types=hackware-server/packages/types
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max

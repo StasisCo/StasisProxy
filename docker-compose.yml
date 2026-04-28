@@ -1,6 +1,7 @@
 services:
 
-  stasis-proxy:
+  stasis:
+    build: .
     image: ghcr.io/stasisco/stasisproxy:latest
     depends_on:
       postgres:
@@ -26,7 +27,7 @@ services:
   viaproxy:
     image: ghcr.io/viaversion/viaproxy:latest
     depends_on:
-      - stasis-proxy
+      - stasis
     ports:
       - "25565:25565"
     # Override the default config-file entrypoint so we can use CLI mode.
@@ -38,7 +39,7 @@ services:
       - --bind-address
       - 0.0.0.0:25565
       - --target-address
-      - stasis-proxy:25577
+      - stasis:25577
       - --proxy-online-mode
       - "true"
     restart: unless-stopped
