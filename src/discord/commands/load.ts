@@ -19,33 +19,54 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 	const username = interaction.options.getString("username");
 	const location = interaction.options.getString("location");
 	
-	const accounts = await prisma.discord.findUnique({
+	// const accounts = await prisma.discord.findUnique({
+	// 	where: {
+	// 		id: interaction.user.id
+	// 	},
+	// 	include: {
+	// 		players: {
+	// 			where: {
+	// 				server: Client.host,
+	// 				OR: username ? [ {
+	// 					username: username
+	// 				}, {
+	// 					uuid: username
+	// 				} ] : undefined
+	// 			},
+	// 			select: {
+	// 				uuid: true,
+	// 				username: true
+	// 			}
+	// 		}
+	// 	}
+	// });
+
+	const accounts = await prisma.player.findMany({
 		where: {
-			id: interaction.user.id
-		},
-		include: {
-			players: {
-				where: {
-					server: Client.host,
-					OR: username ? [ {
-						username: username
-					}, {
-						uuid: username
-					} ] : undefined
-				},
-				select: {
-					uuid: true,
-					username: true
+			server: Client.host,
+			OR: username ? [ {
+				username: username
+			}, {
+				uuid: username
+			} ] : undefined,
+			discords: {
+				some: {
+					id: interaction.user.id
 				}
 			}
 		}
 	});
 
-	const embed = new EmbedBuilder()
-		.setDescription([
-			"sdf nigfdnignign nigger nigger"
-		].join("\n"))
-		.setColor(0x00c3b3);
+	// const embed = new EmbedBuilder()
+	// 	.setColor(0x00c3b3);
+
+	if (accounts.length === 0) {
+		const embed = new EmbedBuilder()
+			.setTitle("No Linked Minecraft Accounts")
+			.setDescription("You don't have any Minecraft accounts linked to your Discord account! use `/connect` to link an account before using this command.")
+			.setColor(0xf43f5e);
+		interaction.reply({ embeds: [ embed ]});
+	}
 
 	// .setTitle(`${ owner.username } Pearled`)
 	// .setThumbnail({ url: `https://mc-heads.net/head/${ owner.uuid.replace(/-/g, "") }` })

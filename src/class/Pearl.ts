@@ -89,7 +89,7 @@ export class Pearl extends EventEmitter<{
 				this.ownerId = resolved.ownerId;
 				this.emit("owner", this.ownerId);
 				redis.set(`pearl:${ entity.id }:owner`, this.ownerId);
-			}).catch(() => {
+			}).catch(e => {
 				this.emit("owner-failed");
 			});
 

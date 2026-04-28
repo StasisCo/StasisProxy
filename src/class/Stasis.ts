@@ -15,9 +15,7 @@ export const STASIS_OWNER_INCLUDE = {
 	owner: {
 		select: {
 			id: true,
-			uuid: true,
 			username: true,
-			server: true,
 			createdAt: true
 		}
 	}
