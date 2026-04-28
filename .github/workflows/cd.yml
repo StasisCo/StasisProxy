@@ -29,6 +29,10 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
       - name: Checkout Types
         uses: actions/checkout@v4
         with:
