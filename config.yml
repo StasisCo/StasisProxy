@@ -81,3 +81,6 @@ modules:
   Sentry:
     # Whether this module is active
     enabled: true
+  Viewer:
+    # Whether this module is active
+    enabled: true
