@@ -23,5 +23,5 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 			iconURL: interaction.user.displayAvatarURL()
 		});
 	await redis.set(`ign-link:${ code }`, interaction.user.id, "EX", 60 * 5);
-	await interaction.reply({ embeds: [ embed ], ephemeral: true });
+	await interaction.reply({ embeds: [ embed ], flags: "Ephemeral" });
 }
