@@ -74,7 +74,6 @@ export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 			}
 
 			// Hook module onTick into the physics pre-tick loop (gated by enabled)
-			console.log("[Module.fireReady] modules:", Array.from(Module.modules.entries()).map(([ k, v ]) => `${ k }(enabled=${ v.enabled })`));
 			Client.physics.onPreTick.push(() => {
 				for (const module of Module.modules.values()) {
 					if (module.enabled) module.onTickPre?.();
