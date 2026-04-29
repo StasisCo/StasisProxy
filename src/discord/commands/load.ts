@@ -3,12 +3,12 @@ import chalk from "chalk";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, Events, SlashCommandBuilder, StringSelectMenuBuilder } from "discord.js";
 import { omit } from "lodash";
 import { randomBytes } from "node:crypto";
-import z from "zod";
 import { Client } from "~/class/Client";
 import { type Player } from "~/generated/prisma/client";
 import { DiscordManager } from "~/manager/DiscordManager";
 import { prisma } from "~/prisma";
 import { logger, redisSub } from "~/redis";
+import { zStasisStatus } from "~/schema/zStasisStatus";
 
 export const command = new SlashCommandBuilder()
 	.setName("load")
@@ -216,6 +216,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 	});
 
 	embed.setTitle("Confirm Stasis");
+
 	// embed.setDescription(`Confirm you want **${ bot.username }** to load your pearl for **${ account.username }**.\n
 
 	const id = randomBytes(16).toString("hex");
@@ -269,7 +270,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		
 				logger.log(`Requesting peer ${ chalk.cyan(bot.id) } to load stasis for player ${ chalk.cyan(account.username) } ${ chalk.gray(`(mode=${ request })`) }`);
 				redisSub.subscribe(`${ id }:status`, async(raw: string) => {
-					const parsed = z.enum([ "arrived", "succeeded", "failed", "queued" ]).safeParse(raw);
+					const parsed = zStasisStatus.safeParse(raw);
 					if (!parsed.success) return;
 					switch (parsed.data) {
 

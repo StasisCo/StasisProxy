@@ -7,8 +7,8 @@ import { createBot, type BotOptions } from "mineflayer";
 import { Vec3 } from "vec3";
 import z from "zod";
 import { Logger } from "~/class/Logger";
+import { ChatCommandManager } from "~/manager/ChatCommandManager";
 import { ChatManager } from "~/manager/ChatManager";
-import { CommandManager } from "~/manager/CommandManager";
 import { DiscordManager } from "~/manager/DiscordManager";
 import { PathfindingManager } from "~/manager/PathfindingManager";
 import { PhysicsManager } from "~/manager/PhysicsManager";
@@ -156,7 +156,7 @@ export class Client {
 	public static readonly proxy = new Server(this.bot);
 	public static readonly chat = new ChatManager(this.bot);
 	public static readonly presence = process.env.IRC_HOST ? new PresenceManager(this.bot) : null;
-	public static readonly commands = new CommandManager(this.bot);
+	public static readonly commands = new ChatCommandManager(this.bot);
 	public static readonly discord = new DiscordManager(this.bot);
 	public static readonly pathfinding = new PathfindingManager(this.bot);
 	public static readonly physics = new PhysicsManager(this.bot);

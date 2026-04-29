@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import { Routes } from "discord.js";
 import z from "zod";
 import { Client } from "~/class/Client";
-import { CommandManager } from "~/manager/CommandManager";
+import { ChatCommandManager } from "~/manager/ChatCommandManager";
 import { DiscordManager } from "~/manager/DiscordManager";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
@@ -15,7 +15,7 @@ export default function(program: Command) {
 		.description("Connect a Discord account")
 		.argument("<code>", "The code to connect your Minecraft account with")
 		.action(async(code: string) => {
-			const { player } = CommandManager.context;
+			const { player } = ChatCommandManager.context;
 
 			// Get the Discord UID associated with the code from Redis
 			const user = await redis.get(`ign-link:${ code }:user`)

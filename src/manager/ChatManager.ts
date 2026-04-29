@@ -4,7 +4,7 @@ import ChatMessageConstructor from "prismarine-chat";
 import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
 import { COMMAND_CHAT_PREFIX } from "~/config";
-import { CommandManager } from "./CommandManager";
+import { ChatCommandManager } from "./ChatCommandManager";
 
 export class ChatManager {
 
@@ -93,7 +93,7 @@ export class ChatManager {
 			}
 
 			const command = message.trim();
-			await CommandManager.handle(username, command, "whisper");
+			await ChatCommandManager.handle(username, command, "whisper");
 
 		});
 
@@ -107,7 +107,7 @@ export class ChatManager {
 			if (!message.toLowerCase().startsWith(COMMAND_CHAT_PREFIX.toLowerCase())) return;
 
 			const command = message.trim().slice(COMMAND_CHAT_PREFIX.length).trim();
-			await CommandManager.handle(username, command, "chat");
+			await ChatCommandManager.handle(username, command, "chat");
 
 		});
 

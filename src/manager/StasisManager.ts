@@ -2,6 +2,7 @@ import { Embed } from "@vermaysha/discord-webhook";
 import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import { Vec3 } from "vec3";
+import type z from "zod";
 import { Client } from "~/class/Client";
 import { Goal } from "~/class/Goal";
 import { Logger } from "~/class/Logger";
@@ -10,6 +11,7 @@ import { Stasis } from "~/class/Stasis";
 import { StasisColumn } from "~/class/StasisColumn";
 import { STASIS_USER_MAX } from "~/config";
 import { redis } from "~/redis";
+import type { zStasisStatus } from "~/schema/zStasisStatus";
 
 export class StasisManager {
 
@@ -302,6 +304,38 @@ export class StasisManager {
 	
 		}
 	
+	}
+
+	/**
+	 * Enqueue a stasis to be activated.
+	 * @param ownerId The UUID of the player who owns the stasis to be activated
+	 * @param statusKey An optional Redis channel to publish status updates to (queued, arrived, succeeded, failed)
+	 */
+	public static async enqueue(ownerId: string, statusKey?: string) {
+
+		/** Status updater helper */
+		const sendStatus = async(status: z.infer<typeof zStasisStatus>) => statusKey ? await redis.publish(statusKey, status) : undefined;
+
+		// Check the player is online
+		const owner = Object.values(Client.bot.players).find(p => p.uuid === ownerId);
+
+		// Get the nearest stasis chamber for this player
+		const stasis = await Stasis.fetch(ownerId)
+			.then(all => all.sort((a, b) => Client.bot.entity.position.distanceTo(a.block.position) - Client.bot.entity.position.distanceTo(b.block.position))[0]);
+		if (!stasis) return false;
+
+		// Create a goal
+		const goal = new Goal(stasis.block.position).setRange(5.0);
+		
+		// Set the goal, and add to queue
+		Client.pathfinding.pushGoal(goal);
+		await sendStatus("queued");
+		
+		// When we arrive at the stasis, attempt to activate it
+		goal.once("arrived", async() => {
+			console.log("arrived");
+		});
+
 	}
 
 }

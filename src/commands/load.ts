@@ -3,7 +3,7 @@ import type { Vec3 } from "vec3";
 import { Client } from "~/class/Client";
 import { Stasis } from "~/class/Stasis";
 import { STASIS_LOCATION_NAME, STASIS_USER_MAX } from "~/config";
-import { CommandManager } from "~/manager/CommandManager";
+import { ChatCommandManager } from "~/manager/ChatCommandManager";
 import { StasisManager } from "~/manager/StasisManager";
 
 export default function(program: Command) {
@@ -13,7 +13,7 @@ export default function(program: Command) {
 		.argument("[location]", "Location of the stasis to trigger")
 		.action(async(location?: string) => {
 			
-			const { player, method } = CommandManager.context;
+			const { player, method } = ChatCommandManager.context;
 			switch (method) {
 
 				case "chat":

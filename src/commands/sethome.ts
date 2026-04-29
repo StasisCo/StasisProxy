@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import type { Vec3 } from "vec3";
 import { Client } from "~/class/Client";
-import { CommandManager } from "~/manager/CommandManager";
+import { ChatCommandManager } from "~/manager/ChatCommandManager";
 
 export default function(program: Command) {
 	program
@@ -9,7 +9,7 @@ export default function(program: Command) {
 		.description("Sets the home position to your current location")
 		.action(async() => {
 
-			const { player } = CommandManager.context;
+			const { player } = ChatCommandManager.context;
 
 			// Locate the player in render distance
 			const target = Client.bot.players[player.username];

@@ -11,8 +11,8 @@ import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
 import { COMMAND_CHAT_PREFIX } from "~/config";
 import { name, version } from "../../package.json";
+import { ChatCommandManager } from "./ChatCommandManager";
 import { ChatManager } from "./ChatManager";
-import { CommandManager } from "./CommandManager";
 
 export class PresenceManager extends EventEmitter<{
 	"death": [ z.infer<typeof zIrcPayload> & { type: "death" } ]
@@ -96,7 +96,7 @@ export class PresenceManager extends EventEmitter<{
 			if (!message.toString().toLowerCase().startsWith(COMMAND_CHAT_PREFIX.toLowerCase())) return;
 			
 			const command = message.toString().slice(COMMAND_CHAT_PREFIX.length).trim();
-			await CommandManager.handle(payload.player.name, command, "irc");
+			await ChatCommandManager.handle(payload.player.name, command, "irc");
 
 		});
 	}

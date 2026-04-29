@@ -10,7 +10,7 @@ interface CommandContext {
 	method: "whisper" | "chat" | "irc";
 }
 
-export class CommandManager {
+export class ChatCommandManager {
 
 	private static program: Command;
 	private static store = new AsyncLocalStorage<CommandContext>();
@@ -55,7 +55,7 @@ export class CommandManager {
 			writeErr: () => {}
 		});
 
-		CommandManager.program = program;
+		ChatCommandManager.program = program;
 		this.loadCommands();
 	}
 
@@ -66,7 +66,7 @@ export class CommandManager {
 		for (const file of files) {
 			if (!file.endsWith(".ts") && !file.endsWith(".js")) continue;
 			const mod = await import(join(dir, file));
-			if (typeof mod.default === "function") mod.default(CommandManager.program);
+			if (typeof mod.default === "function") mod.default(ChatCommandManager.program);
 		}
 
 	}
