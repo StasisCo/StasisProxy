@@ -1,7 +1,10 @@
 import { zMojangUsername } from "@hackware/types/schema/mojang/zUsername";
+import { redis } from "bun";
 import chalk from "chalk";
 import { execSync } from "child_process";
+import stringify from "fast-json-stable-stringify";
 import { createBot, type BotOptions } from "mineflayer";
+import { Vec3 } from "vec3";
 import z from "zod";
 import { Logger } from "~/class/Logger";
 import { ChatManager } from "~/manager/ChatManager";
@@ -13,8 +16,10 @@ import { PresenceManager } from "~/manager/PresenceManager";
 import { QueueManager } from "~/manager/QueueManager";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
+import { logger, redisSub } from "~/redis";
 import { name, version } from "../../package.json";
 import { Console } from "./Console";
+import { Stasis } from "./Stasis";
 import { Server } from "./proxy/Server";
 
 export class Client {
@@ -59,27 +64,28 @@ export class Client {
 
 	public static readonly bot = createBot(this.options);
 
-	public static host = "";
+	public static host = Client.options.host || "";
 
 	static {
-
 		this.logger.log("Connecting to server:", chalk.cyan.underline(this.options.host + ":" + this.options.port) + "...");
-
 		Client.bot._client.on("connect", async() => {
 
+			// Resolve _host
 			const socket = Client.bot._client.socket;
-			if (socket) Client.host = ("_host" in socket && typeof socket._host === "string")
-				? socket._host
-				: (Client.options.host ?? "");
+			if (socket) Client.host = "_host" in socket && typeof socket._host === "string" ? socket._host : Client.options.host ?? "";
 			Client.logger.log("Connected to server:", chalk.cyan.underline(Client.host));
 
+			// Resolve session
 			const session = Client.bot._client.session || await new Promise(resolve => Client.bot._client.once("session", resolve));
 			if (!session) throw new Error("Received multiple session events; expected only one per connection");
 
-			const botId = session.selectedProfile.id
-				.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
-			const host = Client.host || Client.options.host;
+			// Normalize ID
+			const botId = session.selectedProfile.id.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
 
+			// Set last known options in redis
+			await redis.set(`bot:${ botId }:options`, stringify(Client.options));
+
+			// Upsert bot player in database
 			await prisma.player.upsert({
 				where: {
 					id: botId
@@ -93,6 +99,7 @@ export class Client {
 				}
 			});
 
+			// Upsert bot record in database to claim ownership of any stasis
 			await prisma.bot.upsert({
 				where: {
 					id: botId
@@ -107,19 +114,41 @@ export class Client {
 				}
 			});
 
+			// Unclaim any stasis previously owned by this bot on the same server (in case of unclean shutdown)
 			const { count } = await prisma.stasis.updateMany({
 				where: {
 					botId,
-					server: host
+					server: Client.host
 				},
-				data: {
-					botId: null
-				}
+				data: { botId: null }
 			});
 
-			if (count > 0) {
-				StasisManager.logger.log(`Disconnected ${ chalk.yellow(count) } managed stasis entr${ count === 1 ? "y" : "ies" } on ${ chalk.cyan.underline(host) }`);
-			}
+			if (count > 0) StasisManager.logger.log(`Disconnected ${ chalk.yellow(count) } managed stasis entr${ count === 1 ? "y" : "ies" } on ${ chalk.cyan.underline(Client.host) }`);
+
+			// Subscribe to this bot's command channel so peers can request pearl loads
+			const channel = `bot:${ botId }:commands`;
+			await redisSub.subscribe(channel, async(raw: string) => {
+				const parsed = await z.object({
+					playerUuid: z.string().uuid(),
+					mode: z.enum([ "online", "offline" ]),
+					statusKey: z.string()
+				}).safeParseAsync(JSON.parse(raw));
+				if (!parsed.success) return;
+
+				const { playerUuid, mode, statusKey } = parsed.data;
+				Client.logger.log(`Received load request for ${ chalk.cyan(playerUuid) } (${ mode }) via ${ chalk.gray(statusKey) }`);
+
+				const pearls = await Stasis.fetch(playerUuid)
+					.then(stasis => stasis.sort((a, b) =>
+						a.block.position.distanceTo(Client.bot.entity.position as Vec3) -
+						b.block.position.distanceTo(Client.bot.entity.position as Vec3)
+					))
+					.catch(() => []);
+
+				if (!pearls[0]) return;
+				StasisManager.enqueue(pearls[0], mode);
+			});
+			logger.log(`Subscribed to ${ chalk.cyan(channel) }`);
 			
 		});
 	}

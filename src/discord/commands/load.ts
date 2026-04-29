@@ -1,3 +1,4 @@
+import { redis } from "bun";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, Events, SlashCommandBuilder, StringSelectMenuBuilder } from "discord.js";
 import { omit } from "lodash";
 import { randomBytes } from "node:crypto";
@@ -211,22 +212,43 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 	embed.setTitle(`Load Stasis for ${ account.username }`);
 	embed.setDescription(null);
 
+	const id = randomBytes(16).toString("hex");
 	const components = [
 		new ActionRowBuilder().addComponents(
 
 			new ButtonBuilder()
-				.setCustomId(`loadnow:${ account.id }:${ bot.id }`)
+				.setCustomId(`${ id }:online`)
 				.setLabel("Load Now")
-				.setStyle(ButtonStyle.Primary),
-
-			new ButtonBuilder()
-				.setCustomId(`instantpearl:${ account.id }:${ bot.id }`)
-				.setLabel("Instant Pearl")
 				.setStyle(ButtonStyle.Primary)
+
+			// new ButtonBuilder()
+			// 	.setCustomId(`load:offline:${account.id}:${bot.id}:${id}`)
+			// 	.setLabel("Instant Pearl")
+			// 	.setStyle(ButtonStyle.Primary)
 				
 		).toJSON()
 			
 	];
+
+	// On interaction with the buttons, either load the stasis or instant pearl it
+	DiscordManager.client.on(Events.InteractionCreate, async function handler(interaction) {
+
+		if (!interaction.isButton()) return;
+		if (!interaction.customId.startsWith(id)) return;
+
+		await interaction.deferUpdate();
+		const [ _, mode ]	= interaction.customId.split(":");
+
+		// Unsubscribe from the buttons to prevent multiple interactions
+		DiscordManager.client.off(Events.InteractionCreate, handler);
+
+		redis.publish(`bot:${ bot.id }:commands`, JSON.stringify({
+			playerUuid: account.id,
+			statusKey: `${ id }:status`,
+			mode
+		}));
+
+	});
 
 	return void await interaction.editReply({ embeds: [ embed ], components });
 
