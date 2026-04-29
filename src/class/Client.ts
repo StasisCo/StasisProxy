@@ -129,14 +129,14 @@ export class Client {
 			const channel = `bot:${ botId }:commands`;
 			await redisSub.subscribe(channel, async(raw: string) => {
 				const parsed = await z.object({
-					playerUuid: z.string().uuid(),
+					playerUuid: z.uuid(),
 					mode: z.enum([ "online", "offline" ]),
 					statusKey: z.string()
 				}).safeParseAsync(JSON.parse(raw));
 				if (!parsed.success) return;
 
 				const { playerUuid, mode, statusKey } = parsed.data;
-				Client.logger.log(`Received load request for ${ chalk.cyan(playerUuid) } (${ mode }) via ${ chalk.gray(statusKey) }`);
+				logger.log(`Received pearl request for player ${ chalk.cyan(playerUuid) } via peer`);
 
 				const pearls = await Stasis.fetch(playerUuid)
 					.then(stasis => stasis.sort((a, b) =>

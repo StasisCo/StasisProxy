@@ -197,6 +197,7 @@ export class StasisManager {
 	
 		// Initialize the goal
 		const goal = new Goal(stasis.block.position).setRange(5.0);
+		StasisManager.logger.log(`Queued stasis ${ chalk.yellow(stasis.id) } belonging to player ${ chalk.cyan(stasis.ownerId) } ${ chalk.gray(`(mode=${ mode })`) }`);
 			
 		switch (mode) {
 				
@@ -207,6 +208,7 @@ export class StasisManager {
 					// Check the player is still online (players is keyed by username, owner is a UUID)
 					const owner = Object.values(Client.bot.players).find(p => p.uuid === stasis.ownerId);
 					if (!owner) return StasisManager.logger.warn(`Owner of stasis ${ chalk.yellow(stasis.id) } is offline, skipping activation`);
+					StasisManager.logger.log(`Activating stasis ${ chalk.yellow(stasis.id) }`);
 
 					// Get the pearls in the stasis before interacting
 					const pearls = stasis.pearls;
