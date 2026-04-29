@@ -116,7 +116,7 @@ export class Client {
 				const { data, success } = zPeerRequest.safeParse(JSON.parse(raw));
 				if (!success) return redisLogger.warn("Received invalid message on", chalk.cyan(channel), raw);
 
-				redisLogger.log(`Received message on ${ chalk.cyan(channel) }:`, data);
+				redisLogger.log(`Received message on ${ chalk.cyan(channel) }:`, chalk.yellow(data.type));
 				switch (data.type) {
 
 					// Peer is requesting a stasis load for a player

@@ -200,7 +200,7 @@ export class StasisManager {
 	 * @param statusKey An optional Redis channel to publish status updates to (queued, arrived, succeeded, failed)
 	 * @returns The number of remaining stasis chambers for the player after this one is activated, or -1 if no stasis was found
 	 */
-	public static async enqueue(ownerId: string, statusKey?: string) {
+	public static async enqueue(ownerId: string, statusKey?: string, timeoutDuration = 1000 * 75) {
 
 		/** Status updater helper */
 		const sendStatus = async(status: z.infer<typeof zStasisStatus>) => statusKey ? await redis.publish(statusKey, status) : undefined;
@@ -220,24 +220,23 @@ export class StasisManager {
 		
 		// When we arrive at the stasis, attempt to activate it
 		goal.once("arrived", async() => {
-
-			// Send arrived statuss
-			await sendStatus("arrived");
-
+			
 			// Check the player is online
 			const owner = Object.values(Client.bot.players).find(p => p.uuid === ownerId);
 			if (!owner) {
-
-				StasisManager.logger.log("Waiting for owner to join...");
+				
+				// Send arrived statuss
+				await sendStatus("arrived");
+				StasisManager.logger.log(`Waiting for ${ chalk.cyan(ownerId) } to join...`);
 	
 				// Wait for the owner to appear in an add_player player_info packet
 				const joined = await new Promise<boolean>(resolve => {
 
 					const timeout = setTimeout(() => {
 						Client.bot._client.removeListener("packet", onPacket);
-						StasisManager.logger.warn("Timed out waiting for owner to join");
+						StasisManager.logger.warn(`Timed out waiting for ${ chalk.cyan(ownerId) } to join`);
 						resolve(false);
-					}, 75000);
+					}, timeoutDuration);
 	
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol packet
 					const onPacket = (data: any, meta: { name: string }) => {
@@ -263,7 +262,7 @@ export class StasisManager {
 				});
 				
 				if (!joined) return sendStatus("timed-out");
-				StasisManager.logger.log("Owner joined, proceeding with activation...");
+				StasisManager.logger.log(`${ chalk.cyan(ownerId) } joined, activating stasis...`);
 
 			}
 			

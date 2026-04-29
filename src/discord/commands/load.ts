@@ -8,6 +8,7 @@ import { DiscordManager } from "~/manager/DiscordManager";
 import { prisma } from "~/prisma";
 import { redis, logger as redisLogger, redisSub } from "~/redis";
 import { zPeerRequest } from "~/schema/zPeerRequest";
+import { zStasisStatus } from "~/schema/zStasisStatus";
 import { name } from "../../../package.json";
 
 export const command = new SlashCommandBuilder()
@@ -219,24 +220,64 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: Player, account: Player, id: string) {
 
-	const embed = new EmbedBuilder()
-		.setColor(0xFF0000)
-		.setTitle("Loading Stasis...");
+	const embed = new EmbedBuilder();
+	embed.setAuthor({ name: bot.username, iconURL: `https://mc-heads.net/head/${ bot.id }` });
+
+	embed.setColor(0xeab308);
+	embed.setTitle("Travelling to Stasis");
+	embed.setDescription(`**${ bot.username }** is traveling to your stasis, please wait...`);
 
 	await interaction.editReply({ embeds: [ embed ], components: []});
-
-	redisLogger.log(`Requesting peer ${ chalk.cyan(bot.id) } to load stasis for player ${ chalk.cyan(account.username) }`);
+	redisLogger.log(`Requesting peer ${ chalk.cyan(bot.id) } to load stasis for player ${ chalk.cyan(account.id) }`);
 
 	// Publish a message to the bot's
+	const expire = 75 * 1000;
 	await redis.publish(`${ name }:cluster:${ Client.host }:${ bot.id }:queue`, stringify(zPeerRequest.parse({
 		type: "load",
 		player: account.id,
-		status: `${ id }:status`
+		status: `${ id }:status`,
+		expire
 	})));
 
 	// Subscribe to status updates from the bot on the status channel with the ID we generated,
 	await redisSub.subscribe(`${ id }:status`, async(raw: string) => {
-		redisLogger.log(`Received status update from peer ${ chalk.cyan(bot.id) }:`, raw);
+		const { success, data } = zStasisStatus.safeParse(raw);
+		if (!success) return redisLogger.warn("Received invalid status update from peer", chalk.cyan(bot.id), raw);
+		switch (data) {
+
+			case "arrived":
+				embed.setColor(0x22c55e);
+				embed.setTitle("Ready to Load");
+				embed.setDescription(`Aborting automatically <t:${ Math.floor((Date.now() + expire) / 1000) }:R>. Log in to be pearled immediately.`);
+				await interaction.editReply({ embeds: [ embed ]});
+				break;
+
+			case "succeeded":
+				embed.setColor(0x22c55e);
+				embed.setTitle("Stasis Loaded");
+				embed.setDescription(`**${ bot.username }** has successfully loaded your stasis.`);
+				await interaction.editReply({ embeds: [ embed ]});
+				redisSub.unsubscribe(`${ id }:status`);
+				break;
+
+			case "failed":
+				embed.setColor(0xf43f5e);
+				embed.setTitle("Stasis Failed");
+				embed.setDescription(`**${ bot.username }** failed to load your stasis, please try again...`);
+				await interaction.editReply({ embeds: [ embed ]});
+				redisSub.unsubscribe(`${ id }:status`);
+				break;
+
+			case "timed-out":
+				embed.setColor(0xf43f5e);
+				embed.setTitle("Timed Out Waiting for Login");
+				embed.setDescription(`**${ account.username }** didn't log in within the time limit, please try again...`);
+				await interaction.editReply({ embeds: [ embed ]});
+				redisSub.unsubscribe(`${ id }:status`);
+				break;
+
+		}
+
 	});
 
 }
