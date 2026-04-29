@@ -233,13 +233,6 @@ export class Stasis extends StasisColumn<{
 	}
 
 	/**
-	 * Enqueue a stasis to be activated
-	 */
-	public enqueue(mode?: Parameters<typeof StasisManager.__LEGACY__enqueue>[1]) {
-		return StasisManager.__LEGACY__enqueue(this, mode);
-	}
-
-	/**
 	 * Remove this stasis from the database
 	 * @returns {Promise<boolean>} whether the removal was successful
 	 */

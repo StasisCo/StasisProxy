@@ -25,38 +25,7 @@ export default function(program: Command) {
 			if (!user) return;
 			
 			// Link the Minecraft account with the Discord account in the database, creating a new Discord record if necessary
-			await prisma.discord.upsert({
-				where: {
-					id: user.id
-				},
-				update: {
-					players: {
-						connectOrCreate: {
-							where: {
-								id: player.uuid
-							},
-							create: {
-								id: player.uuid,
-								username: player.username
-							}
-						}
-					}
-				},
-				create: {
-					id: user.id,
-					players: {
-						connectOrCreate: {
-							where: {
-								id: player.uuid
-							},
-							create: {
-								id: player.uuid,
-								username: player.username
-							}
-						}
-					}
-				}
-			});
+			await prisma.discord.upsert({ where: { id: user.id }, update: { players: { connectOrCreate: { where: { id: player.uuid }, create: { id: player.uuid, username: player.username }}}}, create: { id: user.id, players: { connectOrCreate: { where: { id: player.uuid }, create: { id: player.uuid, username: player.username }}}}});
 
 			// Log the successful linking and clean up the Redis key
 			DiscordManager.logger.log(`Linked Minecraft account ${ chalk.cyan(player.uuid) } with Discord account ${ chalk.cyan(user) }`);
@@ -77,9 +46,7 @@ export default function(program: Command) {
 				token: z.string()
 			}).safeParseAsync(payload);
 			if (interactionPayload.success) {
-				await DiscordManager.client.rest.delete(
-					Routes.webhookMessage(interactionPayload.data.applicationId, interactionPayload.data.token, "@original")
-				).catch(() => {});
+				await DiscordManager.client.rest.delete(Routes.webhookMessage(interactionPayload.data.applicationId, interactionPayload.data.token, "@original")).catch(() => {});
 			} else {
 
 				// Legacy payload format fallback

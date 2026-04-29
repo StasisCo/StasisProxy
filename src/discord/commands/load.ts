@@ -1,11 +1,14 @@
 import chalk from "chalk";
 import { randomBytes } from "crypto";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, Events, SlashCommandBuilder, StringSelectMenuBuilder, type ButtonInteraction, type CacheType } from "discord.js";
+import stringify from "fast-json-stable-stringify";
 import { Client } from "~/class/Client";
 import type { Player } from "~/generated/prisma/client";
 import { DiscordManager } from "~/manager/DiscordManager";
 import { prisma } from "~/prisma";
 import { redis, logger as redisLogger, redisSub } from "~/redis";
+import { zPeerRequest } from "~/schema/zPeerRequest";
+import { name } from "../../../package.json";
 
 export const command = new SlashCommandBuilder()
 	.setName("load")
@@ -18,6 +21,7 @@ export const command = new SlashCommandBuilder()
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
 
 	// Start thinking
+	const id = randomBytes(16).toString("hex");
 	await interaction.deferReply({ flags: "Ephemeral" });
 
 	// Build the message components (buttons and select menus)
@@ -56,10 +60,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		if (accounts[0] && accounts.length === 1) return resolve(accounts[0]);
 
 		// Generate a random ID for the select menu to avoid conflicts with other commands
-		const id = randomBytes(16).toString("hex");
 		const component = new ActionRowBuilder().addComponents([
 			new StringSelectMenuBuilder()
-				.setCustomId(id)
+				.setCustomId(`${ id }:account`)
 				.setPlaceholder("Select an account to load")
 				.addOptions(accounts.map(account => ({
 					label: account.username,
@@ -80,7 +83,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		DiscordManager.client.on(Events.InteractionCreate, async function handler(interaction) {
 
 			if (!interaction.isStringSelectMenu()) return;
-			if (interaction.customId !== id) return;
+			if (interaction.customId !== `${ id }:account`) return;
 
 			// Acknowledge the component interaction to stop the loading spinner
 			await interaction.deferUpdate();
@@ -125,10 +128,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		if (bots.size === 1) return resolve(bots.values().next().value);
 
 		// Generate a random ID for the select menu to avoid conflicts with other commands
-		const id = randomBytes(16).toString("hex");
 		const component = new ActionRowBuilder().addComponents([
 			new StringSelectMenuBuilder()
-				.setCustomId(id)
+				.setCustomId(`${ id }:bot`)
 				.setPlaceholder("Select a bot to load from")
 				.addOptions(bots.values().toArray().map(account => ({
 					label: account.username,
@@ -150,7 +152,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		DiscordManager.client.on(Events.InteractionCreate, async function handler(interaction) {
 
 			if (!interaction.isStringSelectMenu()) return;
-			if (interaction.customId !== id) return;
+			if (interaction.customId !== `${ id }:bot`) return;
 
 			// Acknowledge the component interaction to stop the loading spinner
 			await interaction.deferUpdate();
@@ -172,7 +174,6 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		.setTitle("Load Stasis")
 		.setDescription(null);
 
-	const id = randomBytes(16).toString("hex");
 	const components = [
 		new ActionRowBuilder().addComponents(
 			new ButtonBuilder()
@@ -194,6 +195,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		// Check if the interaction is from the buttons we sent
 		if (!interaction.isButton()) return;
 		if (!interaction.customId.startsWith(id)) return;
+		await interaction.deferUpdate();
 
 		// Get the action from the custom ID of the button
 		const [ _, request ] = interaction.customId.split(":");
@@ -216,18 +218,25 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 }
 
 async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: Player, account: Player, id: string) {
-	await interaction.deferUpdate();
+
+	const embed = new EmbedBuilder()
+		.setColor(0xFF0000)
+		.setTitle("Loading Stasis...");
+
+	await interaction.editReply({ embeds: [ embed ], components: []});
 
 	redisLogger.log(`Requesting peer ${ chalk.cyan(bot.id) } to load stasis for player ${ chalk.cyan(account.username) }`);
-	await redis.publish(`bot:${ bot.id }:commands`, "");
 
+	// Publish a message to the bot's
+	await redis.publish(`${ name }:cluster:${ Client.host }:${ bot.id }:queue`, stringify(zPeerRequest.parse({
+		type: "load",
+		player: account.id,
+		status: `${ id }:status`
+	})));
+
+	// Subscribe to status updates from the bot on the status channel with the ID we generated,
 	await redisSub.subscribe(`${ id }:status`, async(raw: string) => {
-
+		redisLogger.log(`Received status update from peer ${ chalk.cyan(bot.id) }:`, raw);
 	});
-
-	// 			return void await interaction.editReply({ embeds: [ embed ], components });
-
-	// 		}
-	// 	}
 
 }

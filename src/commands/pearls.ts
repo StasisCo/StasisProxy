@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import type { Vec3 } from "vec3";
 import { Client } from "~/class/Client";
 import { Stasis } from "~/class/Stasis";
 import { STASIS_LOCATION_NAME, STASIS_USER_MAX } from "~/config";
@@ -30,13 +29,7 @@ export default function(program: Command) {
 					if (!sender) return;
 
 					// Find all stasis chambers for this player, sorted by distance to the bot
-					const pearls = await Stasis.fetch(sender.uuid)
-						.then(stasis => stasis.sort((a, b) => {
-							const aDist = a.block.position.distanceTo(Client.bot.entity.position as Vec3);
-							const bDist = b.block.position.distanceTo(Client.bot.entity.position as Vec3);
-							return aDist - bDist;
-						}));
-
+					const pearls = await Stasis.fetch(sender.uuid);
 					Client.chat.whisper(sender, `You have ${ pearls.length } / ${ STASIS_USER_MAX } pearls.`);
 
 				}

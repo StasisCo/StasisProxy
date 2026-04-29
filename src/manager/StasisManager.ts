@@ -174,7 +174,7 @@ export class StasisManager {
 				Client.chat.whisper(owner, `You already have ${ all.length - 1 } / ${ STASIS_USER_MAX } pearls, ${ excess.length } will be removed.`);
 				StasisManager.logger.warn(`Player ${ chalk.cyan(owner.uuid) } has too many stasis chambers (${ chalk.yellow(all.length) } / ${ chalk.yellow(STASIS_USER_MAX) }), removing ${ chalk.yellow(excess.length) } excess`);
 
-				for (const extra of excess) extra.enqueue();
+				for (const extra of excess) await StasisManager.enqueue(extra.ownerId);
 				return;
 			}
 
@@ -195,119 +195,10 @@ export class StasisManager {
 	}
 
 	/**
-	 * Enqueue a stasis to be activated
-	 */
-	public static async __LEGACY__enqueue(stasis: Stasis, mode: "online" | "offline" = "online", status?: string) {
-
-		if (status) await redis.publish(status, "queued");
-	
-		// Initialize the goal
-		StasisManager.logger.log(`Queued stasis ${ chalk.yellow(stasis.id) } belonging to player ${ chalk.cyan(stasis.ownerId) } ${ chalk.gray(`(mode=${ mode })`) }`);
-			
-		switch (mode) {
-
-			default:
-				StasisManager.logger.warn(`Unknown stasis activation mode ${ chalk.yellow(mode) }, defaulting to online mode`);
-				
-			// Online mode
-			case "online": {
-
-				const goal = new Goal(stasis.block.position).setRange(5.0);
-
-				goal.once("arrived", async() => {
-
-					// Set arrived status
-					if (status) await redis.publish(status, "arrived");
-
-					// Check the player is still online (players is keyed by username, owner is a UUID)
-					const owner = Object.values(Client.bot.players).find(p => p.uuid === stasis.ownerId);
-					if (!owner) {
-						if (status) await redis.publish(status, "failed");
-						return StasisManager.logger.warn(`Owner of stasis ${ chalk.yellow(stasis.id) } is offline, skipping activation`);
-					}
-
-					StasisManager.logger.log(`Activating stasis ${ chalk.yellow(stasis.id) }`);
-
-					const activated = await stasis.activate();
-					if (activated) {
-						await stasis.remove();
-						if (status) await redis.publish(status, "succeeded");
-						return;
-					}
-
-					// Activation failed or the pearl did not break — try another stasis for the user
-					const next = await Stasis.fetch(stasis.ownerId).then(all => all.find(s => s.id !== stasis.id));
-					if (!next) {
-						Client.chat.whisper(owner, "The pearl in stasis did not break, and you have no others.");
-						if (status) await redis.publish(status, "failed");
-						return;
-					}
-
-					Client.chat.whisper(owner, "The pearl in stasis did not break. Trying another...");
-					next.enqueue();
-
-				});
-
-				Client.pathfinding.pushGoal(goal);
-
-				break;
-	
-			}
-
-			// 	// Offline mode
-			// case "offline":
-			// 	goal.once("arrived", async() => {
-	
-			// 		// 			// LegacyStasis.logger.log("Waiting for owner to join...");
-	
-			// 		// 			// // Wait for the owner to appear in an add_player player_info packet
-			// 		// 			// const joined = await new Promise<boolean>(resolve => {
-			// 		// 			// 	const timeout = setTimeout(() => {
-			// 		// 			// 		Client.bot._client.removeListener("packet", onPacket);
-			// 		// 			// 		LegacyStasis.logger.warn("Timed out waiting for owner to join");
-			// 		// 			// 		resolve(false);
-			// 		// 			// 	}, 70000);
-	
-			// 		// 			// 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol packet
-			// 		// 			// 	const onPacket = (data: any, meta: { name: string }) => {
-			// 		// 			// 		if (meta.name !== "player_info") return;
-	
-			// 		// 			// 		// Newer (1.19.3+): action is a bitmask object; Legacy: action is a string
-			// 		// 			// 		const isAddPlayer = typeof data.action === "string"
-			// 		// 			// 			? data.action === "add_player"
-			// 		// 			// 			: data.action?.add_player === true;
-			// 		// 			// 		if (!isAddPlayer) return;
-	
-			// 		// 			// 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol entry
-			// 		// 			// 		if (!data.data?.some((entry: any) => entry.uuid === this.ownerId)) return;
-	
-			// 		// 			// 		Client.bot._client.removeListener("packet", onPacket);
-			// 		// 			// 		clearTimeout(timeout);
-			// 		// 			// 		resolve(true);
-			// 		// 			// 	};
-	
-			// 		// 			// 	Client.bot._client.on("packet", onPacket);
-			// 		// 			// });
-	
-			// 		// 			// if (!joined) return;
-			// 		// 			// const pearlIds = new Set(this.entities.map(entity => entity.id));
-	
-			// 		// 			// const interacted = await this.interact();
-			// 		// 			// if (!interacted) return;
-	
-			// 		// 			// await this.waitForPearlBreak(pearlIds);
-	
-			// 	});
-			// 	break;
-	
-		}
-	
-	}
-
-	/**
 	 * Enqueue a stasis to be activated.
 	 * @param ownerId The UUID of the player who owns the stasis to be activated
 	 * @param statusKey An optional Redis channel to publish status updates to (queued, arrived, succeeded, failed)
+	 * @returns The number of remaining stasis chambers for the player after this one is activated, or -1 if no stasis was found
 	 */
 	public static async enqueue(ownerId: string, statusKey?: string) {
 
@@ -315,8 +206,9 @@ export class StasisManager {
 		const sendStatus = async(status: z.infer<typeof zStasisStatus>) => statusKey ? await redis.publish(statusKey, status) : undefined;
 
 		// Get the nearest stasis chamber for this player
-		const stasis = await Stasis.fetch(ownerId)
-			.then(all => all.sort((a, b) => Client.bot.entity.position.distanceTo(a.block.position) - Client.bot.entity.position.distanceTo(b.block.position))[0]);
+		const all = await Stasis.fetch(ownerId)
+			.then(all => all.sort((a, b) => Client.bot.entity.position.distanceTo(a.block.position) - Client.bot.entity.position.distanceTo(b.block.position)));
+		const [ stasis ] = all;
 		if (!stasis) return -1;
 
 		// Create a goal
@@ -329,18 +221,63 @@ export class StasisManager {
 		// When we arrive at the stasis, attempt to activate it
 		goal.once("arrived", async() => {
 
+			// Send arrived statuss
+			await sendStatus("arrived");
+
 			// Check the player is online
 			const owner = Object.values(Client.bot.players).find(p => p.uuid === ownerId);
-			if (!owner) return;
+			if (!owner) {
+
+				StasisManager.logger.log("Waiting for owner to join...");
+	
+				// Wait for the owner to appear in an add_player player_info packet
+				const joined = await new Promise<boolean>(resolve => {
+
+					const timeout = setTimeout(() => {
+						Client.bot._client.removeListener("packet", onPacket);
+						StasisManager.logger.warn("Timed out waiting for owner to join");
+						resolve(false);
+					}, 75000);
+	
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol packet
+					const onPacket = (data: any, meta: { name: string }) => {
+						if (meta.name !== "player_info") return;
+	
+						// Newer (1.19.3+): action is a bitmask object; Legacy: action is a string
+						const isAddPlayer = typeof data.action === "string"
+							? data.action === "add_player"
+							: data.action?.add_player === true;
+						if (!isAddPlayer) return;
+	
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol entry
+						if (!data.data?.some((entry: any) => entry.uuid === ownerId)) return;
+	
+						Client.bot._client.removeListener("packet", onPacket);
+						clearTimeout(timeout);
+						resolve(true);
+
+					};
+
+					Client.bot._client.on("packet", onPacket);
+					
+				});
+				
+				if (!joined) return sendStatus("timed-out");
+				StasisManager.logger.log("Owner joined, proceeding with activation...");
+
+			}
 			
 			// Activate the stasis
 			if (await stasis.activate()) {
 				await stasis.remove();
 				await sendStatus("succeeded");
-				return;
+			} else {
+				await sendStatus("failed");
 			}
 
 		});
+
+		return all.length - 1;
 
 	}
 

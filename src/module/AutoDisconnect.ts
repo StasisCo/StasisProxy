@@ -30,10 +30,9 @@ export default class AutoDisconnect extends Module<typeof zConfigSchema> {
 	}
 
 	public disconnect(reason?: string) {
-		Client.exitCode = 0;
 		if (reason) Client.logger.warn("Disconnecting:", chalk.yellow(reason));
 		else Client.logger.warn("Disconnecting");
-		Client.bot.quit(reason);
+		Client.exit(0);
 	}
 
 	public override onPacketReceive({ data, name }: Packets.PacketEvent) {

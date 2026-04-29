@@ -4,5 +4,6 @@ export const zStasisStatus = z.enum([
 	"arrived",
 	"failed",
 	"queued",
-	"succeeded"
+	"succeeded",
+	"timed-out"
 ]);

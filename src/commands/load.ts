@@ -1,7 +1,5 @@
 import type { Command } from "commander";
-import type { Vec3 } from "vec3";
 import { Client } from "~/class/Client";
-import { Stasis } from "~/class/Stasis";
 import { STASIS_LOCATION_NAME, STASIS_USER_MAX } from "~/config";
 import { ChatCommandManager } from "~/manager/ChatCommandManager";
 import { StasisManager } from "~/manager/StasisManager";
@@ -31,19 +29,11 @@ export default function(program: Command) {
 					if (!sender) return;
 
 					// Find all stasis chambers for this player, sorted by distance to the bot
-					const pearls = await Stasis.fetch(sender.uuid)
-						.then(stasis => stasis.sort((a, b) => {
-							const aDist = a.block.position.distanceTo(Client.bot.entity.position as Vec3);
-							const bDist = b.block.position.distanceTo(Client.bot.entity.position as Vec3);
-							return aDist - bDist;
-						})).catch(() => []);
-
-					// If they have no pearls, inform them and exit
-					if (!pearls[0]) throw new Error("You have no pearls registered!");
+					const pearls = await StasisManager.enqueue(sender.uuid);
+					if (pearls === -1) throw new Error("You have no pearls registered!");
 
 					// If they have pearls, but are at the limit, inform them and exit
-					Client.chat.whisper(sender, `Loading your pearl, you have ${ pearls.length - 1 } / ${ STASIS_USER_MAX } pearls remaining.`);
-					StasisManager.__LEGACY__enqueue(pearls[0]);
+					Client.chat.whisper(sender, `Loading your pearl, you have ${ pearls } / ${ STASIS_USER_MAX } pearls remaining.`);
 					break;
 
 				}
