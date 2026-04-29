@@ -14,8 +14,11 @@ import { redis } from "~/redis";
 export class StasisManager {
 
 	public static readonly logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
+	
 	public static readonly pearls = new Map<number, Pearl>();
-	public static readonly interactions = new Map<Stasis, number>();
+	
+	public static readonly expectedInteractions = new Map<Stasis, number>();
+	
 	private static readonly suspended = new Set<number>();
 
 	constructor(private readonly bot: Bot) {
@@ -194,12 +197,11 @@ export class StasisManager {
 	/**
 	 * Enqueue a stasis to be activated
 	 */
-	public static async enqueue(stasis: Stasis, mode: "online" | "offline" = "online", status?: string) {
+	public static async __LEGACY__enqueue(stasis: Stasis, mode: "online" | "offline" = "online", status?: string) {
 
 		if (status) await redis.publish(status, "queued");
 	
 		// Initialize the goal
-		const goal = new Goal(stasis.block.position).setRange(5.0);
 		StasisManager.logger.log(`Queued stasis ${ chalk.yellow(stasis.id) } belonging to player ${ chalk.cyan(stasis.ownerId) } ${ chalk.gray(`(mode=${ mode })`) }`);
 			
 		switch (mode) {
@@ -208,7 +210,10 @@ export class StasisManager {
 				StasisManager.logger.warn(`Unknown stasis activation mode ${ chalk.yellow(mode) }, defaulting to online mode`);
 				
 			// Online mode
-			case "online":
+			case "online": {
+
+				const goal = new Goal(stasis.block.position).setRange(5.0);
+
 				goal.once("arrived", async() => {
 
 					// Set arrived status
@@ -223,48 +228,32 @@ export class StasisManager {
 
 					StasisManager.logger.log(`Activating stasis ${ chalk.yellow(stasis.id) }`);
 
-					// Get the pearls in the stasis before interacting
-					const pearls = stasis.pearls;
-
-					// Interact with the stasis and wait for confirmation
-					for (let attempt = 1; attempt <= 3; attempt++) {
-						const interacted = await stasis.interact();
-						if (interacted) break;
-						StasisManager.logger.warn(`Failed to interact with stasis ${ chalk.yellow(stasis.id) } belonging to player ${ chalk.cyan(owner.username) }, attempt ${ chalk.yellow(attempt) }`);
-						if (attempt === 3) {
-							StasisManager.logger.error(`Failed to interact with stasis ${ chalk.yellow(stasis.id) } after 3 attempts, aborting activation`);
-							if (status) await redis.publish(status, "failed");
-							return;
-						}
-						await new Promise(res => setTimeout(res, 1000));
-					}
-					
-					// Wait for all pearls in the stasis to break, with a timeout in case something goes wrong
-					const timeout = new Promise<void>(resolve => setTimeout(resolve, 1000));
-					const pearlsDestroyed = Promise.all(pearls.map(pearl => new Promise(res => pearl.once("destroyed", res))));
-					await Promise.race([ timeout, pearlsDestroyed ]);
-
-					// Make sure all the pearls were destroyed
-					if (pearls.map(p => p.entity.id).every(id => !StasisManager.pearls.has(id))) {
+					const activated = await stasis.activate();
+					if (activated) {
 						await stasis.remove();
 						if (status) await redis.publish(status, "succeeded");
 						return;
 					}
 
-					// Otherwise, queue another stasis for the user
+					// Activation failed or the pearl did not break — try another stasis for the user
 					const next = await Stasis.fetch(stasis.ownerId).then(all => all.find(s => s.id !== stasis.id));
 					if (!next) {
 						Client.chat.whisper(owner, "The pearl in stasis did not break, and you have no others.");
 						if (status) await redis.publish(status, "failed");
 						return;
 					}
-					
+
 					Client.chat.whisper(owner, "The pearl in stasis did not break. Trying another...");
 					next.enqueue();
 
 				});
+
+				Client.pathfinding.pushGoal(goal);
+
 				break;
 	
+			}
+
 			// 	// Offline mode
 			// case "offline":
 			// 	goal.once("arrived", async() => {
@@ -312,8 +301,6 @@ export class StasisManager {
 			// 	break;
 	
 		}
-	
-		Client.pathfinding.pushGoal(goal);
 	
 	}
 

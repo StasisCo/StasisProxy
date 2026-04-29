@@ -43,7 +43,7 @@ export default function(program: Command) {
 
 					// If they have pearls, but are at the limit, inform them and exit
 					Client.chat.whisper(sender, `Loading your pearl, you have ${ pearls.length - 1 } / ${ STASIS_USER_MAX } pearls remaining.`);
-					StasisManager.enqueue(pearls[0]);
+					StasisManager.__LEGACY__enqueue(pearls[0]);
 					break;
 
 				}

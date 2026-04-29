@@ -1,3 +1,4 @@
+import chalk from "chalk";
 import type { Dimension } from "mineflayer";
 import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
@@ -11,12 +12,30 @@ import { Pearl } from "./Pearl";
 import { StasisColumn } from "./StasisColumn";
 
 export class Stasis extends StasisColumn<{
+
+	/**
+	 * Emitted when a new stasis is being tracked by the manager, either through creation or discovery of an existing stasis in the world
+	 * @param stasis The stasis that was added
+	 */
 	"add": [ Stasis ];
+
+	/**
+	 * Emitted when a stasis is removed from the manager, either through deletion or loss of the stasis block
+	 * @param stasis The stasis that was removed
+	 */
 	"remove": [ Stasis ];
+
 }> implements StasisData {
 
+	/** A map of all stasis instances currently tracked by the manager, keyed by their unique ID */
 	public static readonly instances = new Map<string, Stasis>();
 
+	/**
+	 * Materializes a Stasis instance from a StasisData object retrieved from the database. 
+	 * If an instance with the same ID already exists, it returns the existing instance instead of creating a new one.
+	 * @param data - The StasisData object retrieved from the database
+	 * @returns A Stasis instance corresponding to the given data
+	 */
 	private static materialize(data: StasisData): Stasis {
 		const existing = Stasis.instances.get(data.id);
 		if (existing) return existing;
@@ -161,6 +180,11 @@ export class Stasis extends StasisColumn<{
 		this.emit("add", this);
 	}
 
+	/**
+	 * Claims management of this stasis for the current bot by setting the botId in the database. 
+	 * This allows the bot to track and manage the stasis, and ensures that only one bot manages a given stasis at a time. 
+	 * If the stasis is already managed by another bot, it will update to be managed by this bot instead.
+	 */
 	private async claimManagement() {
 		const rawBotId = Client.bot.player?.uuid;
 		if (!rawBotId) return;
@@ -180,6 +204,10 @@ export class Stasis extends StasisColumn<{
 		this.botId = botId;
 	}
 
+	/**
+	 * Releases management of this stasis for the current bot by setting the botId in the database to null.
+	 * This allows other bots to manage the stasis if needed.
+	 */
 	public async releaseManagement() {
 		if (this.botId === null) return;
 		await prisma.stasis.update({
@@ -207,8 +235,8 @@ export class Stasis extends StasisColumn<{
 	/**
 	 * Enqueue a stasis to be activated
 	 */
-	public enqueue(mode?: Parameters<typeof StasisManager.enqueue>[1]) {
-		return StasisManager.enqueue(this, mode);
+	public enqueue(mode?: Parameters<typeof StasisManager.__LEGACY__enqueue>[1]) {
+		return StasisManager.__LEGACY__enqueue(this, mode);
 	}
 
 	/**
@@ -237,7 +265,7 @@ export class Stasis extends StasisColumn<{
 		Client.bot.entity.yaw = Math.atan2(-delta.x, -delta.z);
 		Client.bot.entity.pitch = Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z));
 
-		StasisManager.interactions.set(this, Date.now());
+		StasisManager.expectedInteractions.set(this, Date.now());
 
 		// Listen for the raw block_change packet at this position
 		const promise = new Promise<boolean>(resolve => {
@@ -300,6 +328,39 @@ export class Stasis extends StasisColumn<{
 		Client.bot.swingArm(undefined);
 
 		return promise;
+	}
+
+	/**
+	 * Activate the stasis by interacting with the trapdoor block. 
+	 * This is a higher-level method that includes retries and timeout handling, and returns 
+	 * whether the activation was successful (i.e. the block state changed to open).
+	 * @param retries - The number of times to retry the interaction if it fails (default: 3)
+	 * @param timeoutMs - The maximum time to wait for pearls to break before giving up (default: max of 2x latency or 1000ms)
+	 * @returns {Promise<boolean>} whether the activation was successful (all pearls broke)
+	 */
+	public async activate(retries = 3, timeoutMs = Math.max(Client.bot._client.latency * 2, 500) + 500): Promise<boolean> {
+
+		// Snapshot pearls before interacting
+		const pearls = this.pearls;
+
+		// Interact with the stasis and retry on failure
+		for (let attempt = 1; attempt <= retries; attempt++) {
+			const interacted = await this.interact();
+			if (interacted) break;
+			StasisManager.logger.warn(`Failed to interact with stasis ${ chalk.yellow(this.id) } belonging to player ${ chalk.cyan(this.ownerId) }, attempt ${ chalk.yellow(attempt) }`);
+			if (attempt === retries) {
+				StasisManager.logger.error(`Failed to interact with stasis ${ chalk.yellow(this.id) } after ${ retries } attempts, aborting activation`);
+				return false;
+			}
+			await new Promise(res => setTimeout(res, 1000));
+		}
+
+		// Wait for all pearls to break, with a timeout in case something goes wrong
+		const pearlsDestroyed = Promise.all(pearls.map(pearl => new Promise(res => pearl.once("destroyed", res))));
+		await Promise.race([ new Promise<void>(resolve => setTimeout(resolve, timeoutMs)), pearlsDestroyed ]);
+
+		return pearls.map(p => p.entity.id).every(id => !StasisManager.pearls.has(id));
+
 	}
 
 }

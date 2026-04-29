@@ -25,7 +25,7 @@ export default class Sentry extends Module {
 		if (!player || player.uuid === Client.bot.player.uuid) return;
 
 		// If this player was pearled within the last 1s, ignore their spawn to avoid logging pearl-induced teleports as new players entering render distance
-		const lastInteraction = StasisManager.interactions.entries().find(([ key ]) => key.ownerId === player.uuid)?.[1];
+		const lastInteraction = StasisManager.expectedInteractions.entries().find(([ key ]) => key.ownerId === player.uuid)?.[1];
 		if (lastInteraction && Date.now() - lastInteraction < 1000) return;
 
 		await Client.discord.webhook(new Embed()
@@ -49,7 +49,7 @@ export default class Sentry extends Module {
 		if (!stasis) return;
 		
 		// If the stasis was interacted within the last 1s, ignore its removal to avoid logging pearl-induced stasis breaks as unexpected breakages
-		const lastInteraction = StasisManager.interactions.entries().find(([ key ]) => key.id === stasis.id)?.[1];
+		const lastInteraction = StasisManager.expectedInteractions.entries().find(([ key ]) => key.id === stasis.id)?.[1];
 		const didIntentionallyPull = lastInteraction && Date.now() - lastInteraction < 1000;
 		await stasis.remove();
 

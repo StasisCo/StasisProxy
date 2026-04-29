@@ -146,7 +146,7 @@ export class Client {
 					.catch(() => []);
 
 				if (!pearls[0]) return;
-				await StasisManager.enqueue(pearls[0], mode, statusKey);
+				await StasisManager.__LEGACY__enqueue(pearls[0], mode, statusKey);
 			});
 			logger.log(`Subscribed to ${ chalk.cyan(channel) }`);
 			
