@@ -14,14 +14,12 @@ import { redis } from "~/redis";
 import type { zStasisStatus } from "~/schema/zStasisStatus";
 
 export class StasisManager {
-
-	public static readonly logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
-	
-	public static readonly pearls = new Map<number, Pearl>();
 	
 	public static readonly expectedInteractions = new Map<Stasis, number>();
-	
-	private static readonly suspended = new Set<number>();
+
+	public static readonly logger = new Logger(chalk.hex("#00c5b5")("STASIS"));
+
+	public static readonly pearls = new Map<number, Pearl>();
 
 	constructor(private readonly bot: Bot) {
 		if (this.bot.game) this.attach();
@@ -59,9 +57,9 @@ export class StasisManager {
 			pearl.entity.velocity = velocity;
 			pearl.emit("velocity", velocity);
 			
-			if (StasisManager.suspended.has(packet.entityId)) return;
+			if (Pearl.isSuspended(packet.entityId)) return;
 			if (pearl.suspended) {
-				StasisManager.suspended.add(packet.entityId);
+				Pearl.markSuspended(packet.entityId);
 				pearl.emit("suspended");
 			}
 		
@@ -84,7 +82,7 @@ export class StasisManager {
 				// If it is, emit a log and remove it from tracking
 				StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } broke or despawned`);
 				StasisManager.pearls.delete(entityId);
-				StasisManager.suspended.delete(entityId);
+				Pearl.clearSuspended(entityId);
 				pearl.emit("destroyed", pearl.entity.id);
 				pearl.removeAllListeners();
 
@@ -316,13 +314,10 @@ export class StasisManager {
 		/** Status updater helper */
 		const sendStatus = async(status: z.infer<typeof zStasisStatus>) => statusKey ? await redis.publish(statusKey, status) : undefined;
 
-		// Check the player is online
-		const owner = Object.values(Client.bot.players).find(p => p.uuid === ownerId);
-
 		// Get the nearest stasis chamber for this player
 		const stasis = await Stasis.fetch(ownerId)
 			.then(all => all.sort((a, b) => Client.bot.entity.position.distanceTo(a.block.position) - Client.bot.entity.position.distanceTo(b.block.position))[0]);
-		if (!stasis) return false;
+		if (!stasis) return -1;
 
 		// Create a goal
 		const goal = new Goal(stasis.block.position).setRange(5.0);
@@ -333,7 +328,18 @@ export class StasisManager {
 		
 		// When we arrive at the stasis, attempt to activate it
 		goal.once("arrived", async() => {
-			console.log("arrived");
+
+			// Check the player is online
+			const owner = Object.values(Client.bot.players).find(p => p.uuid === ownerId);
+			if (!owner) return;
+			
+			// Activate the stasis
+			if (await stasis.activate()) {
+				await stasis.remove();
+				await sendStatus("succeeded");
+				return;
+			}
+
 		});
 
 	}

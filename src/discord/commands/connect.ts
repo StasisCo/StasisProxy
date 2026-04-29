@@ -17,6 +17,8 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 			"```",
 			`!connect ${ code }`,
 			"```",
+			"If `!connect` doesn't work, try using `!link` or whispering the bot instead.",
+			"",
 			`Expires <t:${ Math.floor(Date.now() / 1000) + timeInSeconds }:R>`
 		].join("\n"))
 		.setColor(0x00c3b3)

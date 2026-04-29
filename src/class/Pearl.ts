@@ -38,6 +38,24 @@ export class Pearl extends EventEmitter<{
 
 }> {
 
+	/** Tracks pearl entity IDs already observed in suspended state. */
+	private static readonly suspended = new Set<number>();
+
+	/** Returns true if this pearl ID has already emitted the suspended transition. */
+	public static isSuspended(entityId: number) {
+		return Pearl.suspended.has(entityId);
+	}
+
+	/** Marks this pearl ID as having entered suspended state. */
+	public static markSuspended(entityId: number) {
+		Pearl.suspended.add(entityId);
+	}
+
+	/** Clears suspended tracking for a pearl ID (e.g. when destroyed). */
+	public static clearSuspended(entityId: number) {
+		Pearl.suspended.delete(entityId);
+	}
+
 	/**
 	 * Finds a pearl instance from an entity
 	 * @param entity The entity to find the pearl for

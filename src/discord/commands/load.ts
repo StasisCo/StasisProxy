@@ -1,14 +1,11 @@
-import { redis } from "bun";
 import chalk from "chalk";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, Events, SlashCommandBuilder, StringSelectMenuBuilder } from "discord.js";
-import { omit } from "lodash";
-import { randomBytes } from "node:crypto";
+import { randomBytes } from "crypto";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, Events, SlashCommandBuilder, StringSelectMenuBuilder, type ButtonInteraction, type CacheType } from "discord.js";
 import { Client } from "~/class/Client";
-import { type Player } from "~/generated/prisma/client";
+import type { Player } from "~/generated/prisma/client";
 import { DiscordManager } from "~/manager/DiscordManager";
 import { prisma } from "~/prisma";
-import { logger, redisSub } from "~/redis";
-import { zStasisStatus } from "~/schema/zStasisStatus";
+import { redis, logger as redisLogger, redisSub } from "~/redis";
 
 export const command = new SlashCommandBuilder()
 	.setName("load")
@@ -25,34 +22,17 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 	// Build the message components (buttons and select menus)
 	const embed = new EmbedBuilder()
-		.setColor(0x00c3b3)
 		.setTimestamp()
 		.setFooter({
-			text: interaction.user.displayName,
-			iconURL: interaction.user.displayAvatarURL()
+			iconURL: interaction.user.displayAvatarURL(),
+			text: interaction.user.displayName
 		});
 
 	// Get username argument
 	const username = interaction.options.getString("username");
 
 	// Search up all connected accounts for the user, matching either username or uuid
-	const accounts = await prisma.player.findMany({
-		where: {
-			OR: username ? [ {
-				username: {
-					equals: username,
-					mode: "insensitive"
-				}
-			}, {
-				id: username
-			} ] : undefined,
-			discords: {
-				some: {
-					id: interaction.user.id
-				}
-			}
-		}
-	}).catch(() => []);
+	const accounts = await prisma.player.findMany({ where: { OR: username ? [ { username: { equals: username, mode: "insensitive" }}, { id: username } ] : undefined, discords: { some: { id: interaction.user.id }}}}).catch(() => []);
 
 	// If no accounts are found, inform the user and exit
 	if (accounts.length === 0) {
@@ -65,30 +45,33 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 			embed.setTitle("No Linked Minecraft Accounts");
 			embed.setDescription("You don't have any Minecraft accounts connected to your Discord account! use `/connect` to link an account before using this command.");
 		}
-		return void await interaction.editReply({ embeds: [ embed ]});
+		await interaction.editReply({ embeds: [ embed ]});
+		return;
 	}
 
-	// Multiple accounts
+	// Get the account to load. If there are multiple accounts, ask the user to select one
 	const account = await new Promise<Player>(resolve => {
 
 		// If only one account is found, select it automatically
-		if (accounts.length === 1 && accounts[0]) return resolve(accounts[0]);
-
-		// Otherwise, ask the user to select an account from a dropdown menu
-		embed.setTitle("Select Account");
-		embed.setDescription("Multiple Minecraft accounts are linked to your Discord account. Please select which one you want to load.");
+		if (accounts[0] && accounts.length === 1) return resolve(accounts[0]);
 
 		// Generate a random ID for the select menu to avoid conflicts with other commands
 		const id = randomBytes(16).toString("hex");
 		const component = new ActionRowBuilder().addComponents([
 			new StringSelectMenuBuilder()
 				.setCustomId(id)
-				.setPlaceholder("Select an account")
+				.setPlaceholder("Select an account to load")
 				.addOptions(accounts.map(account => ({
 					label: account.username,
 					value: account.id
 				})))
 		]).toJSON();
+		
+		// Update embed to prompt the user to select an account
+		embed
+			.setColor(0x00c3b3)
+			.setTitle("Select Account")
+			.setDescription(null);
 
 		// Send the message with the select menu
 		interaction.editReply({ embeds: [ embed ], components: [ component ]});
@@ -113,77 +96,53 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 	});
 
-	// Set the embed thumbnail to the selected account's Minecraft head
-	embed.setThumbnail(`https://mc-heads.net/head/${ account.id.replace(/-/g, "") }`);
-
-	// Get all stasis pearls owned by the selected account that are currently loaded in the bot
-	const allPearls = await prisma.stasis.findMany({
-		where: {
-			ownerId: account.id,
-			botId: {
-				not: null
-			}
-		},
-		select: {
-			id: true,
-			owner: true,
-			bot: {
-				include: {
-					player: {
-						select: {
-							id: true,
-							username: true
-						}
-					}
-				}
-			}
-		}
-	})
-		.then(pearls => pearls.filter(pearl => Object.values(Client.bot.players).some(player => player.uuid === pearl.owner.id)))
+	// Get all pearls for this account that are in range of any online bot
+	const all = await prisma.stasis.findMany({ where: { ownerId: account.id, botId: { not: null }}, select: { id: true, owner: true, bot: { include: { player: { select: { id: true, username: true }}}}}})
+		.then(pearls => pearls.filter(pearl => Object.values(Client.bot.players).some(player => pearl.bot && player.uuid === pearl.bot.id)))
 		.catch(() => []);
-		
-	// List all the bots this account has pearls at
-	const bots = allPearls.map(pearl => pearl.bot)
-		.filter((bot, index, self) => bot && self.findIndex(b => b?.id === bot.id) === index)
-		.map(bot => bot?.player)
-		.filter(player => player)
-		.map(player => player as Exclude<typeof player, undefined>);
-		
+
+	// Get the unique bots that have pearls for this account
+	const bots = new Map();
+	for (const pearl of all) if (pearl.bot) bots.set(pearl.bot.id, pearl.bot.player);
+
+	// If no pearls are found, inform the user and exit
+	if (all.length === 0) {
+		embed.setColor(0xf43f5e);
+		embed.setTitle("No Stasis Found");
+		embed.setDescription(`No stasis found for account ${ account.username } that is in range of any online bot. Make sure you have a stasis set up and that a bot is within range, then try again.`);
+		await interaction.editReply({ embeds: [ embed ]});
+		return;
+	}
+
 	// Group pearls by bot
-	const byBot = new Map<string, Set<typeof allPearls[number]>>();
-	for (const pearl of allPearls) {
-		if (!pearl.bot) continue;
-		byBot.getOrInsert(pearl.bot.id, new Set()).add(pearl);
-	}
+	const byBot = new Map<string, Set<typeof all[number]>>();
+	for (const pearl of all) if (pearl.bot) byBot.getOrInsert(pearl.bot.id, new Set()).add(pearl);
 
-	if (bots.length === 0) {
-		embed.setTitle("No Stasis");
-		embed.setDescription("You don't have any stasis in range of a bot.");
-		return void await interaction.editReply({ embeds: [ embed ]});
-	}
+	// Get the bot to request to load. If there is only one bot, select it automatically, otherwise ask the user to select a bot from a dropdown menu
+	const bot = await new Promise<Player>(resolve => {
 
-	// If only one bot is found, select it automatically, otherwise ask the user to select a bot from a dropdown menu
-	const bot = await new Promise<typeof bots[number]>(resolve => {
+		// If only one bot is found, select it automatically
+		if (bots.size === 1) return resolve(bots.values().next().value);
 
-		// If the account only has pearls at one bot, select it automatically
-		if (bots.length === 1 && bots[0]) return resolve(bots[0]);
-
-		// Otherwise, ask the user to select a bot from a dropdown menu
-		embed.setTitle("Select Location");
-		embed.setDescription("You have stasis at multiple locations. Please select which location you want to load.");
-
+		// Generate a random ID for the select menu to avoid conflicts with other commands
 		const id = randomBytes(16).toString("hex");
 		const component = new ActionRowBuilder().addComponents([
 			new StringSelectMenuBuilder()
 				.setCustomId(id)
-				.setPlaceholder("Select location")
-				.addOptions(bots.sort((a, b) => a.username.localeCompare(b.username)).map(bot => ({
-					label: bot.username,
-					description: `${ byBot.get(bot.id)?.size ?? 0 } pearl${ byBot.get(bot.id)?.size === 1 ? "" : "s" }`,
-					value: bot.id
+				.setPlaceholder("Select a bot to load from")
+				.addOptions(bots.values().toArray().map(account => ({
+					label: account.username,
+					description: `${ byBot.get(account.id)?.size ?? 0 } pearl${ byBot.get(account.id)?.size === 1 ? "" : "s" }`,
+					value: account.id
 				})))
 		]).toJSON();
-		
+
+		// Update embed to prompt the user to select a bot
+		embed
+			.setColor(0x00c3b3)
+			.setTitle("Select Location")
+			.setDescription(null);
+
 		// Send the message with the select menu
 		interaction.editReply({ embeds: [ embed ], components: [ component ]});
 
@@ -196,118 +155,79 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 			// Acknowledge the component interaction to stop the loading spinner
 			await interaction.deferUpdate();
 
-			// Find the selected bot from the list of bots
-			const bot = bots.find(bot => bot.id === interaction.values[0]);
-			if (!bot) return DiscordManager.client.off(Events.InteractionCreate, handler);
+			// Find the selected bot from the map of bots
+			const selected = bots.get(interaction.values[0]);
+			if (!selected) return DiscordManager.client.off(Events.InteractionCreate, handler);
 
 			DiscordManager.client.off(Events.InteractionCreate, handler);
-			resolve(bot);
+			resolve(selected);
 
 		});
 
 	});
 
-	const pearls = byBot.get(bot.id)?.values().toArray().map(pearl => omit(pearl, "bot", "owner")) ?? [];
-	if (pearls.length === 0) return;
-
-	embed.setAuthor({
-		name: bot.username,
-		iconURL: `https://mc-heads.net/head/${ bot.id.replace(/-/g, "") }`
-	});
-
-	embed.setTitle("Confirm Stasis");
-
-	// embed.setDescription(`Confirm you want **${ bot.username }** to load your pearl for **${ account.username }**.\n
+	// Update embed to show loading state
+	embed
+		.setColor(0x00c3b3)
+		.setTitle("Load Stasis")
+		.setDescription(null);
 
 	const id = randomBytes(16).toString("hex");
-	const abortButton = new ButtonBuilder()
-		.setCustomId(`${ id }:cancel`)
-		.setLabel("Abort")
-		.setStyle(ButtonStyle.Danger);
-
 	const components = [
 		new ActionRowBuilder().addComponents(
 			new ButtonBuilder()
 				.setCustomId(`${ id }:load`)
-				.setLabel("Load")
+				.setLabel("Load Stasis")
 				.setStyle(ButtonStyle.Secondary),
-			abortButton
+			new ButtonBuilder()
+				.setCustomId(`${ id }:cancel`)
+				.setLabel("Abort Stasis")
+				.setStyle(ButtonStyle.Danger)
 		).toJSON()
 	];
+
+	interaction.editReply({ embeds: [ embed ], components });
 
 	// On interaction with the buttons, either load the stasis or instant pearl it
 	DiscordManager.client.on(Events.InteractionCreate, async function handler(interaction) {
 
+		// Check if the interaction is from the buttons we sent
 		if (!interaction.isButton()) return;
 		if (!interaction.customId.startsWith(id)) return;
 
-		await interaction.deferUpdate();
-		const [ _, request ]	= interaction.customId.split(":");
+		// Get the action from the custom ID of the button
+		const [ _, request ] = interaction.customId.split(":");
 		switch (request) {
 
 			case "cancel":
 				DiscordManager.client.off(Events.InteractionCreate, handler);
-				embed.setTitle("Aborted");
-				embed.setDescription(`Loading stasis for ${ account.username } was aborted.`);
-				embed.setColor(0x27272a);
-				return void await interaction.editReply({ embeds: [ embed ], components: []});
+				await interaction.deleteReply();
+				return;
 
 			case "load": {
-
-				embed.setColor(0xf59e0b);
-				embed.setTitle("Requesting Stasis...");
-				embed.setDescription(`Waiting for ${ bot.username }...`);
-
-				const mode = Object.values(Client.bot.players).some(player => player.uuid === account.id) ? "online" : "offline";
-
-				// Unsubscribe from the buttons to prevent multiple interactions
-				DiscordManager.client.off(Events.InteractionCreate, handler);
-				redis.publish(`bot:${ bot.id }:commands`, JSON.stringify({
-					playerUuid: account.id,
-					statusKey: `${ id }:status`,
-					mode
-				}));
-		
-				logger.log(`Requesting peer ${ chalk.cyan(bot.id) } to load stasis for player ${ chalk.cyan(account.username) } ${ chalk.gray(`(mode=${ request })`) }`);
-				redisSub.subscribe(`${ id }:status`, async(raw: string) => {
-					const parsed = zStasisStatus.safeParse(raw);
-					if (!parsed.success) return;
-					switch (parsed.data) {
-
-						case "queued":
-							embed.setColor(0xf59e0b);
-							embed.setTitle("Traveling to Stasis...");
-							embed.setDescription(`${ bot.username } is traveling to the stasis location. Please wait...`);
-							break;
-
-							// case "arrived":
-							// if (mode === "online") break;
-							// break;
-							
-						case "succeeded":
-							embed.setColor(0x06b6d4);
-							embed.setTitle("Stasis Loaded");
-							embed.setDescription(`${ bot.username } has successfully loaded the stasis for ${ account.username }!`);
-							break;
-					
-						case "failed":
-							embed.setColor(0xf43f5e);
-							embed.setTitle("Stasis Load Failed");
-							embed.setDescription(`${ bot.username } failed to load the stasis for ${ account.username }.`);
-							break;
-				
-					}
-					
-					return void await interaction.editReply({ embeds: [ embed ], components: []});
-
-				});
-
-				return void await interaction.editReply({ embeds: [ embed ], components });
-
+				loadAndLifeCycle(interaction, bot, account, id);
+				break;
 			}
+
 		}
+		
 	});
 
-	return void await interaction.editReply({ embeds: [ embed ], components });
+}
+
+async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: Player, account: Player, id: string) {
+	await interaction.deferUpdate();
+
+	redisLogger.log(`Requesting peer ${ chalk.cyan(bot.id) } to load stasis for player ${ chalk.cyan(account.username) }`);
+	await redis.publish(`bot:${ bot.id }:commands`, "");
+
+	await redisSub.subscribe(`${ id }:status`, async(raw: string) => {
+
+	});
+
+	// 			return void await interaction.editReply({ embeds: [ embed ], components });
+
+	// 		}
+	// 	}
 
 }
