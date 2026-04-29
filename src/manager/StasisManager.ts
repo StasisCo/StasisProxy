@@ -68,7 +68,12 @@ export class StasisManager {
 				// Check if this is a pearl we are tracking
 				const pearl = StasisManager.pearls.get(entityId);
 				if (!pearl) continue;
-				void Stasis.from(pearl).then(stasis => stasis?.releaseManagement());
+				void Stasis.from(pearl).then(stasis => {
+					if (stasis) {
+						void stasis.releaseManagement();
+						Stasis.instances.delete(stasis.id);
+					}
+				});
 
 				// If it is, emit a log and remove it from tracking
 				StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } broke or despawned`);

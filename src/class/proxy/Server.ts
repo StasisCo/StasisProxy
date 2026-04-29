@@ -6,7 +6,7 @@ import z from "zod";
 import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
 import { ChatManager } from "~/manager/ChatManager";
-import { StasisManager } from "~/manager/StasisManager";
+import { Stasis } from "../Stasis";
 import { PacketCache } from "./PacketCache";
 import { PlayerListCache } from "./PlayerListCache";
 import { ServerClient } from "./ServerClient";
@@ -81,8 +81,8 @@ export class Server {
 				BODY.push(`§6${ Client.host }`);
 				BODY.push(`§e${ Object.entries(Client.bot.players).length } Online`);
 			} else {
-				BODY.push(`§d${ StasisManager.pearls.size } Pearls`);
-				const unique = StasisManager.pearls.values()
+				BODY.push(`§d${ Stasis.instances.size } Pearls`);
+				const unique = Stasis.instances.values()
 					.filter(p => p.ownerId !== undefined)
 					.map(p => p.ownerId!)
 					.reduce((set, ownerId) => set.add(ownerId), new Set<string>()).size;

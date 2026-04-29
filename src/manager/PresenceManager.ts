@@ -313,6 +313,7 @@ export class PresenceManager extends EventEmitter<{
 		};
 
 		es.onerror = event => {
+
 			// Ignore stale handlers from a closed/replaced EventSource.
 			if (this.es !== es) return;
 
