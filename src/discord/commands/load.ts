@@ -1,11 +1,14 @@
 import { redis } from "bun";
+import chalk from "chalk";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, Events, SlashCommandBuilder, StringSelectMenuBuilder } from "discord.js";
 import { omit } from "lodash";
 import { randomBytes } from "node:crypto";
+import z from "zod";
 import { Client } from "~/class/Client";
 import { type Player } from "~/generated/prisma/client";
 import { DiscordManager } from "~/manager/DiscordManager";
 import { prisma } from "~/prisma";
+import { logger, redisSub } from "~/redis";
 
 export const command = new SlashCommandBuilder()
 	.setName("load")
@@ -110,6 +113,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 	});
 
+	// Set the embed thumbnail to the selected account's Minecraft head
+	embed.setThumbnail(`https://mc-heads.net/head/${ account.id.replace(/-/g, "") }`);
+
 	// Get all stasis pearls owned by the selected account that are currently loaded in the bot
 	const allPearls = await prisma.stasis.findMany({
 		where: {
@@ -209,25 +215,23 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		iconURL: `https://mc-heads.net/head/${ bot.id.replace(/-/g, "") }`
 	});
 
-	embed.setTitle(`Load Stasis for ${ account.username }`);
-	embed.setDescription(null);
+	embed.setTitle("Confirm Stasis");
+	// embed.setDescription(`Confirm you want **${ bot.username }** to load your pearl for **${ account.username }**.\n
 
 	const id = randomBytes(16).toString("hex");
+	const abortButton = new ButtonBuilder()
+		.setCustomId(`${ id }:cancel`)
+		.setLabel("Abort")
+		.setStyle(ButtonStyle.Danger);
+
 	const components = [
 		new ActionRowBuilder().addComponents(
-
 			new ButtonBuilder()
-				.setCustomId(`${ id }:online`)
-				.setLabel("Load Now")
-				.setStyle(ButtonStyle.Primary)
-
-			// new ButtonBuilder()
-			// 	.setCustomId(`load:offline:${account.id}:${bot.id}:${id}`)
-			// 	.setLabel("Instant Pearl")
-			// 	.setStyle(ButtonStyle.Primary)
-				
+				.setCustomId(`${ id }:load`)
+				.setLabel("Load")
+				.setStyle(ButtonStyle.Secondary),
+			abortButton
 		).toJSON()
-			
 	];
 
 	// On interaction with the buttons, either load the stasis or instant pearl it
@@ -237,17 +241,70 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		if (!interaction.customId.startsWith(id)) return;
 
 		await interaction.deferUpdate();
-		const [ _, mode ]	= interaction.customId.split(":");
+		const [ _, request ]	= interaction.customId.split(":");
+		switch (request) {
 
-		// Unsubscribe from the buttons to prevent multiple interactions
-		DiscordManager.client.off(Events.InteractionCreate, handler);
+			case "cancel":
+				DiscordManager.client.off(Events.InteractionCreate, handler);
+				embed.setTitle("Aborted");
+				embed.setDescription(`Loading stasis for ${ account.username } was aborted.`);
+				embed.setColor(0x27272a);
+				return void await interaction.editReply({ embeds: [ embed ], components: []});
 
-		redis.publish(`bot:${ bot.id }:commands`, JSON.stringify({
-			playerUuid: account.id,
-			statusKey: `${ id }:status`,
-			mode
-		}));
+			case "load": {
 
+				embed.setColor(0xf59e0b);
+				embed.setTitle("Requesting Stasis...");
+				embed.setDescription(`Waiting for ${ bot.username }...`);
+
+				const mode = Object.values(Client.bot.players).some(player => player.uuid === account.id) ? "online" : "offline";
+
+				// Unsubscribe from the buttons to prevent multiple interactions
+				DiscordManager.client.off(Events.InteractionCreate, handler);
+				redis.publish(`bot:${ bot.id }:commands`, JSON.stringify({
+					playerUuid: account.id,
+					statusKey: `${ id }:status`,
+					mode
+				}));
+		
+				logger.log(`Requesting peer ${ chalk.cyan(bot.id) } to load stasis for player ${ chalk.cyan(account.username) } ${ chalk.gray(`(mode=${ request })`) }`);
+				redisSub.subscribe(`${ id }:status`, async(raw: string) => {
+					const parsed = z.enum([ "arrived", "succeeded", "failed", "queued" ]).safeParse(raw);
+					if (!parsed.success) return;
+					switch (parsed.data) {
+
+						case "queued":
+							embed.setColor(0xf59e0b);
+							embed.setTitle("Traveling to Stasis...");
+							embed.setDescription(`${ bot.username } is traveling to the stasis location. Please wait...`);
+							break;
+
+							// case "arrived":
+							// if (mode === "online") break;
+							// break;
+							
+						case "succeeded":
+							embed.setColor(0x06b6d4);
+							embed.setTitle("Stasis Loaded");
+							embed.setDescription(`${ bot.username } has successfully loaded the stasis for ${ account.username }!`);
+							break;
+					
+						case "failed":
+							embed.setColor(0xf43f5e);
+							embed.setTitle("Stasis Load Failed");
+							embed.setDescription(`${ bot.username } failed to load the stasis for ${ account.username }.`);
+							break;
+				
+					}
+					
+					return void await interaction.editReply({ embeds: [ embed ], components: []});
+
+				});
+
+				return void await interaction.editReply({ embeds: [ embed ], components });
+
+			}
+		}
 	});
 
 	return void await interaction.editReply({ embeds: [ embed ], components });

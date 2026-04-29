@@ -25,7 +25,7 @@ export default class AutoTotem extends Module {
 				// Send Discord notification
 				await Client.discord.webhook(new Embed()
 					.setTitle("Popped Totem")
-					.setColor(0xFACC15)
+					.setColor(0xfacc15)
 					.addField({ name: "Remaining Totems", value: `${ this.totems.map(_ => "<:totem_of_undying:1420233210347913357>").join("") } (${ this.totems.length })` }));
 				break;
 
