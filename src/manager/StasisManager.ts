@@ -6,10 +6,12 @@ import type z from "zod";
 import { Client } from "~/class/Client";
 import { Goal } from "~/class/Goal";
 import { Logger } from "~/class/Logger";
+import { Module } from "~/class/Module";
 import { Pearl } from "~/class/Pearl";
 import { Stasis } from "~/class/Stasis";
 import { StasisColumn } from "~/class/StasisColumn";
 import { STASIS_USER_MAX } from "~/config";
+import Viewer from "~/module/Viewer";
 import { redis } from "~/redis";
 import type { zStasisStatus } from "~/schema/zStasisStatus";
 
@@ -76,6 +78,7 @@ export class StasisManager {
 					if (stasis) {
 						void stasis.releaseManagement();
 						Stasis.instances.delete(stasis.id);
+						Module.get<Viewer>("Viewer").erase(stasis.id);
 					}
 				});
 

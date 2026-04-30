@@ -342,7 +342,9 @@ export class ServerClient {
 		this.detached = true;
 
 		for (const dispose of this.disposers.splice(0)) {
-			try { dispose(); } catch { /* ignore */ }
+			try {
+				dispose();
+			} catch { /* ignore */ }
 		}
 		this.holograms?.detach();
 		this.holograms = null;
@@ -353,7 +355,6 @@ export class ServerClient {
 		if (pos && Number.isFinite(pos.x)) {
 			const floored = pos.floored();
 			Client.pathfinding.setHome(floored.offset(0.5, 0, 0.5) as Vec3);
-			ServerClient.logger.log(`Home saved at ${ floored.x }, ${ floored.y }, ${ floored.z } on disconnect`);
 		}
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading stored field

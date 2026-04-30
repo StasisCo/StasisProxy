@@ -2,11 +2,7 @@ import chalk from "chalk";
 import EventEmitter from "events";
 import express from "express";
 import { createServer, type Server as HttpServer } from "http";
-
-// @ts-expect-error — prismarine-viewer ships no types
 import { setupRoutes } from "prismarine-viewer/lib/common";
-
-// @ts-expect-error — prismarine-viewer ships no types
 import { WorldView } from "prismarine-viewer/viewer";
 import { Server as IoServer, type Socket } from "socket.io";
 import z from "zod";
@@ -33,23 +29,29 @@ const zConfigSchema = z.object({
 		.describe("URL prefix for the viewer routes (e.g. '/viewer')")
 });
 
+interface Vec3Like {
+	x: number;
+	y: number;
+	z: number;
+}
+
 interface BoxGridPrimitive {
 	type: "boxgrid";
 	id: string;
-	start: unknown;
-	end: unknown;
+	start: Vec3Like;
+	end: Vec3Like;
 	color: string;
 }
 interface LinePrimitive {
 	type: "line";
 	id: string;
-	points: unknown[];
+	points: Vec3Like[];
 	color: number;
 }
 interface PointsPrimitive {
 	type: "points";
 	id: string;
-	points: unknown[];
+	points: Vec3Like[];
 	color: number;
 	size: number;
 }
@@ -102,15 +104,15 @@ export default class Viewer extends Module<typeof zConfigSchema> {
 		this.broadcast("primitive", { id });
 	}
 
-	public drawBoxGrid(id: string, start: unknown, end: unknown, color = "aqua"): void {
+	public drawBoxGrid(id: string, start: Vec3Like, end: Vec3Like, color = "aqua"): void {
 		this.savePrimitive({ type: "boxgrid", id, start, end, color });
 	}
 
-	public drawLine(id: string, points: unknown[], color = 0xff0000): void {
+	public drawLine(id: string, points: Vec3Like[], color = 0xff0000): void {
 		this.savePrimitive({ type: "line", id, points, color });
 	}
 
-	public drawPoints(id: string, points: unknown[], color = 0xff0000, size = 5): void {
+	public drawPoints(id: string, points: Vec3Like[], color = 0xff0000, size = 5): void {
 		this.savePrimitive({ type: "points", id, points, color, size });
 	}
 
