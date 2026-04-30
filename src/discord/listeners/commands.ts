@@ -2,6 +2,7 @@ import { ChatInputCommandInteraction, Events, REST, Routes, SlashCommandBuilder 
 import { readdir } from "fs/promises";
 import { join } from "path";
 import { DiscordManager } from "~/manager/DiscordManager";
+import { redis, logger as redisLogger } from "~/redis";
 
 type Command = {
 	command: SlashCommandBuilder;
@@ -19,8 +20,15 @@ for (const file of await readdir(commandsDir)) {
 
 /**
  * Register slash commands with Discord when the bot is ready.
+ *
+ * Multiple containers share one bot token, so every container opens its own
+ * gateway session and Discord registers commands once per ready event. We
+ * coordinate via Redis so only one container performs the REST registration
+ * per startup window — otherwise we hit the global app-command rate limit.
  */
 DiscordManager.client.once(Events.ClientReady, async function(readyClient) {
+	const claim = await redis.set("stasis-proxy:discord:register", "1", "EX", 60, "NX");
+	if (claim !== "OK") return;
 	const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN!);
 	await rest.put(Routes.applicationGuildCommands(readyClient.user.id, process.env.DISCORD_GUILD_ID!), {
 		body: Array.from(commands.values()).map(c => c.command.toJSON())
@@ -29,9 +37,30 @@ DiscordManager.client.once(Events.ClientReady, async function(readyClient) {
 
 /**
  * Handle slash command interactions.
+ *
+ * Every container with the same bot token receives every interaction. We claim
+ * the interaction id in Redis with SET NX EX — exactly one container wins and
+ * executes the command. The rest silently bail. Without this every container
+ * tries to `reply()` and all but one crash with `10062 Unknown interaction`.
  */
 DiscordManager.client.on(Events.InteractionCreate, async function(interaction) {
 	if (!interaction.isChatInputCommand()) return;
 	const cmd = commands.get(interaction.commandName);
-	await cmd?.execute(interaction);
+	if (!cmd) return;
+
+	// Claim ownership of this interaction. TTL is short — the interaction
+	// token only lives 15 minutes anyway and we just need to deduplicate.
+	const claim = await redis.set(`stasis-proxy:discord:interaction:${ interaction.id }`, "1", "EX", 60, "NX");
+	if (claim !== "OK") return;
+
+	try {
+		await cmd.execute(interaction);
+	} catch (err) {
+
+		// Swallow `Unknown interaction` (10062) and `Interaction has already been acknowledged` (40060)
+		// in case the claim race somehow lets two through (e.g. brief Redis blip).
+		const code = (err as { code?: number }).code;
+		if (code === 10062 || code === 40060) return;
+		redisLogger.warn(`Command ${ interaction.commandName } failed:`, err);
+	}
 });
