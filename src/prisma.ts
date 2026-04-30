@@ -27,19 +27,20 @@ if (!process.argv.includes("--skip-migrations")) {
 		logger.error("Failed to apply database migrations.");
 		process.exit(1);
 	}
-
+	
 }
 
 // Log the database host for better visibility. The connection string may contain
 const url = new URL(connectionString);
 logger.log("Connecting to Postgres", chalk.cyan(url.username), chalk.dim("@"), chalk.cyan.underline(url.host) + "...");
+const now = Date.now();
 
 // Init adapter
 const adapter = new PrismaPg({ connectionString });
 
 export const prisma = new PrismaClient({ adapter });
 
-prisma.$connect().then(() => logger.log("Connected to Postgres")).catch(err => {
+prisma.$connect().then(() => logger.log("Connected to Postgres", chalk.yellow(`${ Date.now() - now }ms`))).catch(err => {
 	logger.error("Postgres connection error:", err);
 	process.exit(1);
 });

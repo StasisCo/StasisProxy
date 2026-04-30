@@ -39,11 +39,12 @@ type SubListener = (message: string, channel: string) => void;
 const HEARTBEAT_MS = 30_000;
 
 function createClient(name?: string, onReconnect?: () => void): RedisClient {
+	const now = Date.now();
 	const client = new RedisClient(redisUrl, options);
 	let hasDisconnected = false;
 
 	client.onconnect = () => {
-		if (name) logger.log(`${ name } connected`);
+		if (name) logger.log(`${ name } connected`, chalk.yellow(`${ Date.now() - now }ms`));
 		if (hasDisconnected) onReconnect?.();
 	};
 	client.onclose = err => {
