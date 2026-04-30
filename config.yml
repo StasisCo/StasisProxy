@@ -93,3 +93,15 @@ modules:
       # List of entity names to attack
       list:
         - hostile_mobs
+  Presence:
+    # Whether this module is active
+    enabled: true
+    config:
+      # Maximum presence posts per second
+      maxRate: 5
+      # Maximum seconds between presence posts (heartbeat)
+      maxInterval: 5
+      # Force-reconnect if no SSE bytes arrive within this many ms
+      heartbeatTimeout: 15000
+      # Cap on backoff between SSE reconnect attempts (ms)
+      maxReconnectDelay: 30000

@@ -26,7 +26,7 @@ export class DiscordManager {
 		if (!process.env.DISCORD_BOT_TOKEN) return;
 		await this.loadListeners();
 		DiscordManager.logger.log("Connecting to Discord...");
-		DiscordManager.client.once(Events.ClientReady, client => DiscordManager.logger.log(`Logged in as ${ chalk.cyan(client.user.tag) } ${ chalk.magenta(`<@${ client.user.id }>`) }`));
+		DiscordManager.client.once(Events.ClientReady, client => DiscordManager.logger.log(`Logged in as ${ chalk.cyan(client.user.tag) } ${ chalk.dim(`@${ client.user.id }`) }`));
 		DiscordManager.client.login(process.env.DISCORD_BOT_TOKEN);
 	}
 

@@ -159,6 +159,9 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
      */
 	public async save(owner: Player): Promise<Stasis | null> {
 		try {
+
+			if (!Client.host) throw new Error("Client host is not defined");
+			
 			const botId = Client.bot.player.uuid.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
 
 			const player = await prisma.player.upsert({

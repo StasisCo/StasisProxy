@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { createServer, type Server as MinecraftServer, type SessionObject } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
+import type { ChatMessage } from "prismarine-chat";
 import sharp from "sharp";
 import z from "zod";
 import { Client } from "~/class/Client";
@@ -199,6 +200,11 @@ export class Server {
 		this.bot._client.once("success", (packet: { properties?: Array<{ name: string; value: string; signature?: string }> }) => {
 			if (Array.isArray(packet.properties)) this.botProperties = packet.properties;
 		});
+	}
+
+	public kickAll(reason: ChatMessage) {
+		if (!this.current) return;
+		this.current.client.end(JSON.stringify(reason));
 	}
 
 }

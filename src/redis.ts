@@ -3,9 +3,17 @@ import chalk from "chalk";
 import z from "zod";
 import { Logger } from "./class/Logger";
 
-const redisUrl = z.string().parse(process.env.REDIS_URL);
-
 export const logger = new Logger(chalk.hex("#ff4438")("REDIS"));
+
+// Validate REDIS_URL up front so downstream code can assume it's well-formed.
+const { data: redisUrl, success, error } = z.string().safeParse(process.env.REDIS_URL);
+if (!success) {
+	logger.error("Invalid REDIS_URL:", error);
+	process.exit(1);
+}
+
+const url = new URL(redisUrl);
+logger.log("Connecting to redis", chalk.cyan(url.username), chalk.dim("@"), chalk.cyan.underline(url.host) + "...");
 
 /**
  * Shared options for all Redis connections. Tuned for managed/SaaS Redis
@@ -17,24 +25,67 @@ const options = {
 	connectionTimeout: 30_000
 } satisfies Bun.RedisOptions;
 
-export const redis = new RedisClient(redisUrl, options);
+type SubListener = (message: string, channel: string) => void;
 
-/** Dedicated client for subscriptions — Bun's RedisClient cannot mix pub/sub with regular commands on the same connection */
-const rawSub = new RedisClient(redisUrl, options);
+/**
+ * Heartbeat — managed Redis providers close idle TCP sockets even when the
+ * client thinks it's connected, which causes the *next* command to time out
+ * before auto-reconnect kicks in. A periodic PING keeps the socket warm and
+ * surfaces dead connections immediately so the auto-reconnect loop runs.
+ *
+ * Upstash specifically closes idle connections at exactly 300s, so we ping
+ * well below that threshold (and also below typical NAT/load-balancer windows).
+ */
+const HEARTBEAT_MS = 30_000;
+
+function createClient(name: string, onReconnect?: () => void): RedisClient {
+	const client = new RedisClient(redisUrl, options);
+	let hasDisconnected = false;
+
+	client.onconnect = () => {
+		logger.log(`${ name } connected`);
+		if (hasDisconnected) onReconnect?.();
+	};
+	client.onclose = err => {
+		hasDisconnected = true;
+		logger.warn(`${ name } connection closed: ${ err ? err.message : "no error" }`);
+	};
+
+	setInterval(() => {
+		if (!client.connected) return;
+		client.ping().catch(err => logger.warn(`${ name } ping failed: ${ err.message }`));
+	}, HEARTBEAT_MS).unref();
+
+	return client;
+}
+
+export const redis = createClient("Redis");
 
 /**
  * Subscription registry. Upstash (and most managed Redis providers) reset
  * subscriptions on reconnect — the client thinks it is still subscribed but
  * silently receives nothing. We keep our own registry so we can replay every
  * `subscribe` call whenever the underlying socket reconnects.
+ *
+ * Bun's RedisClient cannot mix pub/sub with regular commands on the same
+ * connection, so we use a dedicated client here.
  */
-type SubListener = (message: string, channel: string) => void;
 const subscriptions = new Map<string, Set<SubListener>>();
 
+const rawSub = createClient("Subscribe", () => {
+	for (const [ channel, listeners ] of subscriptions) {
+		for (const listener of listeners) {
+			rawSub.subscribe(channel, listener)
+				.then(() => logger.log(`Re-subscribed to ${ chalk.cyan(channel) }`))
+				.catch(err => logger.warn(`Failed to re-subscribe to ${ chalk.cyan(channel) }: ${ err.message }`));
+		}
+	}
+});
+
 /**
- * Wrapper around `rawSub` that tracks subscriptions and replays them on
- * reconnect. API is intentionally identical to `RedisClient.subscribe` /
- * `RedisClient.unsubscribe` so existing call sites do not need to change.
+ * Wrapper around the subscribe client that tracks subscriptions and replays
+ * them on reconnect. API is intentionally identical to `RedisClient.subscribe`
+ * / `RedisClient.unsubscribe` so existing call sites do not need to change.
  */
 export const redisSub = {
 	get connected() {
@@ -57,53 +108,3 @@ export const redisSub = {
 		if (set.size === 0) subscriptions.delete(channel);
 	}
 };
-
-/** Wire up connect / close logging for both clients */
-function attach(name: string, client: RedisClient) {
-	client.onconnect = () => logger.log(`${ name } connected`);
-	client.onclose = err => logger.warn(`${ name } disconnected${ err ? `: ${ err.message }` : "" } — reconnecting`);
-}
-attach("Commands", redis);
-
-/**
- * Replay all known subscriptions whenever the subscribe client *re*connects.
- * We skip the very first connect because explicit `subscribe()` calls handle
- * the initial subscription themselves — replaying then would be redundant.
- */
-let subHasDisconnected = false;
-const previousSubOnClose = rawSub.onclose;
-rawSub.onclose = function(this: RedisClient, err) {
-	subHasDisconnected = true;
-	previousSubOnClose?.call(this, err);
-};
-const previousSubOnConnect = rawSub.onconnect;
-rawSub.onconnect = function(this: RedisClient, ...args) {
-	previousSubOnConnect?.call(this, ...args);
-	if (!subHasDisconnected || subscriptions.size === 0) return;
-	for (const [ channel, listeners ] of subscriptions) {
-		for (const listener of listeners) {
-			rawSub.subscribe(channel, listener)
-				.then(() => logger.log(`Re-subscribed to ${ chalk.cyan(channel) }`))
-				.catch(err => logger.warn(`Failed to re-subscribe to ${ chalk.cyan(channel) }: ${ err.message }`));
-		}
-	}
-};
-
-/**
- * Heartbeat — managed Redis providers close idle TCP sockets even when the
- * client thinks it's connected, which causes the *next* command to time out
- * before auto-reconnect kicks in. A periodic PING keeps the socket warm and
- * surfaces dead connections immediately so the auto-reconnect loop runs.
- *
- * Upstash specifically closes idle connections at exactly 300s, so we ping
- * well below that threshold (and also below typical NAT/load-balancer windows).
- */
-const HEARTBEAT_MS = 30_000;
-function heartbeat(name: string, client: RedisClient) {
-	setInterval(() => {
-		if (!client.connected) return;
-		client.ping().catch(err => logger.warn(`${ name } ping failed: ${ err.message }`));
-	}, HEARTBEAT_MS).unref();
-}
-heartbeat("Commands", redis);
-heartbeat("Subscribe", rawSub);

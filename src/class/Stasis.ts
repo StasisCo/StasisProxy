@@ -64,6 +64,7 @@ export class Stasis extends StasisColumn<{
 
 		// Lookup the stasis in the database
 		try {
+			if (!Client.host) throw new Error("Client host is not defined");
 			return await prisma.stasis.findUnique({
 				where: {
 					position: {

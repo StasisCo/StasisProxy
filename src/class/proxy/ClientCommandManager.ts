@@ -42,8 +42,6 @@ interface DeclareCommandsData {
  */
 export class ClientCommandManager {
 
-	private static readonly logger = new Logger(chalk.magenta("CLIENT-CMD"));
-
 	private readonly commands = new Map<string, ClientCommand>();
 
 	constructor(private readonly serverClient: ServerClient) {}
@@ -81,7 +79,6 @@ export class ClientCommandManager {
 		try {
 			await command.execute(args, ctx);
 		} catch (err) {
-			ClientCommandManager.logger.warn(`Error executing /${ name }:`, err);
 			this.sendSystemMessage(client, `§cError: ${ err instanceof Error ? err.message : String(err) }`);
 		}
 
@@ -99,10 +96,7 @@ export class ClientCommandManager {
 	 */
 	public decorateDeclareCommands(data: DeclareCommandsData): DeclareCommandsData {
 		const root = data.nodes[data.rootIndex];
-		if (!root || root.flags.command_node_type !== 0) {
-			ClientCommandManager.logger.warn("declare_commands has no valid root — skipping decoration");
-			return data;
-		}
+		if (!root || root.flags.command_node_type !== 0) return data;
 
 		// Drop any literals we previously injected so re-decoration is idempotent.
 		const ourNames = new Set([ ...this.commands.keys() ]);
