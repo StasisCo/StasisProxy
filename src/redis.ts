@@ -13,19 +13,9 @@ export const logger = new Logger(chalk.hex("#ff4438")("REDIS"));
  * silently drop idle TCP connections after 60–300s.
  */
 const options = {
-
-	/** Disable client-side idle close — we manage liveness with a heartbeat */
-	idleTimeout: 0,
-
-	/** Reconnect automatically on disconnect */
-	autoReconnect: true,
-
-	/** Allow many reconnect attempts before giving up */
 	maxRetries: 1_000,
-
-	/** Long initial connect window for cold SaaS endpoints */
 	connectionTimeout: 30_000
-} as const;
+} satisfies Bun.RedisOptions;
 
 export const redis = new RedisClient(redisUrl, options);
 
@@ -73,8 +63,7 @@ function attach(name: string, client: RedisClient) {
 	client.onconnect = () => logger.log(`${ name } connected`);
 	client.onclose = err => logger.warn(`${ name } disconnected${ err ? `: ${ err.message }` : "" } — reconnecting`);
 }
-attach("commands", redis);
-attach("subscribe", rawSub);
+attach("Commands", redis);
 
 /**
  * Replay all known subscriptions whenever the subscribe client *re*connects.
@@ -116,5 +105,5 @@ function heartbeat(name: string, client: RedisClient) {
 		client.ping().catch(err => logger.warn(`${ name } ping failed: ${ err.message }`));
 	}, HEARTBEAT_MS).unref();
 }
-heartbeat("commands", redis);
-heartbeat("subscribe", rawSub);
+heartbeat("Commands", redis);
+heartbeat("Subscribe", rawSub);

@@ -41,6 +41,7 @@ export class Client {
 	public static readonly options: BotOptions = {
 		auth: "microsoft",
 		brand: Client.userAgent,
+		logErrors: false,
 		host: z.string().parse(process.env.MC_HOST?.split(":")[0]),
 		port: parseInt(z.string().optional().parse(process.env.MC_HOST)?.split(":")[1] ?? "25565"),
 		profilesFolder: z.string().optional().parse(process.env.MC_PROFILE),
