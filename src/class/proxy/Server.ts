@@ -204,7 +204,7 @@ export class Server {
 
 	public kickAll(reason: ChatMessage) {
 		if (!this.current) return;
-		this.current.client.end(JSON.stringify(reason));
+		this.current.client.end(reason.toMotd());
 	}
 
 }

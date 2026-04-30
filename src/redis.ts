@@ -38,22 +38,26 @@ type SubListener = (message: string, channel: string) => void;
  */
 const HEARTBEAT_MS = 30_000;
 
-function createClient(name: string, onReconnect?: () => void): RedisClient {
+function createClient(name?: string, onReconnect?: () => void): RedisClient {
 	const client = new RedisClient(redisUrl, options);
 	let hasDisconnected = false;
 
 	client.onconnect = () => {
-		logger.log(`${ name } connected`);
+		if (name) logger.log(`${ name } connected`);
 		if (hasDisconnected) onReconnect?.();
 	};
 	client.onclose = err => {
 		hasDisconnected = true;
-		logger.warn(`${ name } connection closed: ${ err ? err.message : "no error" }`);
+		if (name) logger.warn(`${ name } connection closed: ${ err ? err.message : "no error" }`);
 	};
 
 	setInterval(() => {
 		if (!client.connected) return;
-		client.ping().catch(err => logger.warn(`${ name } ping failed: ${ err.message }`));
+		if (name) {
+			client.ping().catch(err => logger.warn(`${ name } ping failed: ${ err.message }`));
+		} else {
+			client.ping().catch(err => logger.warn(`Ping failed: ${ err.message }`));
+		}
 	}, HEARTBEAT_MS).unref();
 
 	return client;
@@ -72,7 +76,7 @@ export const redis = createClient("Redis");
  */
 const subscriptions = new Map<string, Set<SubListener>>();
 
-const rawSub = createClient("Subscribe", () => {
+const rawSub = createClient(undefined, () => {
 	for (const [ channel, listeners ] of subscriptions) {
 		for (const listener of listeners) {
 			rawSub.subscribe(channel, listener)

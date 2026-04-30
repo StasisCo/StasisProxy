@@ -30,7 +30,7 @@ const MOVEMENT_PACKETS_CS = new Set([ "position", "position_look", "look", "flyi
  */
 export class ServerClient {
 
-	private static readonly logger = new Logger(chalk.cyan("CLIENT"));
+	private static readonly logger = new Logger(chalk.blue("PROXY"));
 
 	/** The connected proxy player's network connection. */
 	public readonly client: MinecraftClient;
