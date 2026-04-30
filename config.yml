@@ -84,6 +84,15 @@ modules:
   Viewer:
     # Whether this module is active
     enabled: true
+    config:
+      # HTTP port the viewer web server listens on
+      port: 80
+      # Chunk view distance streamed to viewer clients
+      viewDistance: 32
+      # Stream the bot's pitch so viewers see in first person
+      firstPerson: false
+      # URL prefix for the viewer routes (e.g. '/viewer')
+      prefix: ""
   KillAura:
     # Whether this module is active
     enabled: true
