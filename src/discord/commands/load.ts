@@ -224,7 +224,7 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 	embed.setAuthor({ name: bot.username, iconURL: `https://mc-heads.net/head/${ bot.id }` });
 
 	embed.setColor(0xeab308);
-	embed.setTitle("Travelling to Stasis");
+	embed.setTitle("Traveling to Stasis");
 	embed.setDescription(`**${ bot.username }** is traveling to your stasis, please wait...`);
 
 	await interaction.editReply({ embeds: [ embed ], components: []});
