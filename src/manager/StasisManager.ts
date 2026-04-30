@@ -213,12 +213,13 @@ export class StasisManager {
 
 		// Create a goal
 		const goal = new Goal(stasis.block.position).setRange(5.0);
-		
-		// Set the goal, and add to queue
-		Client.pathfinding.pushGoal(goal);
-		await sendStatus("queued");
-		
-		// When we arrive at the stasis, attempt to activate it
+
+		// IMPORTANT: register the `arrived` listener *before* any `await` and
+		// before pushing the goal. If the bot is already in range, the next
+		// physics tick fires `finishActive("arrived")` synchronously after
+		// `pushGoal()`, and any await between push and listener registration
+		// (e.g. `await sendStatus("queued")`) lets that tick run first —
+		// `arrived` would fire with no listeners and the activation is lost.
 		goal.once("arrived", async() => {
 			
 			// Check the player is online
@@ -275,6 +276,10 @@ export class StasisManager {
 			}
 
 		});
+
+		// Now safe to push and await — the listener is already attached.
+		Client.pathfinding.pushGoal(goal);
+		await sendStatus("queued");
 
 		return all.length - 1;
 
