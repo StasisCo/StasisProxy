@@ -58,12 +58,13 @@ export const redisSub = {
 	},
 	async unsubscribe(channel: string, listener?: SubListener) {
 		const set = subscriptions.get(channel);
-		if (set) {
-			if (listener) set.delete(listener);
-			else set.clear();
-			if (set.size === 0) subscriptions.delete(channel);
+		if (!set) return;
+		const targets = listener ? [ listener ] : [ ...set ];
+		for (const fn of targets) {
+			set.delete(fn);
+			await rawSub.unsubscribe(channel, fn);
 		}
-		return rawSub.unsubscribe(channel, listener as never);
+		if (set.size === 0) subscriptions.delete(channel);
 	}
 };
 
