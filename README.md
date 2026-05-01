@@ -43,8 +43,12 @@ Get up and running in seconds using Docker.
     
 2. Create a `.env` file in the root directory with the following content, replacing the placeholders with your actual values:
     ```env
+    # Required MC server connection details
     MC_HOST=2b2t.org
     MC_USERNAME=Username
+
+    # Optional Discord integration
+    DISCORD_BOT_TOKEN=...
     ```
 
 3. Start the stack:
