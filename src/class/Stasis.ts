@@ -187,9 +187,9 @@ export class Stasis extends StasisColumn<{
 		Module.get<Viewer>("Viewer").drawBoxGrid(
 			this.id,
 			new Vec3(this.x, minY, this.z),
-			new Vec3(this.x + 1, maxY + 1, this.z + 1)
-
-			// 0x00c5b5
+			new Vec3(this.x + 1, maxY + 1, this.z + 1),
+			0x00c5b5,
+			true
 		);
 		void this.claimManagement();
 		this.emit("add", this);

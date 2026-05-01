@@ -93,6 +93,10 @@ modules:
       firstPerson: false
       # URL prefix for the viewer routes (e.g. '/viewer')
       prefix: ""
+      # Minimum world Y; controls how far down the client meshes chunks
+      worldMinY: -64
+      # Maximum world Y; controls how far up the client meshes chunks
+      worldMaxY: 320
   KillAura:
     # Whether this module is active
     enabled: true

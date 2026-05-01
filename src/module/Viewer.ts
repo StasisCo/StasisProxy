@@ -2,6 +2,7 @@ import chalk from "chalk";
 import EventEmitter from "events";
 import express from "express";
 import { createServer, type Server as HttpServer } from "http";
+import { join } from "path";
 import { setupRoutes } from "prismarine-viewer/lib/common";
 import { WorldView } from "prismarine-viewer/viewer";
 import { Server as IoServer, type Socket } from "socket.io";
@@ -9,6 +10,7 @@ import z from "zod";
 import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
 import { Module } from "~/class/Module";
+import { getPatchedClient } from "~/webclient/patches";
 
 const zConfigSchema = z.object({
 	port: z
@@ -26,7 +28,15 @@ const zConfigSchema = z.object({
 	prefix: z
 		.string()
 		.default("")
-		.describe("URL prefix for the viewer routes (e.g. '/viewer')")
+		.describe("URL prefix for the viewer routes (e.g. '/viewer')"),
+	worldMinY: z
+		.number()
+		.default(-64)
+		.describe("Minimum world Y; controls how far down the client meshes chunks"),
+	worldMaxY: z
+		.number()
+		.default(320)
+		.describe("Maximum world Y; controls how far up the client meshes chunks")
 });
 
 interface Vec3Like {
@@ -40,13 +50,15 @@ interface BoxGridPrimitive {
 	id: string;
 	start: Vec3Like;
 	end: Vec3Like;
-	color: string;
+	color: number;
+	alwaysVisible?: boolean;
 }
 interface LinePrimitive {
 	type: "line";
 	id: string;
 	points: Vec3Like[];
 	color: number;
+	alwaysVisible?: boolean;
 }
 interface PointsPrimitive {
 	type: "points";
@@ -54,6 +66,7 @@ interface PointsPrimitive {
 	points: Vec3Like[];
 	color: number;
 	size: number;
+	alwaysVisible?: boolean;
 }
 type Primitive = BoxGridPrimitive | LinePrimitive | PointsPrimitive;
 
@@ -80,7 +93,7 @@ export default class Viewer extends Module<typeof zConfigSchema> {
 	}
 
 	public override onReady(): void {
-		this.start();
+		void this.start();
 	}
 
 	public override onDisable(): void {
@@ -92,7 +105,7 @@ export default class Viewer extends Module<typeof zConfigSchema> {
 		// Restart so port / viewDistance / prefix changes take effect.
 		if (!this.enabled) return;
 		this.stop();
-		if (Client.bot.entity) this.start();
+		if (Client.bot.entity) void this.start();
 	}
 
 	// ──────────────────────────────────────────────────────────────────────────
@@ -104,16 +117,16 @@ export default class Viewer extends Module<typeof zConfigSchema> {
 		this.broadcast("primitive", { id });
 	}
 
-	public drawBoxGrid(id: string, start: Vec3Like, end: Vec3Like, color = "aqua"): void {
-		this.savePrimitive({ type: "boxgrid", id, start, end, color });
+	public drawBoxGrid(id: string, start: Vec3Like, end: Vec3Like, color = 0xFF0000, alwaysVisible = false): void {
+		this.savePrimitive({ type: "boxgrid", id, start, end, color, alwaysVisible });
 	}
 
-	public drawLine(id: string, points: Vec3Like[], color = 0xff0000): void {
-		this.savePrimitive({ type: "line", id, points, color });
+	public drawLine(id: string, points: Vec3Like[], color = 0xff0000, alwaysVisible = false): void {
+		this.savePrimitive({ type: "line", id, points, color, alwaysVisible });
 	}
 
-	public drawPoints(id: string, points: Vec3Like[], color = 0xff0000, size = 5): void {
-		this.savePrimitive({ type: "points", id, points, color, size });
+	public drawPoints(id: string, points: Vec3Like[], color = 0xff0000, size = 5, alwaysVisible = false): void {
+		this.savePrimitive({ type: "points", id, points, color, size, alwaysVisible });
 	}
 
 	// ──────────────────────────────────────────────────────────────────────────
@@ -129,13 +142,29 @@ export default class Viewer extends Module<typeof zConfigSchema> {
 		for (const socket of this.sockets) socket.emit(event, payload);
 	}
 
-	private start(): void {
+	private async start(): Promise<void> {
 		if (this.http) return;
 
 		const { port, prefix } = this.config;
 		const app = express();
 		const http = createServer(app);
 		const io = new IoServer(http, { path: prefix + "/socket.io" });
+
+		// Serve our patched bundle + custom HTML/overrides BEFORE setupRoutes,
+		// so Express's first-match wins over prismarine-viewer's static dir.
+		const { js: patchedJs } = await getPatchedClient();
+		const base = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+
+		app.get(`${ base }/index.js`, (_req, res) => {
+			res.type("application/javascript").send(patchedJs);
+		});
+		app.get(`${ base }/config.js`, (_req, res) => {
+			const { worldMinY, worldMaxY } = this.config;
+			res.type("application/javascript").send(
+				`window.__stasisMinY=${ worldMinY };window.__stasisMaxY=${ worldMaxY };`
+			);
+		});
+		app.use(base || "/", express.static(join(import.meta.dir, "..", "webclient")));
 
 		setupRoutes(app, prefix);
 
