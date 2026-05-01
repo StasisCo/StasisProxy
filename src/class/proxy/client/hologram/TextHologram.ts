@@ -89,6 +89,22 @@ export abstract class TextHologram {
 	}
 
 	/**
+	 * Reverse-lookup a pearl ID from any entity ID owned by this hologram —
+	 * either the visible fake-player entity or one of its floating nametag
+	 * armor stands. Returns null if the entity isn't ours.
+	 *
+	 * Used by {@link ServerClient} to detect right-clicks on holograms and
+	 * open the corresponding stasis info GUI.
+	 */
+	public getPearlIdByEntity(entityId: number): number | null {
+		for (const [ pearlId, entry ] of this.entities) {
+			if (entry.entityId === entityId) return pearlId;
+			if (entry.nametagEntityIds.includes(entityId)) return pearlId;
+		}
+		return null;
+	}
+
+	/**
 	 * Register the fake player in the tab list and spawn the visual entity at
 	 * the chamber location. Called after all shared setup is done.
 	 *

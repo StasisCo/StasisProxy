@@ -140,9 +140,9 @@ export class StasisManager {
 			return;
 		}
 
-		StasisManager.logger.log(`Player ${ chalk.cyan(owner.username) } threw pearl ${ chalk.yellow(pearl.entity.id) }`);
+		StasisManager.logger.log(`Player ${ chalk.cyan(owner.uuid) } threw pearl ${ chalk.yellow(pearl.entity.id) }`);
 
-		const onDestroyed = () => StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(owner.username) } broke`);
+		const onDestroyed = () => StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(owner.uuid) } broke`);
 		pearl.once("destroyed", onDestroyed);
 
 		// Wait for the pearl to enter stasis
@@ -154,7 +154,7 @@ export class StasisManager {
 			// Get the bounding box of the pearl in stasis, which we will use to find the corresponding stasis chamber
 			const column = StasisColumn.get(pearl.entity.position as Vec3);
 			if (!column) {
-				StasisManager.logger.warn(`Failed to find a stasis chamber for pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(owner.username) }`);
+				StasisManager.logger.warn(`Failed to find a stasis chamber for pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(owner.uuid) }`);
 				return;
 			}
 

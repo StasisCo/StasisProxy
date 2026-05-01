@@ -11,12 +11,12 @@ export { TextHologram, type PlayerListLike };
 export const VALID_RENDERERS = [ "head", "body", "text", "off" ] as const;
 export type HologramRenderer = (typeof VALID_RENDERERS)[number];
 
-const envRaw = (process.env.HOLOGRAM_RENDERER ?? "head").toLowerCase();
+const envRaw = (process.env.HOLOGRAM_RENDERER ?? "body").toLowerCase();
 
 /** The renderer chosen at startup via the `HOLOGRAM_RENDERER` env var. */
 export const DEFAULT_RENDERER: HologramRenderer = (VALID_RENDERERS as readonly string[]).includes(envRaw)
 	? (envRaw as HologramRenderer)
-	: "head";
+	: "body";
 
 /**
  * Create a {@link TextHologram} instance for a client connection.
