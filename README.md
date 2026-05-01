@@ -1,39 +1,36 @@
 <div align="center">
-    <img
-        src="https://i.ibb.co/1JQnjdwS/Frame-36.png"
-        style="margin: 32px auto; display: block; max-width: 768px" />
 
-<p align="left">
-A self-hosted Minecraft stasis chamber proxy. Monitors active pearl chambers with an automated bot that you can connect to at any time, renders interactive holograms above active chambers, pulls pearls on demand teleporting you to the chamber at any time through chat and IRC integration. Tracks pearl ownership across multiple players, keeps the bot alive with built-in survival modules (anti-AFK, auto-eat, auto-totem, etc.), and persists all chamber data across restarts with PostgreSQL and Redis.
-</p>
+<img alt="Stasis Proxy" src="https://i.ibb.co/wTc8fc1/Frame-39.png" width="640" />
 
-![](https://img.shields.io/github/package-json/v/stasisco/stasisproxy)
-![](https://img.shields.io/github/license/stasisco/stasisproxy)
+### A self-hosted Minecraft stasis chamber proxy
 
-[![Continuous Integration](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml/badge.svg)](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml)
+A clusterable Minecraft proxy for stasis chambers: in‑game holograms, Discord and IRC bridges, peer discovery over Redis Pub/Sub, and persistent pearl storage in Postgres.
+
 [![Continuous Deployment](https://github.com/StasisCo/StasisProxy/actions/workflows/cd.yml/badge.svg)](https://github.com/StasisCo/StasisProxy/actions/workflows/cd.yml)
+[![Continuous Integration](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml/badge.svg)](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml)
 
+[![Container Size](https://ghcr-badge.egpl.dev/stasisco/stasisproxy/size?label=image%20size)](https://github.com/StasisCo/StasisProxy/pkgs/container/stasisproxy)
+[![License](https://img.shields.io/github/license/stasisco/stasisproxy)](./LICENSE)
+[![Version](https://img.shields.io/github/package-json/v/stasisco/stasisproxy)](https://github.com/StasisCo/StasisProxy/releases)
+
+#### Built with
+
+[![Bun](https://img.shields.io/badge/Bun-000?logo=bun&logoColor=fff)](https://bun.sh)
+[![Discord.js](https://img.shields.io/badge/discord.js-5865F2?logo=discord&logoColor=fff)](https://discord.js.org)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](https://www.docker.com)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=fff)](https://www.postgresql.org)
+[![Prisma](https://img.shields.io/badge/Prisma-2D3748?logo=prisma&logoColor=fff)](https://www.prisma.io)
+[![Redis](https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=fff)](https://redis.io)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff)](https://www.typescriptlang.org)
 
 </div>
-
-# ✨ Features
-
-Everything StasisProxy does to keep your pearls safe and your session seamless.
-
-* **Connect at any time**: connect to the proxy at any time to control or view stasis chambers
-* **IRC and Chat integration**: supports commands across in-game chat, whispers, and IRC
-* **On demand pearl loading**: pulls a player's pearl on command, teleporting you to the chamber location within seconds
-* **Pearl tracking**: detects and tracks ender pearls as they are thrown and enter stasis
-* **Survival modules**: keeps the bot alive autonomously with a suite of modules (anti-AFK, auto-eat, auto-totem, and more)
-* **Interactive holograms**: renders holograms above active chambers that update in real time and can be interacted with to pull the pearl
-* **Persistent storage**: all chamber data is persisted across restarts with PostgreSQL and Redis
 
 # 🚀 Quick Start
 
 Get up and running in seconds using Docker.
 
 ### Prerequisites
-
+- [Discord Bot Token](https://discord.com/developers/applications) (optional, for Discord integration)
 - [Docker](https://www.docker.com/get-started)
 
 ### Running with Docker Compose

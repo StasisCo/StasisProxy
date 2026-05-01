@@ -30,7 +30,7 @@ DiscordManager.client.once(Events.ClientReady, async function(readyClient) {
 	const claim = await redis.set("stasis-proxy:discord:register", "1", "EX", "60", "NX");
 	if (claim !== "OK") return;
 	const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN!);
-	await rest.put(Routes.applicationGuildCommands(readyClient.user.id, process.env.DISCORD_GUILD_ID!), {
+	await rest.put(Routes.applicationCommands(readyClient.user.id), {
 		body: Array.from(commands.values()).map(c => c.command.toJSON())
 	});
 });

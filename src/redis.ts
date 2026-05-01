@@ -14,7 +14,7 @@ if (!success) {
 }
 
 const url = new URL(redisUrl);
-logger.log("Connecting to Redis:", chalk.cyan.underline(url.host) + "...");
+logger.log("Connecting to Redis:", chalk.cyan.underline(url.hostname) + "...");
 
 /**
  * Shared options for all Redis connections. Tuned for managed/SaaS Redis

@@ -100,7 +100,7 @@ export class Client {
 		// Handle account resolution
 		const now = Date.now();
 		Client.bot._client.on("session", (session: SessionObject) => {
-			Client.logger.log("Authenticated as:", chalk.cyan.underline(session.selectedProfile.name), chalk.dim(`(${ normalizeUUID(session.selectedProfile.id) })`), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
+			Client.logger.log("Authenticated as", chalk.cyan(session.selectedProfile.name), chalk.dim(`(${ normalizeUUID(session.selectedProfile.id) })`), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
 			Client.session = session;
 		});
 
