@@ -78,7 +78,6 @@ export class StasisManager {
 					if (stasis) {
 						void stasis.releaseManagement();
 						Stasis.instances.delete(stasis.id);
-						Module.get<Viewer>("Viewer").erase(stasis.id);
 					}
 				});
 

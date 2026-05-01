@@ -6,10 +6,8 @@ import { Vec3 } from "vec3";
 import z from "zod";
 import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
-import Viewer from "~/module/Viewer";
 import { prisma } from "~/prisma";
 import { type Stasis as StasisData } from "../generated/prisma/client";
-import { Module } from "./Module";
 import { Pearl } from "./Pearl";
 import { StasisColumn } from "./StasisColumn";
 
@@ -179,18 +177,6 @@ export class Stasis extends StasisColumn<{
 		this.y = data.y;
 		this.z = data.z;
 		Stasis.instances.set(this.id, this);
-
-		// pos1/pos2 share x/z (single column), so expand into a 1×H×1 box that
-		// the viewer can actually render — a zero-width/depth box produces no mesh.
-		const minY = Math.min(this.pos1.y, this.pos2.y);
-		const maxY = Math.max(this.pos1.y, this.pos2.y);
-		Module.get<Viewer>("Viewer").drawBoxGrid(
-			this.id,
-			new Vec3(this.x, minY, this.z),
-			new Vec3(this.x + 1, maxY + 1, this.z + 1),
-			0x00c5b5,
-			true
-		);
 		void this.claimManagement();
 		this.emit("add", this);
 		
