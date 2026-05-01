@@ -3,6 +3,7 @@ import chalk from "chalk";
 import { execSync } from "child_process";
 import type { SessionObject } from "minecraft-protocol";
 import { createBot, type BotOptions } from "mineflayer";
+import prettyMilliseconds from "pretty-ms";
 import z from "zod";
 import { Logger } from "~/class/Logger";
 import { ChatCommandManager } from "~/manager/ChatCommandManager";
@@ -15,6 +16,7 @@ import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { logger as redisLogger, redisSub } from "~/redis";
 import { zPeerRequest } from "~/schema/zPeerRequest";
+import { normalizeUUID } from "~/utils";
 import { name, version } from "../../package.json";
 import { Console } from "./Console";
 import { Server } from "./proxy/Server";
@@ -96,8 +98,9 @@ export class Client {
 		});
 
 		// Handle account resolution
+		const now = Date.now();
 		Client.bot._client.on("session", (session: SessionObject) => {
-			Client.logger.log("Logged in as:", chalk.cyan.underline(session.selectedProfile.name), chalk.dim(session.selectedProfile.id));
+			Client.logger.log("Authenticated as:", chalk.cyan.underline(session.selectedProfile.name), chalk.dim(`(${ normalizeUUID(session.selectedProfile.id) })`), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
 			Client.session = session;
 		});
 
@@ -122,7 +125,7 @@ export class Client {
 			}
 
 			// Normalize ID
-			const botId = Client.session.selectedProfile.id.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
+			const botId = normalizeUUID(Client.session.selectedProfile.id);
 
 			// Upsert bot player in database
 			await prisma.player.upsert({ where: { id: botId }, update: { username: Client.session.selectedProfile.name }, create: { id: botId, username: Client.session.selectedProfile.name }});

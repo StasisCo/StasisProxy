@@ -4,6 +4,7 @@ import { Client, Events, GatewayIntentBits } from "discord.js";
 import { readdir } from "fs/promises";
 import type { Bot } from "mineflayer";
 import { join } from "path";
+import prettyMilliseconds from "pretty-ms";
 import { Logger } from "~/class/Logger";
 
 export class DiscordManager {
@@ -27,7 +28,7 @@ export class DiscordManager {
 		await this.loadListeners();
 		DiscordManager.logger.log("Connecting to Discord...");
 		const now = Date.now();
-		DiscordManager.client.once(Events.ClientReady, client => DiscordManager.logger.log(`Logged in as ${ chalk.cyan(client.user.tag) } ${ chalk.dim(`@${ client.user.id }`) } ${ chalk.yellow(`${ Date.now() - now }ms`) }`));
+		DiscordManager.client.once(Events.ClientReady, client => DiscordManager.logger.log(`Authenticated as ${ chalk.cyan(client.user.tag) } in ${ chalk.yellow(prettyMilliseconds(Date.now() - now)) }`));
 		DiscordManager.client.login(process.env.DISCORD_BOT_TOKEN);
 	}
 

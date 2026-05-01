@@ -1,5 +1,6 @@
 import { RedisClient } from "bun";
 import chalk from "chalk";
+import prettyMilliseconds from "pretty-ms";
 import z from "zod";
 import { Logger } from "./class/Logger";
 
@@ -13,7 +14,7 @@ if (!success) {
 }
 
 const url = new URL(redisUrl);
-logger.log("Connecting to redis", chalk.cyan.underline(url.host) + "...");
+logger.log("Connecting to Redis:", chalk.cyan.underline(url.host) + "...");
 
 /**
  * Shared options for all Redis connections. Tuned for managed/SaaS Redis
@@ -38,33 +39,31 @@ type SubListener = (message: string, channel: string) => void;
  */
 const HEARTBEAT_MS = 30_000;
 
-function createClient(name?: string, onReconnect?: () => void): RedisClient {
+function createClient({ log, onReconnect }: { log?: boolean; onReconnect?: () => void } = {}): RedisClient {
 	const now = Date.now();
 	const client = new RedisClient(redisUrl, options);
 	let hasDisconnected = false;
 
 	client.onconnect = () => {
-		if (name) logger.log(`${ name } connected`, chalk.yellow(`${ Date.now() - now }ms`));
+		if (log) logger.log("Redis connected in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
 		if (hasDisconnected) onReconnect?.();
 	};
 	client.onclose = err => {
 		hasDisconnected = true;
-		if (name) logger.warn(`${ name } connection closed: ${ err ? err.message : "no error" }`);
+		if (log) logger.warn(`Connection closed: ${ err ? err.message : "no error" }`);
 	};
 
 	setInterval(() => {
 		if (!client.connected) return;
-		if (name) {
-			client.ping().catch(err => logger.warn(`${ name } ping failed: ${ err.message }`));
-		} else {
-			client.ping().catch(err => logger.warn(`Ping failed: ${ err.message }`));
-		}
+		client.ping().catch(err => {
+			if (log) logger.warn(`Ping failed: ${ err.message }`);
+		});
 	}, HEARTBEAT_MS).unref();
 
 	return client;
 }
 
-export const redis = createClient("Redis");
+export const redis = createClient({ log: true });
 
 /**
  * Subscription registry. Upstash (and most managed Redis providers) reset
@@ -77,12 +76,14 @@ export const redis = createClient("Redis");
  */
 const subscriptions = new Map<string, Set<SubListener>>();
 
-const rawSub = createClient(undefined, () => {
-	for (const [ channel, listeners ] of subscriptions) {
-		for (const listener of listeners) {
-			rawSub.subscribe(channel, listener)
-				.then(() => logger.log(`Re-subscribed to ${ chalk.cyan(channel) }`))
-				.catch(err => logger.warn(`Failed to re-subscribe to ${ chalk.cyan(channel) }: ${ err.message }`));
+const rawSub = createClient({
+	onReconnect: () => {
+		for (const [ channel, listeners ] of subscriptions) {
+			for (const listener of listeners) {
+				rawSub.subscribe(channel, listener)
+					.then(() => logger.log(`Re-subscribed to ${ chalk.cyan(channel) }`))
+					.catch(err => logger.warn(`Failed to re-subscribe to ${ chalk.cyan(channel) }: ${ err.message }`));
+			}
 		}
 	}
 });
