@@ -191,7 +191,7 @@ export class StasisManager {
 				.addField({ name: "Pearls", value: `${ all.length } / ${ STASIS_USER_MAX }` }));
 
 			Client.chat.whisper(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
-			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.username) }`);
+			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.uuid) }`);
 
 		});
 
@@ -204,6 +204,7 @@ export class StasisManager {
 	 * @returns The number of remaining stasis chambers for the player after this one is activated, or -1 if no stasis was found
 	 */
 	public static async enqueue(ownerId: string, statusKey?: string, timeoutDuration = 1000 * 75) {
+		StasisManager.logger.log(`Queuing stasis for player ${ chalk.cyan(ownerId) }...`);
 
 		/** Status updater helper */
 		const sendStatus = async(status: z.infer<typeof zStasisStatus>) => statusKey ? await redis.publish(statusKey, status) : undefined;
@@ -212,17 +213,16 @@ export class StasisManager {
 		const all = await Stasis.fetch(ownerId)
 			.then(all => all.sort((a, b) => Client.bot.entity.position.distanceTo(a.block.position) - Client.bot.entity.position.distanceTo(b.block.position)));
 		const [ stasis ] = all;
-		if (!stasis) return -1;
+
+		if (!stasis) {
+			StasisManager.logger.warn(`No stasis chambers found for player ${ chalk.cyan(ownerId) }`);
+			return -1;
+		};
+
+		StasisManager.logger.log(`Found ${ chalk.yellow(all.length) } stasis for player ${ chalk.cyan(ownerId) }`, chalk.dim(`closest=${ Client.bot.entity.position.distanceTo(stasis.block.position).toFixed(1) }m`));
 
 		// Create a goal
 		const goal = new Goal(stasis.block.position).setRange(5.0);
-
-		// IMPORTANT: register the `arrived` listener *before* any `await` and
-		// before pushing the goal. If the bot is already in range, the next
-		// physics tick fires `finishActive("arrived")` synchronously after
-		// `pushGoal()`, and any await between push and listener registration
-		// (e.g. `await sendStatus("queued")`) lets that tick run first —
-		// `arrived` would fire with no listeners and the activation is lost.
 		goal.once("arrived", async() => {
 			
 			// Check the player is online

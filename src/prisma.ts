@@ -32,7 +32,7 @@ if (!process.argv.includes("--skip-migrations")) {
 
 // Log the database host for better visibility. The connection string may contain
 const url = new URL(connectionString);
-logger.log("Connecting to Postgres", chalk.cyan(url.username), chalk.dim("@"), chalk.cyan.underline(url.host) + "...");
+logger.log("Connecting to Postgres", chalk.cyan.underline(url.host) + "...");
 const now = Date.now();
 
 // Init adapter

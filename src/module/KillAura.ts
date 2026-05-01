@@ -8,7 +8,7 @@ import { Module } from "~/class/Module";
 const zConfigSchema = z.object({
 	reachRange: z
 		.number()
-		.default(3.5)
+		.default(3)
 		.describe("Reach range for attacking entities"),
 	list: z
 		.string()

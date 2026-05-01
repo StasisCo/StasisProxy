@@ -349,6 +349,8 @@ export class Stasis extends StasisColumn<{
 	 */
 	public async activate(retries = 3, timeoutMs = Math.max(Client.bot._client.latency * 2, 500) + 500): Promise<boolean> {
 
+		StasisManager.logger.log(`Activating stasis ${ chalk.yellow(this.id) } belonging to player ${ chalk.cyan(this.ownerId) }...`);
+
 		// Snapshot pearls before interacting
 		const pearls = this.pearls;
 
