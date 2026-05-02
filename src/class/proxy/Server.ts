@@ -75,8 +75,13 @@ export class Server {
 		const BODY = [ `§b§n${ Client.bot.username }` ];
 
 		if (Client.queue.queued) {
-			const title = (Client.queue.title || Client.queue.subtitle)?.toMotd();
-			BODY.push(title || "§6Waiting for position...");
+			const position = Client.queue.position;
+			if (position !== null) {
+				BODY.push(`§6Position in queue: §e${ position }`);
+			} else {
+				const title = (Client.queue.title || Client.queue.subtitle)?.toMotd();
+				BODY.push(title || "§6Waiting for position...");
+			}
 		} else {
 			if (Date.now() % CYCLE_DUR * 2 >= CYCLE_DUR) {
 				BODY.push(`§6${ Client.host }`);

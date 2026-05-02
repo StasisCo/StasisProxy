@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 import { type Bot as Mineflayer, type Player } from "mineflayer";
-import ChatMessageConstructor from "prismarine-chat";
+import ChatMessageConstructor, { type ChatMessage } from "prismarine-chat";
 import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
 import { COMMAND_CHAT_PREFIX } from "~/config";
@@ -49,6 +49,38 @@ export class ChatManager {
 	/** Width of a space character (5px) */
 	private static readonly SPACE_WIDTH = 5;
 
+	/** Collapse and trim visible whitespace while preserving ANSI color sequences */
+	private static normalizeAnsiWhitespace(text: string): string {
+		let result = "";
+		let started = false;
+		let pendingSpace = false;
+
+		for (let i = 0; i < text.length; i++) {
+			if (text.charCodeAt(i) === 27 && text[i + 1] === "[") {
+				const start = i;
+				i += 2;
+				while (i < text.length && !((text[i]! >= "@" && text[i]! <= "~"))) i++;
+				result += text.slice(start, i + 1);
+				continue;
+			}
+
+			if (/\s/.test(text[i]!)) {
+				if (started) pendingSpace = true;
+				continue;
+			}
+
+			if (pendingSpace) {
+				result += " ";
+				pendingSpace = false;
+			}
+
+			result += text[i];
+			started = true;
+		}
+
+		return result;
+	}
+
 	/** Calculate the pixel width of Minecraft-formatted text */
 	private static getPixelWidth(text: string): number {
 		let width = 0;
@@ -75,12 +107,19 @@ export class ChatManager {
 
 	constructor(bot: Mineflayer) {
 
+		let lastChatMessage: ChatMessage | null = null;
+
 		// Log all system chat messages to the console in a readable format
 		bot._client.on("system_chat", async function(packet: Packets.Schema["system_chat"]) {
 
 			// Parsed chat message objects can be deeply nested due to the way Minecraft formats text with extra components, translations, and selectors. We need to recursively unwrap these into a single string for logging.
 			const parsed = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
-			ChatManager.logger.log(parsed.toAnsi().trim().replace(/\n|\r|\s+/g, " "));
+
+			if (!lastChatMessage || parsed.toAnsi() !== lastChatMessage.toAnsi()) {
+				const chat = ChatManager.normalizeAnsiWhitespace(parsed.toAnsi());
+				ChatManager.logger.log(chat);
+			}
+			lastChatMessage = parsed;
 
 		});
 		

@@ -4,7 +4,10 @@ import type { PacketMeta } from "minecraft-protocol";
 import { type Bot, type GameState } from "mineflayer";
 import prettyMilliseconds from "pretty-ms";
 import { ChatMessage } from "prismarine-chat";
+import z from "zod";
+import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
+import { redis } from "~/redis";
 import { ChatManager } from "./ChatManager";
 
 export class QueueManager extends EventEmitter<{
@@ -24,6 +27,8 @@ export class QueueManager extends EventEmitter<{
 }> {
 
 	private static logger = new Logger(chalk.yellow("QUEUE"));
+
+	private readonly queueEta = { factor: 0, pow: 0 };
 
 	/**
      * Checks if the given game state indicates that the bot is currently in the queue
@@ -99,11 +104,21 @@ export class QueueManager extends EventEmitter<{
 		const match = this.subtitle.toString().match(/Position in queue: (\d+)/);
 		if (!match || !match[1]) return null;
 		this.startingPosition ??= Math.max(parseInt(match[1], 10), this.startingPosition ?? 0);
+
 		return parseInt(match[1], 10);
 	}
 
 	public get message(): ChatMessage | null {
 		return this.subtitle || null;
+	}
+
+	public get eta(): number | null {
+		const position = this.position;
+		if (position === null) return null;
+		const { factor, pow } = this.queueEta;
+		if (factor === 0 || pow === 0) return null;
+		const eta = factor * Math.pow(position, pow);
+		return isNaN(eta) ? null : eta;
 	}
 
 	/**
@@ -121,9 +136,25 @@ export class QueueManager extends EventEmitter<{
 				const { position } = this;
 				this.subtitle = new ChatManager.parser(typeof event.data.text === "string" ? JSON.parse(event.data.text) : event.data.text);
 				if (position !== this.position && this.position !== null) {
-					QueueManager.logger.log(`Position in queue: ${ chalk.yellow(this.position) }`);
+					QueueManager.logger.log(`Position in queue: ${ chalk.yellow(this.position) }`, (this.eta ? `ETA: ${ chalk.yellow(prettyMilliseconds(this.eta * 1000)) }` : ""));
+
+					if (Client.host === "connect.2b2t.org") {
+						redis.get("2b2t:queue:eta")
+							.catch(() => null)
+							.then(z.object({ factor: z.number(), pow: z.number() }).parseAsync)
+							.catch(() => fetch("https://api.2b2t.vc/queue/eta-equation")
+								.then(res => res.json())
+								.then(z.object({ factor: z.number(), pow: z.number() }).parseAsync))
+							.then(({ factor, pow }) => {
+								redis.set("2b2t:queue:eta", JSON.stringify({ factor, pow }), "EX", "600");
+								return { factor, pow };
+							})
+							.then(({ factor, pow }) => Object.assign(this.queueEta, { factor, pow }));
+					}
+
 					this.emit("position-change", this.position);
 				}
+
 				break;
 			}
 
