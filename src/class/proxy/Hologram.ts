@@ -2,7 +2,7 @@ import crypto from "crypto";
 import type { Client as MinecraftClient } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import { Vec3 } from "vec3";
-import { StasisManager } from "~/manager/StasisManager";
+import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "../Pearl";
 import { StasisColumn } from "../StasisColumn";

@@ -4,8 +4,8 @@ import ChatMessageConstructor from "prismarine-chat";
 import z from "zod";
 import { Logger } from "~/class/Logger";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
-import { ChatCommandManager } from "../client/minecraft/ChatCommands";
-import { ConfigManager } from "./ConfigManager";
+import { ConfigManager } from "../../../manager/ConfigManager";
+import { ChatCommandManager } from "./ChatCommandManager";
 
 export const zChatCommandsSchema = z.object({
 	prefix: z

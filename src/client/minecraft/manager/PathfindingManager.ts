@@ -1,7 +1,7 @@
 import type { Bot } from "mineflayer";
 import { Vec3 } from "vec3";
-import { Goal } from "../class/Goal";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { Goal } from "../../../class/Goal";
 
 export class PathfindingManager {
 

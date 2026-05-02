@@ -7,17 +7,17 @@ import prettyMilliseconds from "pretty-ms";
 import z from "zod";
 import { Logger } from "~/class/Logger";
 import { Server } from "~/class/proxy/Server";
-import { ChatCommandManager } from "~/client/minecraft/ChatCommands";
-import { ChatManager } from "~/manager/ChatManager";
-import { PathfindingManager } from "~/manager/PathfindingManager";
-import { StasisManager } from "~/manager/StasisManager";
+import { ChatCommandManager } from "~/client/minecraft/manager/ChatCommandManager";
+import { ChatManager } from "~/client/minecraft/manager/ChatManager";
+import { PathfindingManager } from "~/client/minecraft/manager/PathfindingManager";
+import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { logger as redisLogger, redisSub } from "~/redis";
 import { zPeerRequest } from "~/schema/zPeerRequest";
 import { normalizeUUID } from "~/utils";
 import { name, version } from "../../../package.json";
-import { PhysicsManager } from "./system/PhysicsManager";
-import { QueueManager } from "./system/QueueManager";
+import { PhysicsManager } from "./manager/PhysicsManager";
+import { QueueManager } from "./manager/QueueManager";
 
 export class MinecraftClient {
 

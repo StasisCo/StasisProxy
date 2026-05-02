@@ -3,7 +3,7 @@ import { Command, CommanderError } from "commander";
 import { readdir } from "fs/promises";
 import type { Player } from "mineflayer";
 import { join } from "path";
-import { MinecraftClient } from "./MinecraftClient";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 interface CommandContext {
 	player: Player;
@@ -64,7 +64,7 @@ export class ChatCommandManager {
 	}
 
 	private static async loadCommands() {
-		const dir = join(import.meta.dir, "commands");
+		const dir = join(import.meta.dir, "..", "commands");
 		const files = await readdir(dir);
 
 		for (const file of files) {

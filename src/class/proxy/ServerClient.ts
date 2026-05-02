@@ -4,7 +4,7 @@ import type { Bot as Mineflayer } from "mineflayer";
 import type { Vec3 } from "vec3";
 import { Logger } from "~/class/Logger";
 import { Stasis } from "~/class/Stasis";
-import { StasisManager } from "~/manager/StasisManager";
+import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { ClientCommandManager } from "./ClientCommandManager";
 import { HologramCommand } from "./command/HologramCommand";

@@ -7,10 +7,10 @@ import prettyMilliseconds from "pretty-ms";
 import { ChatMessage } from "prismarine-chat";
 import z from "zod";
 import { Logger } from "~/class/Logger";
+import { ChatManager } from "~/client/minecraft/manager/ChatManager";
 import { redis } from "~/redis";
 import { name as pkgname } from "../../../../package.json";
 import { MinecraftClient } from "../MinecraftClient";
-import { ChatManager } from "~/manager/ChatManager";
 
 const zQueueEta = z.object({
 	factor: z.number(),

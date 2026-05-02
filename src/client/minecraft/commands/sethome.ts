@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import type { Vec3 } from "vec3";
-import { ChatCommandManager } from "~/client/minecraft/ChatCommands";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { ChatCommandManager } from "~/client/minecraft/manager/ChatCommandManager";
 
 export default function(program: Command) {
 	program

@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { Stasis } from "~/class/Stasis";
-import { ChatCommandManager } from "~/client/minecraft/ChatCommands";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { ChatCommandManager } from "~/client/minecraft/manager/ChatCommandManager";
 import { STASIS_LOCATION_NAME, STASIS_USER_MAX } from "~/config";
 
 export default function(program: Command) {

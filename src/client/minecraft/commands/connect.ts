@@ -3,8 +3,8 @@ import type { Command } from "commander";
 import { Routes } from "discord.js";
 import z from "zod";
 import { DiscordClient } from "~/client/discord/DiscordClient";
-import { ChatCommandManager } from "~/client/minecraft/ChatCommands";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { ChatCommandManager } from "~/client/minecraft/manager/ChatCommandManager";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
 

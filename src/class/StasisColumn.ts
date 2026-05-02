@@ -4,11 +4,11 @@ import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import z from "zod";
-import { StasisManager } from "~/manager/StasisManager";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
 import { Stasis } from "./Stasis";
-import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 type StasisColumnEventMap = Record<string | symbol, unknown[]>;
 

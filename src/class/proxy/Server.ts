@@ -5,12 +5,12 @@ import type { ChatMessage } from "prismarine-chat";
 import sharp from "sharp";
 import z from "zod";
 import { Logger } from "~/class/Logger";
-import { ChatManager } from "~/manager/ChatManager";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { ChatManager } from "~/client/minecraft/manager/ChatManager";
 import { Stasis } from "../Stasis";
 import { PacketCache } from "./PacketCache";
 import { PlayerListCache } from "./PlayerListCache";
 import { ServerClient } from "./ServerClient";
-import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 /**
  * The proxy server: a Minecraft listener that lets a single human player take

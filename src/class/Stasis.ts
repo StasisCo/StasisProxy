@@ -4,12 +4,12 @@ import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import z from "zod";
-import { StasisManager } from "~/manager/StasisManager";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { type Stasis as StasisData } from "../generated/prisma/client";
 import { Pearl } from "./Pearl";
 import { StasisColumn } from "./StasisColumn";
-import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 export class Stasis extends StasisColumn<{
 
