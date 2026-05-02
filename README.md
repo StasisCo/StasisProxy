@@ -8,7 +8,7 @@ A clusterable Minecraft proxy for stasis chambers: in‑game holograms, Discord 
 
 [![Continuous Deployment](https://github.com/StasisCo/StasisProxy/actions/workflows/cd.yml/badge.svg)](https://github.com/StasisCo/StasisProxy/actions/workflows/cd.yml)
 [![Continuous Integration](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml/badge.svg)](https://github.com/StasisCo/StasisProxy/actions/workflows/ci.yml)
-
+\
 [![Container Size](https://ghcr-badge.egpl.dev/stasisco/stasisproxy/size?label=image%20size)](https://github.com/StasisCo/StasisProxy/pkgs/container/stasisproxy)
 [![License](https://img.shields.io/github/license/stasisco/stasisproxy)](./LICENSE)
 [![Version](https://img.shields.io/github/package-json/v/stasisco/stasisproxy)](https://github.com/StasisCo/StasisProxy/releases)
