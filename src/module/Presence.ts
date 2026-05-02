@@ -8,9 +8,8 @@ import z from "zod";
 import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
 import { Module } from "~/class/Module";
-import { COMMAND_CHAT_PREFIX } from "~/config";
 import { ChatCommandManager } from "~/manager/ChatCommandManager";
-import { ChatManager } from "~/manager/ChatManager";
+import { ChatManager, chatCommandsConfig } from "~/manager/ChatManager";
 import { name, version } from "../../package.json";
 
 const zConfigSchema = z.object({
@@ -92,9 +91,9 @@ export default class Presence extends Module<typeof zConfigSchema> {
 			Presence.logger.log(`${ chalk.gray("[") }${ payload.player.name }${ chalk.gray("]") }`, message.toAnsi());
 
 			// Ignore messages that don't start with the command prefix
-			if (!message.toString().toLowerCase().startsWith(COMMAND_CHAT_PREFIX.toLowerCase())) return;
+			if (!message.toString().toLowerCase().startsWith(chatCommandsConfig.prefix.toLowerCase())) return;
 
-			const command = message.toString().slice(COMMAND_CHAT_PREFIX.length).trim();
+			const command = message.toString().slice(chatCommandsConfig.prefix.length).trim();
 			await ChatCommandManager.handle(payload.player.name, command, "irc");
 
 		});

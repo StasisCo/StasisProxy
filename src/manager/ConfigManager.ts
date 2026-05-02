@@ -41,6 +41,54 @@ export class ConfigManager {
 	}
 
 	/**
+	 * Read a dot-separated path from the YAML document (e.g. `"general.chatcommands.prefix"`).
+	 * Returns `undefined` when any segment is missing.
+	 */
+	public static get(path: string): unknown {
+		const keys = path.split(".");
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- walking arbitrary YAML
+		let node: any = this.doc.toJS();
+		for (const key of keys) {
+			if (node === null || node === undefined || typeof node !== "object") return undefined;
+			node = node[key];
+		}
+		return node;
+	}
+
+	/**
+	 * Initialize a general (non-module) config section from a Zod schema.
+	 * `path` is a dot-separated key like `"general.chatcommands"`.
+	 * Missing keys are filled with schema defaults and comments; the validated
+	 * config object is returned.
+	 */
+	public static initGeneral<T extends z.ZodTypeAny>(path: string, schema: T): z.infer<T> {
+		const keys = path.split(".");
+
+		// Walk / create nested YAML maps for each segment.
+		let current: YAMLMap = this.doc.contents as YAMLMap;
+		for (const key of keys) {
+			let child = current.get(key);
+			if (!isMap(child)) {
+				child = new YAMLMap();
+				current.set(key, child);
+				this.dirty = true;
+			}
+			current = child as YAMLMap;
+		}
+
+		// Seed defaults + comments into the leaf map.
+		this.applySchemaToMap(current, schema);
+		if (this.dirty) this.write();
+
+		// Resolve the JS value at the path and validate.
+		let js: unknown = this.doc.toJS();
+		for (const key of keys) {
+			js = (js as Record<string, unknown>)?.[key];
+		}
+		return schema.parse(js ?? {}) as z.infer<T>;
+	}
+
+	/**
 	 * Initialize a module's section in config.yml. Walks the schema, fills in any
 	 * missing defaults, attaches `.describe()` text as YAML comments, and returns
 	 * the parsed/validated config object plus the enabled flag.

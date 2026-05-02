@@ -102,3 +102,7 @@ modules:
       heartbeatTimeout: 15000
       # Cap on backoff between SSE reconnect attempts (ms)
       maxReconnectDelay: 30000
+general:
+  chatcommands:
+    # Prefix for chat commands (e.g. "!" → "!load")
+    prefix: "!"

@@ -1,10 +1,20 @@
 import { randomBytes } from "crypto";
 import { type Bot as Mineflayer, type Player } from "mineflayer";
 import ChatMessageConstructor, { type ChatMessage } from "prismarine-chat";
+import z from "zod";
 import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
-import { COMMAND_CHAT_PREFIX } from "~/config";
 import { ChatCommandManager } from "./ChatCommandManager";
+import { ConfigManager } from "./ConfigManager";
+
+export const zChatCommandsSchema = z.object({
+	prefix: z
+		.string()
+		.default("!")
+		.describe("Prefix for chat commands (e.g. \"!\" → \"!load\")")
+});
+
+export const chatCommandsConfig = ConfigManager.initGeneral("general.chatcommands", zChatCommandsSchema);
 
 export class ChatManager {
 
@@ -127,8 +137,8 @@ export class ChatManager {
 		bot.on("whisper", async(username, message) => {
 
 			// Prefix is optional for whisper commands, but if present, should be removed before command parsing
-			if (message.toLowerCase().trim().startsWith(COMMAND_CHAT_PREFIX.toLowerCase().trim())) {
-				message = message.trim().slice(COMMAND_CHAT_PREFIX.length).trim();
+			if (message.toLowerCase().trim().startsWith(chatCommandsConfig.prefix.toLowerCase().trim())) {
+				message = message.trim().slice(chatCommandsConfig.prefix.length).trim();
 			}
 
 			const command = message.trim();
@@ -143,9 +153,9 @@ export class ChatManager {
 			if (message.trim().startsWith(">")) message = message.trim().slice(1).trim();
 
 			// Ignore messages that don't start with the command prefix
-			if (!message.toLowerCase().startsWith(COMMAND_CHAT_PREFIX.toLowerCase())) return;
+			if (!message.toLowerCase().startsWith(chatCommandsConfig.prefix.toLowerCase())) return;
 
-			const command = message.trim().slice(COMMAND_CHAT_PREFIX.length).trim();
+			const command = message.trim().slice(chatCommandsConfig.prefix.length).trim();
 			await ChatCommandManager.handle(username, command, "chat");
 
 		});
