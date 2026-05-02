@@ -4,12 +4,12 @@ import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import z from "zod";
-import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { type Stasis as StasisData } from "../generated/prisma/client";
 import { Pearl } from "./Pearl";
 import { StasisColumn } from "./StasisColumn";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 export class Stasis extends StasisColumn<{
 
@@ -64,12 +64,12 @@ export class Stasis extends StasisColumn<{
 
 		// Lookup the stasis in the database
 		try {
-			if (!Client.host) throw new Error("Client host is not defined");
+			if (!MinecraftClient.host) throw new Error("Client host is not defined");
 			return await prisma.stasis.findUnique({
 				where: {
 					position: {
-						server: Client.host,
-						dimension: Client.bot.game.dimension,
+						server: MinecraftClient.host,
+						dimension: MinecraftClient.bot.game.dimension,
 						x: column.block.position.x,
 						y: column.block.position.y,
 						z: column.block.position.z
@@ -100,11 +100,11 @@ export class Stasis extends StasisColumn<{
 		
 		const stasis = await prisma.stasis.findMany({
 			where: {
-				server: Client.host,
+				server: MinecraftClient.host,
 				owner: {
 					id: player
 				},
-				dimension: Client.bot.game.dimension
+				dimension: MinecraftClient.bot.game.dimension
 			},
 			include: {
 				owner: {
@@ -188,7 +188,7 @@ export class Stasis extends StasisColumn<{
 	 * If the stasis is already managed by another bot, it will update to be managed by this bot instead.
 	 */
 	private async claimManagement() {
-		const rawBotId = Client.bot.player?.uuid;
+		const rawBotId = MinecraftClient.bot.player?.uuid;
 		if (!rawBotId) return;
 
 		const botId = rawBotId.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
@@ -228,7 +228,7 @@ export class Stasis extends StasisColumn<{
 	 * @returns {Block} the block to interact with, or null if the block is not loaded or not a valid trigger
 	 */
 	public override get block(): Block {
-		const block = Client.bot.blockAt(new Vec3(this.x, this.y, this.z));
+		const block = MinecraftClient.bot.blockAt(new Vec3(this.x, this.y, this.z));
 		if (!block) throw new Error(`Stasis block at ${ this.x }, ${ this.y }, ${ this.z } is not loaded`);
 		if (!Stasis.isTriggerBlock(block)) throw new Error(`Block at ${ this.x }, ${ this.y }, ${ this.z } is not a valid stasis trigger`);
 		return block;
@@ -256,40 +256,40 @@ export class Stasis extends StasisColumn<{
 		if (this.state.open === false) return Promise.resolve(true);
 
 		// Force-look at the block center (resolves immediately)
-		const delta = (pos.offset(0.5, 0.5, 0.5) as Vec3).minus(Client.bot.entity.position.offset(0, Client.bot.entity.height, 0) as Vec3);
-		Client.bot.entity.yaw = Math.atan2(-delta.x, -delta.z);
-		Client.bot.entity.pitch = Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z));
+		const delta = (pos.offset(0.5, 0.5, 0.5) as Vec3).minus(MinecraftClient.bot.entity.position.offset(0, MinecraftClient.bot.entity.height, 0) as Vec3);
+		MinecraftClient.bot.entity.yaw = Math.atan2(-delta.x, -delta.z);
+		MinecraftClient.bot.entity.pitch = Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z));
 
 		StasisManager.expectedInteractions.set(this, Date.now());
 
 		// Listen for the raw block_change packet at this position
 		const promise = new Promise<boolean>(resolve => {
 			const timeout = setTimeout(() => {
-				Client.bot._client.removeListener("block_change", onBlockChange);
+				MinecraftClient.bot._client.removeListener("block_change", onBlockChange);
 				resolve(false);
-			}, Math.max(Client.bot._client.latency * 2, 500) + 500);
+			}, Math.max(MinecraftClient.bot._client.latency * 2, 500) + 500);
 
 			const onBlockChange = (packet: { location: { x: number; y: number; z: number } }) => {
 				if (packet.location.x === pos.x && packet.location.y === pos.y && packet.location.z === pos.z) {
-					Client.bot._client.removeListener("block_change", onBlockChange);
+					MinecraftClient.bot._client.removeListener("block_change", onBlockChange);
 					clearTimeout(timeout);
 					resolve(this.state.open === false);
 				}
 			};
 
-			Client.bot._client.on("block_change", onBlockChange);
+			MinecraftClient.bot._client.on("block_change", onBlockChange);
 		});
 
 		// A failed first click can be caused by client/server sneak desync.
-		Client.bot._client.write("entity_action", {
-			entityId: Client.bot.entity.id,
+		MinecraftClient.bot._client.write("entity_action", {
+			entityId: MinecraftClient.bot.entity.id,
 			actionId: 1,
 			jumpBoost: 0
 		});
 
 		// Send block_place with version-appropriate fields
-		if (Client.bot.supportFeature("blockPlaceHasInsideBlock")) {
-			Client.bot._client.write("block_place", {
+		if (MinecraftClient.bot.supportFeature("blockPlaceHasInsideBlock")) {
+			MinecraftClient.bot._client.write("block_place", {
 				location: pos,
 				direction: 1,
 				hand: 0,
@@ -300,8 +300,8 @@ export class Stasis extends StasisColumn<{
 				sequence: 0,
 				worldBorderHit: false
 			});
-		} else if (Client.bot.supportFeature("blockPlaceHasHandAndFloatCursor")) {
-			Client.bot._client.write("block_place", {
+		} else if (MinecraftClient.bot.supportFeature("blockPlaceHasHandAndFloatCursor")) {
+			MinecraftClient.bot._client.write("block_place", {
 				location: pos,
 				direction: 1,
 				hand: 0,
@@ -309,8 +309,8 @@ export class Stasis extends StasisColumn<{
 				cursorY: 0.5,
 				cursorZ: 0.5
 			});
-		} else if (Client.bot.supportFeature("blockPlaceHasHandAndIntCursor")) {
-			Client.bot._client.write("block_place", {
+		} else if (MinecraftClient.bot.supportFeature("blockPlaceHasHandAndIntCursor")) {
+			MinecraftClient.bot._client.write("block_place", {
 				location: pos,
 				direction: 1,
 				hand: 0,
@@ -320,7 +320,7 @@ export class Stasis extends StasisColumn<{
 			});
 		}
 
-		Client.bot.swingArm(undefined);
+		MinecraftClient.bot.swingArm(undefined);
 
 		return promise;
 	}
@@ -333,7 +333,7 @@ export class Stasis extends StasisColumn<{
 	 * @param timeoutMs - The maximum time to wait for pearls to break before giving up (default: max of 2x latency or 1000ms)
 	 * @returns {Promise<boolean>} whether the activation was successful (all pearls broke)
 	 */
-	public async activate(retries = 3, timeoutMs = Math.max(Client.bot._client.latency * 2, 500) + 500): Promise<boolean> {
+	public async activate(retries = 3, timeoutMs = Math.max(MinecraftClient.bot._client.latency * 2, 500) + 500): Promise<boolean> {
 
 		StasisManager.logger.log(`Activating stasis ${ chalk.yellow(this.id) } belonging to player ${ chalk.cyan(this.ownerId) }...`);
 

@@ -1,7 +1,7 @@
 import { Vec3 } from "vec3";
-import { Client } from "~/class/Client";
 import { Goal } from "~/class/Goal";
-import { Module } from "~/class/Module";
+import { MinecraftClient } from "../MinecraftClient";
+import { Module } from "../Module";
 
 export default class AntiBot extends Module {
 
@@ -22,16 +22,16 @@ export default class AntiBot extends Module {
 
 	public override onReady() {
 		
-		if (Client.proxy.connected) return;
+		if (MinecraftClient.proxy.connected) return;
 
-		const entity = Client.bot.entity;
+		const entity = MinecraftClient.bot.entity;
 		if (!entity) return;
 
 		// Chunks aren't loaded yet at spawn — wait for them
-		Client.bot.waitForChunksToLoad().then(() => {
-			if (!Client.bot.entity) return;
+		MinecraftClient.bot.waitForChunksToLoad().then(() => {
+			if (!MinecraftClient.bot.entity) return;
 
-			const home = Client.pathfinding.getHome();
+			const home = MinecraftClient.pathfinding.getHome();
 			if (!home) return;
 
 			const origin = home.floored() as Vec3;
@@ -40,14 +40,14 @@ export default class AntiBot extends Module {
 				const feet = origin.plus(dir);
 				const head = feet.offset(0, 1, 0);
 
-				const feetBlock = Client.bot.blockAt(feet);
-				const headBlock = Client.bot.blockAt(head);
+				const feetBlock = MinecraftClient.bot.blockAt(feet);
+				const headBlock = MinecraftClient.bot.blockAt(head);
 
 				if (!feetBlock || !headBlock) continue;
 				if (feetBlock.boundingBox === "empty" && headBlock.boundingBox === "empty") {
 
 					const target = origin.plus(dir).offset(0.5, 0, 0.5) as Vec3;
-					Client.pathfinding.pushGoal(new Goal(target).setRange(0.3).setTimeout(5000));
+					MinecraftClient.pathfinding.pushGoal(new Goal(target).setRange(0.3).setTimeout(5000));
 
 					break;
 

@@ -6,11 +6,11 @@ import { type Bot, type GameState } from "mineflayer";
 import prettyMilliseconds from "pretty-ms";
 import { ChatMessage } from "prismarine-chat";
 import z from "zod";
-import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
 import { redis } from "~/redis";
-import { name as pkgname } from "../../package.json";
-import { ChatManager } from "./ChatManager";
+import { name as pkgname } from "../../../../package.json";
+import { MinecraftClient } from "../MinecraftClient";
+import { ChatManager } from "~/manager/ChatManager";
 
 const zQueueEta = z.object({
 	factor: z.number(),
@@ -151,16 +151,16 @@ export class QueueManager extends EventEmitter<{
 				this.subtitle = new ChatManager.parser(typeof event.data.text === "string" ? JSON.parse(event.data.text) : event.data.text);
 				if (position !== this.position && this.position !== null) {
 					QueueManager.logger.log(`Position in queue: ${ chalk.yellow(this.position) }`, (this.eta ? `ETA: ${ chalk.yellow(prettyMilliseconds(this.eta * 1000)) }` : ""));
-					switch (Client.host) {
+					switch (MinecraftClient.host) {
 
 						case "connect.2b2t.org": {
-							redis.get(`${ pkgname }:queue:${ Client.host }:eta`)
+							redis.get(`${ pkgname }:queue:${ MinecraftClient.host }:eta`)
 								.then(zQueueEta.parseAsync)
 								.catch(() => fetch("https://api.2b2t.vc/queue/eta-equation")
 									.then(res => res.json())
 									.then(zQueueEta.parseAsync)
 									.then(({ factor, pow }) => {
-										redis.set(`${ pkgname }:queue:${ Client.host }:eta`, stringify({ factor, pow }), "EX", "600");
+										redis.set(`${ pkgname }:queue:${ MinecraftClient.host }:eta`, stringify({ factor, pow }), "EX", "600");
 										return { factor, pow };
 									}))
 								.then(({ factor, pow }) => Object.assign(this.queueEta, { factor, pow }));

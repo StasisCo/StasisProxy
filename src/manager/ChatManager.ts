@@ -2,9 +2,9 @@ import { randomBytes } from "crypto";
 import { type Bot as Mineflayer, type Player } from "mineflayer";
 import ChatMessageConstructor from "prismarine-chat";
 import z from "zod";
-import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
-import { ChatCommandManager } from "./ChatCommandManager";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { ChatCommandManager } from "../client/minecraft/ChatCommands";
 import { ConfigManager } from "./ConfigManager";
 
 export const zChatCommandsSchema = z.object({
@@ -119,7 +119,7 @@ export class ChatManager {
 
 		// Log all system chat messages to the console in a readable format
 		bot._client.on("system_chat", async function(packet: Packets.Schema["system_chat"]) {
-			if (Client.queue.isQueued) return;
+			if (MinecraftClient.queue.isQueued) return;
 
 			// Parsed chat message objects can be deeply nested due to the way Minecraft formats text with extra components, translations, and selectors. We need to recursively unwrap these into a single string for logging.
 			const parsed = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
@@ -178,19 +178,19 @@ export class ChatManager {
 		}
 		const msg = `${ chars.join("") } [${ randomBytes(6).toString("hex") }]`;
 
-		Client.bot.chat(`/w ${ next[0] } ${ msg }`.slice(0, 256));
+		MinecraftClient.bot.chat(`/w ${ next[0] } ${ msg }`.slice(0, 256));
 		ChatManager.whisperQueue.set(next[0], { ...next[1], retries: (next[1].retries ?? 0) + 1 });
 		this.lastWhisper = Date.now();
 
 		const onSystemMessage = (packet: Packets.Schema["system_chat"]) => {
 			const content = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
 			if (content.toString().replace(/\u200C/g, "").endsWith(msg.replace(/\u200C/g, ""))) {
-				Client.bot._client.off("system_chat", onSystemMessage);
+				MinecraftClient.bot._client.off("system_chat", onSystemMessage);
 				ChatManager.whisperQueue.delete(next[0]);
 			}
 		};
 
-		Client.bot._client.on("system_chat", onSystemMessage);
+		MinecraftClient.bot._client.on("system_chat", onSystemMessage);
 
 	}
 

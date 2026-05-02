@@ -1,6 +1,6 @@
 import z from "zod";
-import { Client } from "~/class/Client";
-import { Module } from "~/class/Module";
+import { MinecraftClient } from "../MinecraftClient";
+import { Module } from "../Module";
 
 const zConfigSchema = z.object({
 	spinTimeout: z
@@ -37,15 +37,15 @@ export default class AntiAFK extends Module<typeof zConfigSchema> {
 		if (this.interval) clearInterval(this.interval);
 		this.interval = setInterval(() => this.tick(), 1000);
 
-		Client.physics.onPreTick.push(() => this.preTick());
+		MinecraftClient.physics.onPreTick.push(() => this.preTick());
 	}
 
 	/** Called every 50 ms by PhysicsManager, before physics simulation */
 	private preTick() {
 		if (!this.spinning) return;
-		if (Client.proxy?.connected) return;
+		if (MinecraftClient.proxy?.connected) return;
 
-		const entity = Client.bot.entity;
+		const entity = MinecraftClient.bot.entity;
 		if (!entity) return;
 
 		entity.yaw = (entity.yaw - this.config.spinSpeed) % (Math.PI * 2);
@@ -53,7 +53,7 @@ export default class AntiAFK extends Module<typeof zConfigSchema> {
 
 	/** Called every 1 s to check idle timers */
 	private tick() {
-		const entity = Client.bot.entity;
+		const entity = MinecraftClient.bot.entity;
 		if (!entity) return;
 
 		const now = Date.now();
@@ -77,7 +77,7 @@ export default class AntiAFK extends Module<typeof zConfigSchema> {
 		// Swing arm after 300 s of no movement or swinging
 		if (now - this.lastSwingTime >= this.config.swingTimeout) {
 			this.lastSwingTime = now;
-			Client.bot._client.write("arm_animation", { hand: 0 });
+			MinecraftClient.bot._client.write("arm_animation", { hand: 0 });
 		}
 	}
 

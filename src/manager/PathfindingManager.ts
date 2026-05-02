@@ -1,7 +1,7 @@
 import type { Bot } from "mineflayer";
 import { Vec3 } from "vec3";
-import { Client } from "~/class/Client";
 import { Goal } from "../class/Goal";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 export class PathfindingManager {
 
@@ -27,12 +27,12 @@ export class PathfindingManager {
 
 	constructor(private readonly bot: Bot) {
 		const init = () => {
-			Client.physics.onPreTick.push(() => this.update());
+			MinecraftClient.physics.onPreTick.push(() => this.update());
 		};
 
 		const afterQueue = () => {
-			if (Client.queue?.isQueued) {
-				Client.queue.once("leave-queue", () => bot.once("spawn", init));
+			if (MinecraftClient.queue?.isQueued) {
+				MinecraftClient.queue.once("leave-queue", () => bot.once("spawn", init));
 			} else {
 				init();
 			}
@@ -112,8 +112,8 @@ export class PathfindingManager {
 
 	private startGoal(goal: Goal) {
 		this.active = goal;
-		Client.physics.controls.forward = true;
-		Client.physics.controls.sprint = !this.returningHome;
+		MinecraftClient.physics.controls.forward = true;
+		MinecraftClient.physics.controls.sprint = !this.returningHome;
 		this.stuckTicks = 0;
 		this.bestDistance = Infinity;
 		this.ticksSinceProgress = 0;
@@ -156,9 +156,9 @@ export class PathfindingManager {
 	}
 
 	private stopMovement() {
-		Client.physics.controls.forward = false;
-		Client.physics.controls.sprint = false;
-		Client.physics.controls.jump = false;
+		MinecraftClient.physics.controls.forward = false;
+		MinecraftClient.physics.controls.sprint = false;
+		MinecraftClient.physics.controls.jump = false;
 	}
 
 	private async update() {
@@ -208,7 +208,7 @@ export class PathfindingManager {
 		const movedDist = Math.abs(pos.x - this.lastPos.x) + Math.abs(pos.z - this.lastPos.z);
 		if (movedDist > 0.05) {
 			this.stuckTicks = 0;
-		} else if (Client.physics.controls.forward) {
+		} else if (MinecraftClient.physics.controls.forward) {
 			this.stuckTicks++;
 		}
 		this.lastPos.x = pos.x;
@@ -225,12 +225,12 @@ export class PathfindingManager {
 			if (this.dodgeYaw !== null && this.dodgeTicksRemaining > 0) {
 				this.dodgeTicksRemaining--;
 				this.bot.entity.yaw = this.dodgeYaw;
-				Client.physics.controls.forward = true;
+				MinecraftClient.physics.controls.forward = true;
 			} else {
 				const yaw = this.findSafeYaw(pos, dx / len, dz / len);
 				if (yaw !== null) {
 					this.bot.entity.yaw = yaw;
-					Client.physics.controls.forward = true;
+					MinecraftClient.physics.controls.forward = true;
 
 					// If we picked a non-direct heading because we're stuck, commit to it for ~20 ticks (~1s)
 					if (this.stuckTicks > 5) {
@@ -240,7 +240,7 @@ export class PathfindingManager {
 				} else {
 
 					// All checked directions blocked by hazards — stop
-					Client.physics.controls.forward = false;
+					MinecraftClient.physics.controls.forward = false;
 				}
 			}
 		}
@@ -264,11 +264,11 @@ export class PathfindingManager {
 		const ceilingBlockHere = this.bot.blockAt(new Vec3(Math.floor(pos.x), feetBy + 2, Math.floor(pos.z)));
 		const inTwoTallTunnel = headBlockHere?.boundingBox !== "block" && ceilingBlockHere?.boundingBox === "block";
 
-		if (inTwoTallTunnel && Client.physics.controls.forward) {
-			Client.physics.controls.sprint = true;
+		if (inTwoTallTunnel && MinecraftClient.physics.controls.forward) {
+			MinecraftClient.physics.controls.sprint = true;
 		}
 
-		Client.physics.controls.jump = entity.onGround && (oneHighObstacle || !!entity.isCollidedHorizontally || inTwoTallTunnel);
+		MinecraftClient.physics.controls.jump = entity.onGround && (oneHighObstacle || !!entity.isCollidedHorizontally || inTwoTallTunnel);
 	}
 
 	/**

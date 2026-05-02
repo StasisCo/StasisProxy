@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, Events, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { readdir } from "fs/promises";
 import { join } from "path";
-import { DiscordManager } from "~/manager/DiscordManager";
+import { DiscordClient } from "~/client/discord/DiscordClient";
 import { redis, logger as redisLogger } from "~/redis";
 
 type Command = {
@@ -26,7 +26,7 @@ for (const file of await readdir(commandsDir)) {
  * coordinate via Redis so only one container performs the REST registration
  * per startup window — otherwise we hit the global app-command rate limit.
  */
-DiscordManager.client.once(Events.ClientReady, async function(readyClient) {
+DiscordClient.client.once(Events.ClientReady, async function(readyClient) {
 	const claim = await redis.set("stasis-proxy:discord:register", "1", "EX", "60", "NX");
 	if (claim !== "OK") return;
 	const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN!);
@@ -43,7 +43,7 @@ DiscordManager.client.once(Events.ClientReady, async function(readyClient) {
  * executes the command. The rest silently bail. Without this every container
  * tries to `reply()` and all but one crash with `10062 Unknown interaction`.
  */
-DiscordManager.client.on(Events.InteractionCreate, async function(interaction) {
+DiscordClient.client.on(Events.InteractionCreate, async function(interaction) {
 	if (!interaction.isChatInputCommand()) return;
 	const cmd = commands.get(interaction.commandName);
 	if (!cmd) return;

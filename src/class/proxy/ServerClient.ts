@@ -2,7 +2,6 @@ import chalk from "chalk";
 import type { Client as MinecraftClient, PacketMeta } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import type { Vec3 } from "vec3";
-import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
 import { Stasis } from "~/class/Stasis";
 import { StasisManager } from "~/manager/StasisManager";
@@ -186,7 +185,7 @@ export class ServerClient {
 		// what 2b2t knows. Preserving original flags would also be wrong — if
 		// 2b2t sent a relative correction, our absolute coords would be
 		// interpreted as offsets.
-		this.packetCache.updatePosition(Client.physics.lastSent);
+		this.packetCache.updatePosition(MinecraftClient.physics.lastSent);
 
 		// Hold back the position packet — defer it until AFTER login/respawn
 		// (so the client is in the play state) but BEFORE any chunk packet
@@ -878,7 +877,7 @@ export class ServerClient {
 		const pos = this.bot.entity?.position;
 		if (pos && Number.isFinite(pos.x)) {
 			const floored = pos.floored();
-			Client.pathfinding.setHome(floored.offset(0.5, 0, 0.5) as Vec3);
+			MinecraftClient.pathfinding.setHome(floored.offset(0.5, 0, 0.5) as Vec3);
 		}
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading stored field

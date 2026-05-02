@@ -1,8 +1,8 @@
 import mcData from "minecraft-data";
 import type { Item } from "prismarine-item";
 import z from "zod";
-import { Client } from "~/class/Client";
-import { Module } from "~/class/Module";
+import { Module } from "../Module";
+import { MinecraftClient } from "../MinecraftClient";
 
 const zConfigSchema = z.object({
 	minHealth: z
@@ -45,11 +45,11 @@ export default class AutoEat extends Module<typeof zConfigSchema> {
 
 	public absorption = 0;
 
-	public health = Client.bot.health;
+	public health = MinecraftClient.bot.health;
 
-	public hunger = Client.bot.food;
+	public hunger = MinecraftClient.bot.food;
 
-	public saturation = Client.bot.foodSaturation;
+	public saturation = MinecraftClient.bot.foodSaturation;
 
 	/** The food item we are currently eating, or null if idle */
 	private eating: Item | null = null;
@@ -74,7 +74,7 @@ export default class AutoEat extends Module<typeof zConfigSchema> {
 		this.eatingSlot = food.slot;
 		
 		// Equip to main hand if not already held
-		if (Client.bot.heldItem?.slot !== food.slot) await Client.bot.equip(food, "hand");
+		if (MinecraftClient.bot.heldItem?.slot !== food.slot) await MinecraftClient.bot.equip(food, "hand");
 
 		// Send the initial use_item to begin eating
 		this.sendUseItem();
@@ -88,12 +88,12 @@ export default class AutoEat extends Module<typeof zConfigSchema> {
 		this.eating = null;
 		this.eatingSlot = -1;
 
-		Client.bot.deactivateItem();
+		MinecraftClient.bot.deactivateItem();
 	}
 
 	/** Send a use_item packet for the main hand */
 	private sendUseItem() {
-		Client.bot.activateItem(false);
+		MinecraftClient.bot.activateItem(false);
 	}
 
 	public override onPacketReceive({ name, data }: Packets.PacketEvent) {
@@ -101,7 +101,7 @@ export default class AutoEat extends Module<typeof zConfigSchema> {
 
 			// Track absorption
 			case "entity_metadata": {
-				if (Client.bot.entity.id !== data.entityId) return;
+				if (MinecraftClient.bot.entity.id !== data.entityId) return;
 				for (const entry of data.metadata) {
 					if (entry.key === 15) {
 						this.absorption = entry.value as number;
@@ -113,11 +113,11 @@ export default class AutoEat extends Module<typeof zConfigSchema> {
 
 			// Eat completion + totem pops
 			case "entity_status":
-				if (Client.bot.entity.id !== data.entityId) return;
+				if (MinecraftClient.bot.entity.id !== data.entityId) return;
 				if (data.entityStatus === 9) {
 					this.eating = null;
 					this.eatingSlot = -1;
-					Client.bot.deactivateItem();
+					MinecraftClient.bot.deactivateItem();
 				}
 				if (data.entityStatus === 35) {
 					this.absorption = 8;
@@ -137,11 +137,11 @@ export default class AutoEat extends Module<typeof zConfigSchema> {
 	}
 
 	private getGap() {
-		return Client.bot.inventory.items()
+		return MinecraftClient.bot.inventory.items()
 			.filter(({ name }) => name === "enchanted_golden_apple")
 			.sort((a, b) => {
-				const aHotbar = a.slot >= Client.bot.inventory.hotbarStart && a.slot < Client.bot.inventory.hotbarStart + 9;
-				const bHotbar = b.slot >= Client.bot.inventory.hotbarStart && b.slot < Client.bot.inventory.hotbarStart + 9;
+				const aHotbar = a.slot >= MinecraftClient.bot.inventory.hotbarStart && a.slot < MinecraftClient.bot.inventory.hotbarStart + 9;
+				const bHotbar = b.slot >= MinecraftClient.bot.inventory.hotbarStart && b.slot < MinecraftClient.bot.inventory.hotbarStart + 9;
 				if (aHotbar && !bHotbar) return -1;
 				if (!aHotbar && bHotbar) return 1;
 				return b.count - a.count;
@@ -150,8 +150,8 @@ export default class AutoEat extends Module<typeof zConfigSchema> {
 
 	/** Find the best food item in inventory based on effective quality */
 	private getBestFood() {
-		const foods = mcData(Client.bot.version).foodsByName;
-		return Client.bot.inventory.items()
+		const foods = mcData(MinecraftClient.bot.version).foodsByName;
+		return MinecraftClient.bot.inventory.items()
 			.filter(item => item.name in foods && !this.config.bannedFood.includes(item.name))
 			.sort((a, b) => (foods[b.name]?.effectiveQuality ?? 0) - (foods[a.name]?.effectiveQuality ?? 0))[0];
 	}
@@ -162,10 +162,10 @@ export default class AutoEat extends Module<typeof zConfigSchema> {
 		if (this.eating) {
 
 			// Verify the food is still in hand
-			const held = Client.bot.heldItem;
+			const held = MinecraftClient.bot.heldItem;
 			if (!held || held.slot !== this.eatingSlot) {
 				this.stopEating();
-			} else if (held.name === "enchanted_golden_apple" && this.absorption >= 16 && Client.bot.entity.effects[10] !== undefined) {
+			} else if (held.name === "enchanted_golden_apple" && this.absorption >= 16 && MinecraftClient.bot.entity.effects[10] !== undefined) {
 
 				// Gapple would do nothing — already have max absorption and regeneration
 				this.stopEating();
@@ -176,8 +176,8 @@ export default class AutoEat extends Module<typeof zConfigSchema> {
 		}
 
 		// Gapple eat check
-		const hasFireResistance = Client.bot.entity.effects[12] !== undefined;
-		const onFire = Client.bot.entity.isValid && ((Client.bot.entity.metadata[0] as unknown as number) & 0x01) !== 0;
+		const hasFireResistance = MinecraftClient.bot.entity.effects[12] !== undefined;
+		const onFire = MinecraftClient.bot.entity.isValid && ((MinecraftClient.bot.entity.metadata[0] as unknown as number) & 0x01) !== 0;
 
 		if ((this.health + this.absorption <= this.config.minHealth) || (onFire && !hasFireResistance)) {
 			const food = this.getGap();

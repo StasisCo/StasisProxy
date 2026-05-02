@@ -5,12 +5,12 @@ import EventEmitter from "events";
 import { EventSource } from "eventsource";
 import type { Item } from "prismarine-item";
 import z from "zod";
-import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
-import { Module } from "~/class/Module";
-import { ChatCommandManager } from "~/manager/ChatCommandManager";
+import { ChatCommandManager } from "~/client/minecraft/ChatCommands";
 import { ChatManager, chatCommandsConfig } from "~/manager/ChatManager";
-import { name, version } from "../../package.json";
+import { name, version } from "../../../../package.json";
+import { MinecraftClient } from "../MinecraftClient";
+import { Module } from "../Module";
 
 const zConfigSchema = z.object({
 	maxRate: z
@@ -71,14 +71,11 @@ export default class Presence extends Module<typeof zConfigSchema> {
 
 	public override onReady() {
 
-		// Disable silently if IRC is not configured
-		if (!process.env.IRC_HOST) {
-			this.enabled = false;
-			return;
-		}
+		// Skip silently if IRC is not configured (don't persist to config)
+		if (!process.env.IRC_HOST) return;
 
 		// Post when inventory changes
-		Client.bot.inventory.on("updateSlot", () => this.requestPost());
+		MinecraftClient.bot.inventory.on("updateSlot", () => this.requestPost());
 
 		// Ensure we post at least every maxInterval seconds
 		if (this.intervalTimer) clearInterval(this.intervalTimer);
@@ -133,7 +130,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 				break;
 
 			case "entity_metadata":
-				if (data.entityId !== Client.bot.entity?.id) break;
+				if (data.entityId !== MinecraftClient.bot.entity?.id) break;
 				for (const entry of data.metadata) {
 					if (entry.key === 15) {
 						this.attributes.absorption = entry.value as number;
@@ -191,23 +188,23 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		// Armor (mineflayer 5-8 → vanilla 39-36)
 		const armorMap = [ [ 5, 39 ], [ 6, 38 ], [ 7, 37 ], [ 8, 36 ] ] as const;
 		for (const [ mfSlot, vanillaSlot ] of armorMap) {
-			const item = Client.bot.inventory.slots[mfSlot];
+			const item = MinecraftClient.bot.inventory.slots[mfSlot];
 			if (item) inventory.set(vanillaSlot, Presence.translateItem(item));
 		}
 
 		// Offhand (mineflayer 45 → vanilla 40)
-		const offHand = Client.bot.inventory.slots[45];
+		const offHand = MinecraftClient.bot.inventory.slots[45];
 		if (offHand) inventory.set(40, Presence.translateItem(offHand));
 
 		// Main inventory (mineflayer 9-35 → vanilla 9-35, same numbering)
 		for (let slot = 9; slot <= 35; slot++) {
-			const item = Client.bot.inventory.slots[slot];
+			const item = MinecraftClient.bot.inventory.slots[slot];
 			if (item) inventory.set(slot, Presence.translateItem(item));
 		}
 
 		// Hotbar (mineflayer 36-44 → vanilla 0-8)
 		for (let slot = 36; slot <= 44; slot++) {
-			const item = Client.bot.inventory.slots[slot];
+			const item = MinecraftClient.bot.inventory.slots[slot];
 			if (item) inventory.set(slot - 36, Presence.translateItem(item));
 		}
 
@@ -215,8 +212,8 @@ export default class Presence extends Module<typeof zConfigSchema> {
 			type: "presence",
 			attributes: this.attributes,
 			player: {
-				name: Client.bot.username,
-				uuid: Client.bot.player.uuid
+				name: MinecraftClient.bot.username,
+				uuid: MinecraftClient.bot.player.uuid
 			},
 			inventory: Array.from(inventory.entries()).map(([ slot, item ]) => ({ slot, item }))
 		});
@@ -224,16 +221,16 @@ export default class Presence extends Module<typeof zConfigSchema> {
 
 	private get headers() {
 		return {
-			"X-IRC-Multiplayer-Server": `${ Client.host }`,
-			"User-Agent": Client.options.brand || `${ name }/${ version }`,
-			"Authorization": `Bearer ${ Client.session!.accessToken }`
+			"X-IRC-Multiplayer-Server": `${ MinecraftClient.host }`,
+			"User-Agent": MinecraftClient.options.brand || `${ name }/${ version }`,
+			"Authorization": `Bearer ${ MinecraftClient.session!.accessToken }`
 		};
 	}
 
 	// ── SSE connection ──
 
 	private tryConnect() {
-		if (!this.es && Client.session && Client.host) this.connect();
+		if (!this.es && MinecraftClient.session && MinecraftClient.host) this.connect();
 	}
 
 	private resetHeartbeat() {
@@ -274,7 +271,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 			this.es = null;
 		}
 
-		if (!Client.session || !Client.host) return;
+		if (!MinecraftClient.session || !MinecraftClient.host) return;
 
 		const url = new URL("/irc", process.env.IRC_HOST).href;
 
@@ -334,7 +331,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 	}
 
 	public async post(body: z.infer<typeof zIrcPresence>) {
-		if (!Client.session || !Client.host || !Client.bot.player) return;
+		if (!MinecraftClient.session || !MinecraftClient.host || !MinecraftClient.bot.player) return;
 
 		try {
 			await fetch(new URL("/irc", process.env.IRC_HOST), {
@@ -359,7 +356,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		this.pending = setTimeout(() => {
 			this.pending = null;
 			this.lastPost = Date.now();
-			if (Client.bot.player) this.post(this.presence);
+			if (MinecraftClient.bot.player) this.post(this.presence);
 		}, delay);
 	}
 

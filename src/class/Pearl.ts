@@ -3,8 +3,8 @@ import EventEmitter from "events";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import { StasisManager } from "~/manager/StasisManager";
-import { Client } from "./Client";
 import { Stasis } from "./Stasis";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 export class Pearl extends EventEmitter<{
 
@@ -75,7 +75,7 @@ export class Pearl extends EventEmitter<{
 		super();
 
 		// Extract owner UUID from objectData (the thrower's entity ID)
-		const entity = Client.bot.entities[packet.entityId];
+		const entity = MinecraftClient.bot.entities[packet.entityId];
 		if (!entity) throw new Error(`Failed to match spawned pearl to an entity (entityId: ${ packet.entityId })`);
 		this.entity = entity;
 
@@ -83,7 +83,7 @@ export class Pearl extends EventEmitter<{
 		entity.velocity = new Vec3(packet.velocity.x / 8000, packet.velocity.y / 8000, packet.velocity.z / 8000);
 
 		// Attempt to identify an owner from objectData
-		const owner = Object.values(Client.bot.players).find(player => player.entity && player.entity.id === packet.objectData);
+		const owner = Object.values(MinecraftClient.bot.players).find(player => player.entity && player.entity.id === packet.objectData);
 		if (owner) {
 			this.ownerId = owner.uuid;
 			this.emit("owner", this.ownerId);

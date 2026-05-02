@@ -2,8 +2,8 @@ import mcData from "minecraft-data";
 import type { Entity } from "prismarine-entity";
 import type { Item } from "prismarine-item";
 import z from "zod";
-import { Client } from "~/class/Client";
-import { Module } from "~/class/Module";
+import { Module } from "../Module";
+import { MinecraftClient } from "../MinecraftClient";
 
 const zConfigSchema = z.object({
 	reachRange: z
@@ -34,7 +34,7 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 	 * 
 	 */
 	private getSwords(target?: Entity): Item[] {
-		return Client.bot.inventory.items()
+		return MinecraftClient.bot.inventory.items()
 			.filter(i => i.name.endsWith("_sword"))
 			.filter(i => i.maxDurability - i.durabilityUsed >= 20)
 			.sort((a, b) => this.estimateDealtDamage(b, target) - this.estimateDealtDamage(a, target));
@@ -87,13 +87,13 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 	}
 
 	public override async onTickPre() {
-		if (!Client.bot.entity) return;
+		if (!MinecraftClient.bot.entity) return;
 		if (Date.now() - this.timeOfLastSwing <= 625) return;
 
-		const [ entity ] = Object.values(Client.bot.entities)
-			.filter(e => e.id !== Client.bot.entity.id)
-			.filter(e => e.position.distanceSquared(Client.bot.entity.position) <= this.config.reachRange ** 2)
-			.sort((a, b) => a.position.distanceSquared(Client.bot.entity.position) - b.position.distanceSquared(Client.bot.entity.position))
+		const [ entity ] = Object.values(MinecraftClient.bot.entities)
+			.filter(e => e.id !== MinecraftClient.bot.entity.id)
+			.filter(e => e.position.distanceSquared(MinecraftClient.bot.entity.position) <= this.config.reachRange ** 2)
+			.sort((a, b) => a.position.distanceSquared(MinecraftClient.bot.entity.position) - b.position.distanceSquared(MinecraftClient.bot.entity.position))
 			.filter(entity => {
 				for (const filter of this.config.list) {
 
@@ -101,7 +101,7 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 
 					if (entity.name.toLowerCase().replace(/\s/g, "_") === filter.toLowerCase().replace(/\s/g, "_")) return true;
 
-					const e = mcData(Client.bot.version).entitiesByName[entity.name];
+					const e = mcData(MinecraftClient.bot.version).entitiesByName[entity.name];
 					if (!e) continue;
 
 					if (e.category && filter.toLowerCase().replace(/\s/g, "_") === e.category.toLowerCase().replace(/\s/g, "_")) return true;
@@ -120,34 +120,34 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 		if (!sword) return;
 
 		let slot = sword.slot - 36;
-		const { quickBarSlot } = Client.bot;
-		if (sword.slot < Client.bot.inventory.hotbarStart || sword.slot >= Client.bot.inventory.hotbarStart + 9) {
+		const { quickBarSlot } = MinecraftClient.bot;
+		if (sword.slot < MinecraftClient.bot.inventory.hotbarStart || sword.slot >= MinecraftClient.bot.inventory.hotbarStart + 9) {
 
 			// If not, swap it to the hotbar (preferably the current quick bar slot to minimize disruption)
-			const targetSlot = quickBarSlot >= Client.bot.inventory.hotbarStart && quickBarSlot < Client.bot.inventory.hotbarStart + 9 ? quickBarSlot : Client.bot.inventory.hotbarStart;
-			Client.bot.moveSlotItem(sword.slot, targetSlot);
+			const targetSlot = quickBarSlot >= MinecraftClient.bot.inventory.hotbarStart && quickBarSlot < MinecraftClient.bot.inventory.hotbarStart + 9 ? quickBarSlot : MinecraftClient.bot.inventory.hotbarStart;
+			MinecraftClient.bot.moveSlotItem(sword.slot, targetSlot);
 			slot = targetSlot - 36;
 
 		}
 		
 		// Save current rotation, then force-send target rotation before attack.
-		const { pitch, yaw } = Client.bot.entities[Client.bot.entity.id] as Entity;
-		await Client.bot.lookAt(entity.position, true);
-		Client.physics.sendLook(entity.position);
+		const { pitch, yaw } = MinecraftClient.bot.entities[MinecraftClient.bot.entity.id] as Entity;
+		await MinecraftClient.bot.lookAt(entity.position, true);
+		MinecraftClient.physics.sendLook(entity.position);
 
 		// Silent swap to sword if we have one
-		if (slot >= 0) Client.bot.setQuickBarSlot(slot);
+		if (slot >= 0) MinecraftClient.bot.setQuickBarSlot(slot);
 
 		// Attack
-		Client.bot.swingArm("right");
-		Client.bot.attack(entity);
+		MinecraftClient.bot.swingArm("right");
+		MinecraftClient.bot.attack(entity);
 		this.timeOfLastSwing = Date.now();
 
 		// Restore swaps
-		Client.bot.setQuickBarSlot(quickBarSlot);
+		MinecraftClient.bot.setQuickBarSlot(quickBarSlot);
 
 		// Restpre rtateion
-		Client.bot.look(yaw, pitch, true);
+		MinecraftClient.bot.look(yaw, pitch, true);
 
 	}
 

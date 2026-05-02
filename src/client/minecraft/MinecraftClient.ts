@@ -6,22 +6,20 @@ import { createBot, type BotOptions } from "mineflayer";
 import prettyMilliseconds from "pretty-ms";
 import z from "zod";
 import { Logger } from "~/class/Logger";
-import { ChatCommandManager } from "~/manager/ChatCommandManager";
+import { Server } from "~/class/proxy/Server";
+import { ChatCommandManager } from "~/client/minecraft/ChatCommands";
 import { ChatManager } from "~/manager/ChatManager";
-import { DiscordManager } from "~/manager/DiscordManager";
 import { PathfindingManager } from "~/manager/PathfindingManager";
-import { PhysicsManager } from "~/manager/PhysicsManager";
-import { QueueManager } from "~/manager/QueueManager";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { logger as redisLogger, redisSub } from "~/redis";
 import { zPeerRequest } from "~/schema/zPeerRequest";
 import { normalizeUUID } from "~/utils";
-import { name, version } from "../../package.json";
-import { Console } from "./Console";
-import { Server } from "./proxy/Server";
+import { name, version } from "../../../package.json";
+import { PhysicsManager } from "./system/PhysicsManager";
+import { QueueManager } from "./system/QueueManager";
 
-export class Client {
+export class MinecraftClient {
 
 	/** User agent string to identify the client version */
 	public static readonly userAgent = `${ name }/${ version }+${ execSync("git rev-parse HEAD").toString().trim() }`;
@@ -46,12 +44,12 @@ export class Client {
 	/** Gracefully disconnects the bot and exits the process with the specified exit code (default is 1 for errors, or 0 for clean exits) */
 	public static exit(code = 1) {
 		this.exitCode = code;
-		Client.bot.quit();
+		MinecraftClient.bot.quit();
 	}
 
 	public static readonly options: BotOptions = {
 		auth: "microsoft",
-		brand: Client.userAgent,
+		brand: MinecraftClient.userAgent,
 		logErrors: false,
 		host: z.string().parse(process.env.MC_HOST?.split(":")[0]),
 		port: parseInt(z.string().optional().parse(process.env.MC_HOST)?.split(":")[1] ?? "25565"),
@@ -64,8 +62,9 @@ export class Client {
 
 	public static readonly proxy = new Server(this.bot);
 	public static readonly chat = new ChatManager(this.bot);
-	public static readonly commands = new ChatCommandManager(this.bot);
-	public static readonly discord = new DiscordManager(this.bot);
+	static {
+		void ChatCommandManager.init();
+	}
 	public static readonly pathfinding = new PathfindingManager(this.bot);
 	public static readonly physics = new PhysicsManager(this.bot);
 	public static readonly queue = new QueueManager(this.bot);
@@ -86,9 +85,9 @@ export class Client {
 		// Handle upstream disconnects
 		this.bot.on("kicked", reason => {
 			const component = new ChatManager.parser(JSON.parse(reason));
-			Client.logger.warn("Disconnected:", component.toAnsi());
+			MinecraftClient.logger.warn("Disconnected:", component.toAnsi());
 			this.proxy.kickAll(component);
-			Client.exit(1);
+			MinecraftClient.exit(1);
 		});
 
 		// On bot disconnect
@@ -99,42 +98,40 @@ export class Client {
 
 		// Handle account resolution
 		const now = Date.now();
-		Client.bot._client.on("session", (session: SessionObject) => {
-			Client.logger.log("Authenticated as", chalk.cyan(session.selectedProfile.name), chalk.dim(`(${ normalizeUUID(session.selectedProfile.id) })`), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
-			Client.session = session;
+		MinecraftClient.bot._client.on("session", (session: SessionObject) => {
+			MinecraftClient.logger.log("Authenticated as", chalk.cyan(session.selectedProfile.name), chalk.dim(`(${ normalizeUUID(session.selectedProfile.id) })`), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
+			MinecraftClient.session = session;
 		});
 
 		// Handle upstream connection
-		Client.bot._client.on("connect", async() => {
+		MinecraftClient.bot._client.on("connect", async() => {
 
 			// Resolve _host
-			const socket = Client.bot._client.socket;
-			if (socket) Client.host = "_host" in socket && typeof socket._host === "string" ? socket._host : undefined;
+			const socket = MinecraftClient.bot._client.socket;
+			if (socket) MinecraftClient.host = "_host" in socket && typeof socket._host === "string" ? socket._host : undefined;
 
 			// Fallback to configured host if resolution failed 
-			if (!Client.host) {
-				Client.logger.warn("Could not resolve server host from socket, falling back to MC_HOST environment variable");
-				Client.host = Client.options.host;
+			if (!MinecraftClient.host) {
+				MinecraftClient.logger.warn("Could not resolve server host from socket, falling back to MC_HOST environment variable");
+				MinecraftClient.host = MinecraftClient.options.host;
 			}
 
-			Client.logger.log("Connected to server:", chalk.cyan.underline(Client.host), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
+			MinecraftClient.logger.log("Connected to server:", chalk.cyan.underline(MinecraftClient.host), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
 
-			if (!Client.session) {
-				Client.logger.error("Session object is not available after connection");
-				return Client.exit(1);
+			if (!MinecraftClient.session) {
+				MinecraftClient.logger.error("Session object is not available after connection");
+				return MinecraftClient.exit(1);
 			}
 
 			// Normalize ID
-			const botId = normalizeUUID(Client.session.selectedProfile.id);
+			const botId = normalizeUUID(MinecraftClient.session.selectedProfile.id);
 
 			// Upsert bot player in database
-			await prisma.player.upsert({ where: { id: botId }, update: { username: Client.session.selectedProfile.name }, create: { id: botId, username: Client.session.selectedProfile.name }});
+			await prisma.player.upsert({ where: { id: botId }, update: { username: MinecraftClient.session.selectedProfile.name }, create: { id: botId, username: MinecraftClient.session.selectedProfile.name }});
 			await prisma.bot.upsert({ where: { id: botId }, update: {}, create: { player: { connect: { id: botId }}}});
 
-
-
 			// Subscribe to this bot's command channel so peers can request pearl loads
-			const channel = `${ name }:cluster:${ Client.host }:${ botId }:queue`;
+			const channel = `${ name }:cluster:${ MinecraftClient.host }:${ botId }:queue`;
 			await redisSub.subscribe(channel, async(raw: string) => {
 				
 				// Log the received message for debugging purposes

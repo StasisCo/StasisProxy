@@ -1,6 +1,6 @@
 import z from "zod";
-import { Client } from "~/class/Client";
-import { Module } from "~/class/Module";
+import { MinecraftClient } from "../MinecraftClient";
+import { Module } from "../Module";
 
 const zConfigSchema = z.object({
 	items: z
@@ -44,18 +44,18 @@ export default class AutoEject extends Module<typeof zConfigSchema> {
 	}
 
 	public override onTickPre() {
-		if (Client.proxy.connected) return;
+		if (MinecraftClient.proxy.connected) return;
 		if (this.ejecting) return;
 
 		if (this.blacklist.size === 0) this.blacklist = new Set(this.config.items);
 
-		const item = Client.bot.inventory.slots.find(
+		const item = MinecraftClient.bot.inventory.slots.find(
 			(s): s is NonNullable<typeof s> => s !== null && s !== undefined && this.blacklist.has(s.name)
 		);
 		if (!item) return;
 
 		this.ejecting = true;
-		Client.bot.tossStack(item)
+		MinecraftClient.bot.tossStack(item)
 			.catch(() => { /* item may have already been moved */ })
 			.finally(() => {
 				this.ejecting = false;

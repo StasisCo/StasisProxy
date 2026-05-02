@@ -1,7 +1,7 @@
 import { readdir } from "fs/promises";
 import z from "zod";
-import { Client } from "~/class/Client";
 import { ConfigManager } from "~/manager/ConfigManager";
+import { MinecraftClient } from "./MinecraftClient";
 
 export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 
@@ -15,7 +15,7 @@ export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 
 	/** Loads all modules from src/module, binds the packet listener, and schedules onReady/onTick. */
 	public static init() {
-		Client.bot._client.on("packet", (data, { name }) => {
+		MinecraftClient.bot._client.on("packet", (data, { name }) => {
 			for (const module of Module.modules.values()) {
 				if (!module.enabled) continue;
 				if (module.onPacketReceive) module.onPacketReceive({ name: name as keyof Packets.Schema, data });
@@ -26,18 +26,16 @@ export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 	}
 
 	private static async load() {
-		for (const file of await readdir("src/module", { withFileTypes: true, recursive: true })) {
+		for (const file of await readdir("src/client/minecraft/module", { withFileTypes: true, recursive: true })) {
 			if (!file.isFile()) continue;
 			if (!file.name.endsWith(".ts") && !file.name.endsWith(".js")) continue;
-			await import(`../module/${ file.name }`).then(module => {
+			await import(`./module/${ file.name }`).then(module => {
 				const instance = new module.default() as Module;
 				const { enabled, config } = ConfigManager.initModule(instance.name, instance.zConfigSchema);
 				instance.config = config;
 				instance._enabled = enabled;
 				Module.modules.set(module.default.name, instance);
-			}).catch(err => {
-				console.error(`Failed to load module from file ${ file.name }:`, err);
-			});
+			}).catch(err => console.error("Failed to load module:", err));
 		}
 
 		// Re-parse each module's config when config.yml changes on disk
@@ -51,7 +49,7 @@ export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 						m._enabled = enabled;
 						if (enabled) {
 							m.onEnable?.();
-							if (Client.bot.entity) m.onReady?.();
+							if (MinecraftClient.bot.entity) m.onReady?.();
 						} else {
 							m.onDisable?.();
 						}
@@ -74,7 +72,7 @@ export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 			}
 
 			// Hook module onTick into the physics pre-tick loop (gated by enabled)
-			Client.physics.onPreTick.push(() => {
+			MinecraftClient.physics.onPreTick.push(() => {
 				for (const module of Module.modules.values()) {
 					if (module.enabled) module.onTickPre?.();
 				}
@@ -82,12 +80,12 @@ export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 
 		};
 
-		if (Client.queue?.isQueued) {
-			Client.queue.once("leave-queue", () => Client.bot.once("spawn", ready));
-		} else if (Client.bot.entity) {
+		if (MinecraftClient.queue?.isQueued) {
+			MinecraftClient.queue.once("leave-queue", () => MinecraftClient.bot.once("spawn", ready));
+		} else if (MinecraftClient.bot.entity) {
 			ready();
 		} else {
-			Client.bot.once("spawn", ready);
+			MinecraftClient.bot.once("spawn", ready);
 		}
 	}
 
@@ -107,7 +105,7 @@ export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 		ConfigManager.setEnabled(this.name, value);
 		if (value) {
 			this.onEnable?.();
-			if (Client.bot.entity) this.onReady?.();
+			if (MinecraftClient.bot.entity) this.onReady?.();
 		} else {
 			this.onDisable?.();
 		}

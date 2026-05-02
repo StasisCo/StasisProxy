@@ -1,7 +1,7 @@
 import type { Item } from "prismarine-item";
 import z from "zod";
-import { Client } from "~/class/Client";
-import { Module } from "~/class/Module";
+import { Module } from "../Module";
+import { MinecraftClient } from "../MinecraftClient";
 
 const zConfigSchema = z.object({
 	minDurability: z
@@ -30,14 +30,14 @@ export default class AutoXP extends Module<typeof zConfigSchema> {
 	}
 
 	private get bottles() {
-		return Client.bot.inventory.slots.filter(item => item && item.name === "experience_bottle") as Item[];
+		return MinecraftClient.bot.inventory.slots.filter(item => item && item.name === "experience_bottle") as Item[];
 	}
 
 	private getLowestDurabilityItem(): Item | null {
 		let lowestItem : Item | null = null;
 		let lowestDurability = 1;
 		for (const slot of [ 5, 6, 8, 7 ]) {
-			const item = Client.bot.inventory.slots[slot];
+			const item = MinecraftClient.bot.inventory.slots[slot];
 			if (!item || !item.durabilityUsed || !item.maxDurability) continue;
 			const durability = 1 - item.durabilityUsed / item.maxDurability;
 			if (durability < lowestDurability) {
@@ -50,7 +50,7 @@ export default class AutoXP extends Module<typeof zConfigSchema> {
 
 	public override async onTickPre() {
 
-		const entity = Client.bot.entity;
+		const entity = MinecraftClient.bot.entity;
 		if (!entity) return;
 
 		const now = Date.now();
@@ -82,7 +82,7 @@ export default class AutoXP extends Module<typeof zConfigSchema> {
 		}
 
 		// Find a bottle already in the hotbar
-		const bottle = this.bottles.find(b => Client.bot.inventory.hotbarStart <= b.slot && b.slot < Client.bot.inventory.hotbarStart + 9);
+		const bottle = this.bottles.find(b => MinecraftClient.bot.inventory.hotbarStart <= b.slot && b.slot < MinecraftClient.bot.inventory.hotbarStart + 9);
 
 		if (!bottle) {
 
@@ -90,30 +90,30 @@ export default class AutoXP extends Module<typeof zConfigSchema> {
 			if (!this.isMending) {
 				const anyBottle = this.bottles[0];
 				if (anyBottle) {
-					Client.bot.moveSlotItem(anyBottle.slot, Client.bot.inventory.hotbarStart);
+					MinecraftClient.bot.moveSlotItem(anyBottle.slot, MinecraftClient.bot.inventory.hotbarStart);
 				}
 			}
 			return;
 		}
 
 		if (!this.isMending) {
-			this.savedPitch = Client.bot.entity.pitch;
+			this.savedPitch = MinecraftClient.bot.entity.pitch;
 			this.isMending = true;
 		}
 
 		// Force pitch down and send look to server BEFORE the throw packet
-		Client.bot.entity.pitch = -Math.PI / 2;
-		Client.physics.sendLook(Client.bot.entity.yaw, -Math.PI / 2);
+		MinecraftClient.bot.entity.pitch = -Math.PI / 2;
+		MinecraftClient.physics.sendLook(MinecraftClient.bot.entity.yaw, -Math.PI / 2);
 
 		// Equip and throw the bottle
-		Client.bot.equip(bottle, "hand");
-		Client.bot.activateItem(false);
+		MinecraftClient.bot.equip(bottle, "hand");
+		MinecraftClient.bot.activateItem(false);
 
 	}
 
 	private stopMending() {
 		this.isMending = false;
-		Client.bot.entity.pitch = this.savedPitch;
+		MinecraftClient.bot.entity.pitch = this.savedPitch;
 	}
 
 }

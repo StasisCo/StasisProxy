@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from "async_hooks";
 import { Command, CommanderError } from "commander";
 import { readdir } from "fs/promises";
-import type { Bot, Player } from "mineflayer";
+import type { Player } from "mineflayer";
 import { join } from "path";
-import { Client } from "~/class/Client";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 interface CommandContext {
 	player: Player;
@@ -12,6 +12,7 @@ interface CommandContext {
 
 export class ChatCommandManager {
 
+	private static initialized = false;
 	private static program: Command;
 	private static store = new AsyncLocalStorage<CommandContext>();
 
@@ -22,7 +23,7 @@ export class ChatCommandManager {
 	}
 
 	public static async handle(username: string, input: string, method: "whisper" | "chat" | "irc" = "whisper") {
-		const player = Client.bot.players[username];
+		const player = MinecraftClient.bot.players[username];
 		if (!player) return;
 
 		const [ command, ...args ] = input.trim().split(/\s+/);
@@ -40,13 +41,16 @@ export class ChatCommandManager {
 
 				// Commander throws on unknown commands / validation errors
 				if (error instanceof Error) {
-					Client.chat.whisper(player, error.message);
+					MinecraftClient.chat.whisper(player, error.message);
 				}
 			}
 		});
 	}
 
-	constructor(private readonly bot: Bot) {
+	public static async init() {
+		if (this.initialized) return;
+		this.initialized = true;
+
 		const program = new Command();
 		program.exitOverride();
 		program.allowExcessArguments();
@@ -55,20 +59,19 @@ export class ChatCommandManager {
 			writeErr: () => {}
 		});
 
-		ChatCommandManager.program = program;
-		this.loadCommands();
+		this.program = program;
+		await this.loadCommands();
 	}
 
-	private async loadCommands() {
-		const dir = join(import.meta.dir, "..", "commands");
+	private static async loadCommands() {
+		const dir = join(import.meta.dir, "commands");
 		const files = await readdir(dir);
 
 		for (const file of files) {
 			if (!file.endsWith(".ts") && !file.endsWith(".js")) continue;
 			const mod = await import(join(dir, file));
-			if (typeof mod.default === "function") mod.default(ChatCommandManager.program);
+			if (typeof mod.default === "function") mod.default(this.program);
 		}
-
 	}
 
 }

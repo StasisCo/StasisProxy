@@ -1,7 +1,7 @@
 import mcData from "minecraft-data";
 import type { Bot } from "mineflayer";
 import { Physics, PlayerState, type Controls } from "prismarine-physics";
-import { Client } from "~/class/Client";
+import { MinecraftClient } from "../MinecraftClient";
 
 const PI = Math.PI;
 const PI_2 = Math.PI * 2;
@@ -120,7 +120,7 @@ export class PhysicsManager {
 
 			// When a proxy client is connected, they handle movement themselves — don't
 			// send a bot position_look that would conflict with the client's own packets.
-			if (Client.proxy?.connected) {
+			if (MinecraftClient.proxy?.connected) {
 
 				// Still resync sprint/sneak in case the server reset action state
 				this.lastSprint = !this.controls.sprint;
@@ -217,8 +217,8 @@ export class PhysicsManager {
 		};
 
 		const afterQueue = () => {
-			if (Client.queue?.isQueued) {
-				Client.queue.once("leave-queue", () => bot.once("spawn", init));
+			if (MinecraftClient.queue?.isQueued) {
+				MinecraftClient.queue.once("leave-queue", () => bot.once("spawn", init));
 			} else {
 				init();
 			}
@@ -242,7 +242,7 @@ export class PhysicsManager {
 		// physics and sends movement packets directly to the server. Our simulation
 		// must NOT run — it would overwrite bot.entity.position with stale values,
 		// causing desync between what 2b2t knows and what we replay on reconnect.
-		if (Client.proxy?.connected) {
+		if (MinecraftClient.proxy?.connected) {
 
 			// Modules still need to tick (KillAura, AntiAFK, etc.) — they observe
 			// state and emit their own packets independently of the physics sim.
@@ -315,7 +315,7 @@ export class PhysicsManager {
 		state.apply(this.bot);
 
 		// Only send position updates when no player is controlling via proxy
-		if (!Client.proxy?.connected) {
+		if (!MinecraftClient.proxy?.connected) {
 			this.updatePosition(performance.now());
 		}
 	}

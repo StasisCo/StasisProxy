@@ -2,14 +2,14 @@ import chalk from "chalk";
 import { randomBytes } from "crypto";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, Events, SlashCommandBuilder, StringSelectMenuBuilder, type ButtonInteraction, type CacheType } from "discord.js";
 import stringify from "fast-json-stable-stringify";
-import { Client } from "~/class/Client";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import type { Player } from "~/generated/prisma/client";
-import { DiscordManager } from "~/manager/DiscordManager";
 import { prisma } from "~/prisma";
 import { redis, logger as redisLogger, redisSub } from "~/redis";
 import { zPeerRequest } from "~/schema/zPeerRequest";
 import { zStasisStatus } from "~/schema/zStasisStatus";
-import { name } from "../../../package.json";
+import { name } from "../../../../package.json";
+import { DiscordClient } from "../DiscordClient";
 
 export const command = new SlashCommandBuilder()
 	.setName("load")
@@ -81,7 +81,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		interaction.editReply({ embeds: [ embed ], components: [ component ]});
 
 		// Wait for response from the select menu
-		DiscordManager.client.on(Events.InteractionCreate, async function handler(interaction) {
+		DiscordClient.client.on(Events.InteractionCreate, async function handler(interaction) {
 
 			if (!interaction.isStringSelectMenu()) return;
 			if (interaction.customId !== `${ id }:account`) return;
@@ -91,9 +91,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 			// Find the selected account from the list of accounts
 			const account = accounts.find(account => account.id === interaction.values[0]);
-			if (!account) return DiscordManager.client.off(Events.InteractionCreate, handler);
+			if (!account) return DiscordClient.client.off(Events.InteractionCreate, handler);
 
-			DiscordManager.client.off(Events.InteractionCreate, handler);
+			DiscordClient.client.off(Events.InteractionCreate, handler);
 			resolve(account);
 
 		});
@@ -102,7 +102,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 	// Get all pearls for this account that are in range of any online bot
 	const all = await prisma.stasis.findMany({ where: { ownerId: account.id, botId: { not: null }}, select: { id: true, owner: true, bot: { include: { player: { select: { id: true, username: true }}}}}})
-		.then(pearls => pearls.filter(pearl => Object.values(Client.bot.players).some(player => pearl.bot && player.uuid === pearl.bot.id)))
+		.then(pearls => pearls.filter(pearl => Object.values(MinecraftClient.bot.players).some(player => pearl.bot && player.uuid === pearl.bot.id)))
 		.catch(() => []);
 
 	// Get the unique bots that have pearls for this account
@@ -150,7 +150,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		interaction.editReply({ embeds: [ embed ], components: [ component ]});
 
 		// Wait for response from the select menu
-		DiscordManager.client.on(Events.InteractionCreate, async function handler(interaction) {
+		DiscordClient.client.on(Events.InteractionCreate, async function handler(interaction) {
 
 			if (!interaction.isStringSelectMenu()) return;
 			if (interaction.customId !== `${ id }:bot`) return;
@@ -160,9 +160,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 			// Find the selected bot from the map of bots
 			const selected = bots.get(interaction.values[0]);
-			if (!selected) return DiscordManager.client.off(Events.InteractionCreate, handler);
+			if (!selected) return DiscordClient.client.off(Events.InteractionCreate, handler);
 
-			DiscordManager.client.off(Events.InteractionCreate, handler);
+			DiscordClient.client.off(Events.InteractionCreate, handler);
 			resolve(selected);
 
 		});
@@ -191,7 +191,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 	interaction.editReply({ embeds: [ embed ], components });
 
 	// On interaction with the buttons, either load the stasis or instant pearl it
-	DiscordManager.client.on(Events.InteractionCreate, async function handler(interaction) {
+	DiscordClient.client.on(Events.InteractionCreate, async function handler(interaction) {
 
 		// Check if the interaction is from the buttons we sent
 		if (!interaction.isButton()) return;
@@ -203,7 +203,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		switch (request) {
 
 			case "cancel":
-				DiscordManager.client.off(Events.InteractionCreate, handler);
+				DiscordClient.client.off(Events.InteractionCreate, handler);
 				await interaction.deleteReply();
 				return;
 
@@ -232,7 +232,7 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 
 	// Publish a message to the bot's
 	const expire = 75 * 1000;
-	await redis.publish(`${ name }:cluster:${ Client.host }:${ bot.id }:queue`, stringify(zPeerRequest.parse({
+	await redis.publish(`${ name }:cluster:${ MinecraftClient.host }:${ bot.id }:queue`, stringify(zPeerRequest.parse({
 		type: "load",
 		player: account.id,
 		status: `${ id }:status`,

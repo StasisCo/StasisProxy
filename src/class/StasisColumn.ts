@@ -4,11 +4,11 @@ import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import z from "zod";
-import { Client } from "~/class/Client";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
 import { Stasis } from "./Stasis";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 type StasisColumnEventMap = Record<string | symbol, unknown[]>;
 
@@ -34,13 +34,13 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 
 		const pos = position.floored();
     
-		const bottomY = "minY" in Client.bot.game && typeof Client.bot.game.minY === "number" ? Client.bot.game.minY : -64;
-		const height = "height" in Client.bot.game && typeof Client.bot.game.height === "number" ? Client.bot.game.height : 384;
+		const bottomY = "minY" in MinecraftClient.bot.game && typeof MinecraftClient.bot.game.minY === "number" ? MinecraftClient.bot.game.minY : -64;
+		const height = "height" in MinecraftClient.bot.game && typeof MinecraftClient.bot.game.height === "number" ? MinecraftClient.bot.game.height : 384;
         
 		// Walk down from the starting position until we find the soul sand at the bottom
 		let soulSandY = pos.y;
 		while (soulSandY >= bottomY) {
-			const block = Client.bot.blockAt(new Vec3(pos.x, soulSandY, pos.z));
+			const block = MinecraftClient.bot.blockAt(new Vec3(pos.x, soulSandY, pos.z));
 			if (!block) return null; // Chunk not loaded yet
 			if (block.name === "soul_sand") break;
 			soulSandY--;
@@ -49,7 +49,7 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 		// Walk up from the soul sand until we find the top bubble column block
 		let trapdoorY = soulSandY;
 		while (trapdoorY <= bottomY + height) {
-			const block = Client.bot.blockAt(new Vec3(pos.x, trapdoorY, pos.z));
+			const block = MinecraftClient.bot.blockAt(new Vec3(pos.x, trapdoorY, pos.z));
 			if (!block) return null; // Chunk not loaded yet
 			if (StasisColumn.isTriggerBlock(block)) break;
 			trapdoorY++;
@@ -109,7 +109,7 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 	 * @returns {Block} The trapdoor block
 	 */
 	public get block(): Block {
-		const block = [ this.pos1, this.pos2 ].map(pos => Client.bot.blockAt(pos)).find(block => block && StasisColumn.isTriggerBlock(block));
+		const block = [ this.pos1, this.pos2 ].map(pos => MinecraftClient.bot.blockAt(pos)).find(block => block && StasisColumn.isTriggerBlock(block));
 		if (!block) throw new Error("Failed to find block at stasis trigger position");
 		if (!StasisColumn.isTriggerBlock(block)) throw new Error("Block at stasis trigger position is not a valid trigger");
 		return block;
@@ -120,7 +120,7 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
      * @returns {Entity[]} An array of ender pearl entities
      */
 	public get entities(): Entity[] {
-		return Object.values(Client.bot.entities)
+		return Object.values(MinecraftClient.bot.entities)
 			.filter(e => e.type === "projectile" && e.name === "ender_pearl")
 			.filter(e => Math.floor(e.position.x) >= Math.min(this.pos1.x, this.pos2.x) && Math.floor(e.position.x) <= Math.max(this.pos1.x, this.pos2.x))
 			.filter(e => Math.floor(e.position.z) >= Math.min(this.pos1.z, this.pos2.z) && Math.floor(e.position.z) <= Math.max(this.pos1.z, this.pos2.z))
@@ -160,9 +160,9 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 	public async save(owner: Player): Promise<Stasis | null> {
 		try {
 
-			if (!Client.host) throw new Error("Client host is not defined");
+			if (!MinecraftClient.host) throw new Error("Client host is not defined");
 			
-			const botId = Client.bot.player.uuid.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
+			const botId = MinecraftClient.bot.player.uuid.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
 
 			const player = await prisma.player.upsert({
 				where: {
@@ -180,8 +180,8 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 			return await prisma.stasis.upsert({
 				where: {
 					position: {
-						dimension: Client.bot.game.dimension,
-						server: Client.host,
+						dimension: MinecraftClient.bot.game.dimension,
+						server: MinecraftClient.host,
 						x: this.block.position.x,
 						y: this.block.position.y,
 						z: this.block.position.z
@@ -192,8 +192,8 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 					botId
 				},
 				create: {
-					dimension: Client.bot.game.dimension,
-					server: Client.host,
+					dimension: MinecraftClient.bot.game.dimension,
+					server: MinecraftClient.host,
 					x: this.block.position.x,
 					y: this.block.position.y,
 					z: this.block.position.z,
@@ -223,7 +223,7 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 		
 		// Traverse down until we find the first water, bubble column, or waterlogged block
 		for (let y = this.pos2.y; y >= this.pos1.y; y--) {
-			const block = Client.bot.blockAt(new Vec3(this.pos1.x, y, this.pos1.z));
+			const block = MinecraftClient.bot.blockAt(new Vec3(this.pos1.x, y, this.pos1.z));
 			if (!block) continue; // Chunk not loaded yet
 			const props = block.getProperties() as Record<string, unknown>;
 			if (block.name === "water" || block.name === "bubble_column" || props.waterlogged === true) {

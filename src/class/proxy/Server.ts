@@ -4,13 +4,13 @@ import type { Bot as Mineflayer } from "mineflayer";
 import type { ChatMessage } from "prismarine-chat";
 import sharp from "sharp";
 import z from "zod";
-import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
 import { ChatManager } from "~/manager/ChatManager";
 import { Stasis } from "../Stasis";
 import { PacketCache } from "./PacketCache";
 import { PlayerListCache } from "./PlayerListCache";
 import { ServerClient } from "./ServerClient";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 
 /**
  * The proxy server: a Minecraft listener that lets a single human player take
@@ -72,20 +72,20 @@ export class Server {
 		const CYCLE_DUR = 3000;
 
 		const HEADER = "§8§l» §3§lStasisProxy §8§l«§r";
-		const BODY = [ `§b§n${ Client.bot.username }` ];
+		const BODY = [ `§b§n${ MinecraftClient.bot.username }` ];
 
-		if (Client.queue.isQueued) {
-			const position = Client.queue.position;
+		if (MinecraftClient.queue.isQueued) {
+			const position = MinecraftClient.queue.position;
 			if (position !== null) {
 				BODY.push(`§6Position in queue: §e${ position }`);
 			} else {
-				const title = (Client.queue.title || Client.queue.subtitle)?.toMotd();
+				const title = (MinecraftClient.queue.title || MinecraftClient.queue.subtitle)?.toMotd();
 				BODY.push(title || "§6Waiting for position...");
 			}
 		} else {
 			if (Date.now() % CYCLE_DUR * 2 >= CYCLE_DUR) {
-				BODY.push(`§6${ Client.host }`);
-				BODY.push(`§e${ Object.entries(Client.bot.players).length } Online`);
+				BODY.push(`§6${ MinecraftClient.host }`);
+				BODY.push(`§e${ Object.entries(MinecraftClient.bot.players).length } Online`);
 			} else {
 				BODY.push(`§d${ Stasis.instances.size } Pearls`);
 				const unique = Stasis.instances.values()

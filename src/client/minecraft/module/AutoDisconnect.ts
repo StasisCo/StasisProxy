@@ -1,8 +1,8 @@
 import chalk from "chalk";
 import z from "zod";
-import { Client } from "~/class/Client";
-import { Module } from "~/class/Module";
 import AutoTotem from "./AutoTotem";
+import { Module } from "../Module";
+import { MinecraftClient } from "../MinecraftClient";
 
 const zConfigSchema = z.object({
 	minHealth: z
@@ -30,27 +30,27 @@ export default class AutoDisconnect extends Module<typeof zConfigSchema> {
 	}
 
 	public disconnect(reason?: string) {
-		if (reason) Client.logger.warn("Disconnecting:", chalk.yellow(reason));
-		else Client.logger.warn("Disconnecting");
-		Client.exit(0);
+		if (reason) MinecraftClient.logger.warn("Disconnecting:", chalk.yellow(reason));
+		else MinecraftClient.logger.warn("Disconnecting");
+		MinecraftClient.exit(0);
 	}
 
 	public override onPacketReceive({ data, name }: Packets.PacketEvent) {
 
 		// Exclude non us packets
-		if (Client.bot.entity && typeof data === "object" && "entityId" in data && data.entityId !== Client.bot.entity.id) return;
+		if (MinecraftClient.bot.entity && typeof data === "object" && "entityId" in data && data.entityId !== MinecraftClient.bot.entity.id) return;
 
 		switch (name) {
 
 			case "position":
-				const cur = Client.bot.entity.position.clone();
+				const cur = MinecraftClient.bot.entity.position.clone();
 				const { y, flags } = data;
 				const ny = flags & 0x02 ? cur?.y ?? 0 + y : y;
-				if (Client.bot.game.gameMode !== "survival") return;
-				if (Client.bot.game.dimension in this.config.yLevel) {
-					const yLevel = this.config.yLevel[Client.bot.game.dimension as keyof typeof this.config.yLevel];
+				if (MinecraftClient.bot.game.gameMode !== "survival") return;
+				if (MinecraftClient.bot.game.dimension in this.config.yLevel) {
+					const yLevel = this.config.yLevel[MinecraftClient.bot.game.dimension as keyof typeof this.config.yLevel];
 					if (typeof yLevel === "number" && ny < yLevel) {
-						this.disconnect(`Y level was ${ ny } in ${ Client.bot.game.dimension }`);
+						this.disconnect(`Y level was ${ ny } in ${ MinecraftClient.bot.game.dimension }`);
 					}
 				}
 				break;
@@ -58,7 +58,7 @@ export default class AutoDisconnect extends Module<typeof zConfigSchema> {
 			case "update_health":
 
 				// Make sure were in survival
-				if (Client.bot.game.gameMode !== "survival") return;
+				if (MinecraftClient.bot.game.gameMode !== "survival") return;
 
 				// Check if health is below threshold
 				const health = data.health;
@@ -81,7 +81,7 @@ export default class AutoDisconnect extends Module<typeof zConfigSchema> {
 				break;
 
 			case "entity_status":
-				if (data.entityId !== Client.bot.entity.id) return;
+				if (data.entityId !== MinecraftClient.bot.entity.id) return;
 				if (data.entityStatus !== 35) return;
 
 				// Get the totems from autototem

@@ -3,12 +3,13 @@ import chalk from "chalk";
 import { type Bot } from "mineflayer";
 import { Vec3 } from "vec3";
 import type z from "zod";
-import { Client } from "~/class/Client";
 import { Goal } from "~/class/Goal";
 import { Logger } from "~/class/Logger";
 import { Pearl } from "~/class/Pearl";
 import { Stasis } from "~/class/Stasis";
 import { StasisColumn } from "~/class/StasisColumn";
+import { DiscordClient } from "~/client/discord/DiscordClient";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { STASIS_USER_MAX } from "~/config";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
@@ -33,9 +34,9 @@ export class StasisManager {
 	private readonly attach = () => {
 		
 		// Unclaim any stasis previously owned by this bot on the same server (in case of unclean shutdown)
-		Client.queue.once("leave-queue", async() => {
-			const { count } = await prisma.stasis.updateMany({ where: { botId: Client.bot.player.uuid, server: Client.host }, data: { botId: null }});
-			if (count > 0) StasisManager.logger.log(`Disconnected ${ chalk.yellow(count) } managed stasis on ${ chalk.cyan.underline(Client.host) }`);
+		MinecraftClient.queue.once("leave-queue", async() => {
+			const { count } = await prisma.stasis.updateMany({ where: { botId: MinecraftClient.bot.player.uuid, server: MinecraftClient.host }, data: { botId: null }});
+			if (count > 0) StasisManager.logger.log(`Disconnected ${ chalk.yellow(count) } managed stasis on ${ chalk.cyan.underline(MinecraftClient.host) }`);
 		});
 		
 		// When an entity spawns
@@ -136,7 +137,7 @@ export class StasisManager {
 	private static async onPearlThrown(pearl: Pearl) {
 
 		// Locate an online owner
-		const owner = Object.values(Client.bot.players).find(player => player.uuid === pearl.ownerId);
+		const owner = Object.values(MinecraftClient.bot.players).find(player => player.uuid === pearl.ownerId);
 
 		// Ensure the pearl has an ownerId before proceeding
 		if (!pearl.ownerId || !owner) {
@@ -164,7 +165,7 @@ export class StasisManager {
 
 			// If we have an existing pearl that belongs to a different or unknown owner, we have a conflict and need to ignore this stasis chamber since we cant be sure which pearl is ours
 			if (column.pearls.some(p => p.ownerId !== pearl.ownerId || !p.ownerId)) {
-				Client.chat.whisper(owner, "This stasis already belongs to someone else, your pearl will be ignored.");
+				MinecraftClient.chat.whisper(owner, "This stasis already belongs to someone else, your pearl will be ignored.");
 				return;
 			}
 
@@ -178,23 +179,23 @@ export class StasisManager {
 			// If they have too many, break and remove excess pearls until at the limit
 			if (all.length > STASIS_USER_MAX && STASIS_USER_MAX >= 0) {
 				const excess = all.slice(STASIS_USER_MAX);
-				Client.chat.whisper(owner, `You already have ${ all.length - 1 } / ${ STASIS_USER_MAX } pearls, ${ excess.length } will be removed.`);
+				MinecraftClient.chat.whisper(owner, `You already have ${ all.length - 1 } / ${ STASIS_USER_MAX } pearls, ${ excess.length } will be removed.`);
 				StasisManager.logger.warn(`Player ${ chalk.cyan(owner.uuid) } has too many stasis chambers (${ chalk.yellow(all.length) } / ${ chalk.yellow(STASIS_USER_MAX) }), removing ${ chalk.yellow(excess.length) } excess`);
 
 				for (const extra of excess) await StasisManager.enqueue(extra.ownerId);
 				return;
 			}
 
-			await Client.discord.webhook(new Embed()
+			await DiscordClient.webhook(new Embed()
 				.setTitle(`${ owner.username } Set Stasis`)
 				.setColor(0x00c3b3)
 				.setThumbnail({ url: `https://mc-heads.net/head/${ owner.uuid.replace(/-/g, "") }` })
 				.addField({ name: "UUID", value: `${ owner.uuid }` })
-				.addField({ name: "Dimension", value: `${ Client.bot.game.dimension }`, inline: true })
+				.addField({ name: "Dimension", value: `${ MinecraftClient.bot.game.dimension }`, inline: true })
 				.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
 				.addField({ name: "Pearls", value: `${ all.length } / ${ STASIS_USER_MAX }` }));
 
-			Client.chat.whisper(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
+			MinecraftClient.chat.whisper(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
 			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.uuid) }`);
 
 		});
@@ -215,7 +216,7 @@ export class StasisManager {
 
 		// Get the nearest stasis chamber for this player
 		const all = await Stasis.fetch(ownerId)
-			.then(all => all.sort((a, b) => Client.bot.entity.position.distanceTo(a.block.position) - Client.bot.entity.position.distanceTo(b.block.position)));
+			.then(all => all.sort((a, b) => MinecraftClient.bot.entity.position.distanceTo(a.block.position) - MinecraftClient.bot.entity.position.distanceTo(b.block.position)));
 		const [ stasis ] = all;
 
 		if (!stasis) {
@@ -223,14 +224,14 @@ export class StasisManager {
 			return -1;
 		};
 
-		StasisManager.logger.log(`Found ${ chalk.yellow(all.length) } stasis for player ${ chalk.cyan(ownerId) }`, chalk.dim(`closest=${ Client.bot.entity.position.distanceTo(stasis.block.position).toFixed(1) }m`));
+		StasisManager.logger.log(`Found ${ chalk.yellow(all.length) } stasis for player ${ chalk.cyan(ownerId) }`, chalk.dim(`closest=${ MinecraftClient.bot.entity.position.distanceTo(stasis.block.position).toFixed(1) }m`));
 
 		// Create a goal
 		const goal = new Goal(stasis.block.position).setRange(5.0);
 		goal.once("arrived", async() => {
 			
 			// Check the player is online
-			const owner = Object.values(Client.bot.players).find(p => p.uuid === ownerId);
+			const owner = Object.values(MinecraftClient.bot.players).find(p => p.uuid === ownerId);
 			if (!owner) {
 				
 				// Send arrived statuss
@@ -241,7 +242,7 @@ export class StasisManager {
 				const joined = await new Promise<boolean>(resolve => {
 
 					const timeout = setTimeout(() => {
-						Client.bot._client.removeListener("packet", onPacket);
+						MinecraftClient.bot._client.removeListener("packet", onPacket);
 						StasisManager.logger.warn(`Timed out waiting for ${ chalk.cyan(ownerId) } to join`);
 						resolve(false);
 					}, timeoutDuration);
@@ -259,13 +260,13 @@ export class StasisManager {
 						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol entry
 						if (!data.data?.some((entry: any) => entry.uuid === ownerId)) return;
 	
-						Client.bot._client.removeListener("packet", onPacket);
+						MinecraftClient.bot._client.removeListener("packet", onPacket);
 						clearTimeout(timeout);
 						resolve(true);
 
 					};
 
-					Client.bot._client.on("packet", onPacket);
+					MinecraftClient.bot._client.on("packet", onPacket);
 					
 				});
 				
@@ -285,7 +286,7 @@ export class StasisManager {
 		});
 
 		// Now safe to push and await — the listener is already attached.
-		Client.pathfinding.pushGoal(goal);
+		MinecraftClient.pathfinding.pushGoal(goal);
 		await sendStatus("queued");
 
 		return all.length - 1;
