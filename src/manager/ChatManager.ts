@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 import { type Bot as Mineflayer, type Player } from "mineflayer";
-import ChatMessageConstructor, { type ChatMessage } from "prismarine-chat";
+import ChatMessageConstructor from "prismarine-chat";
 import z from "zod";
 import { Client } from "~/class/Client";
 import { Logger } from "~/class/Logger";
@@ -28,7 +28,7 @@ export class ChatManager {
 	 * Recursively unwrap a protodef-parsed NBT value into a plain chat component object.
 	 * In 1.20.3+ system_chat content arrives as binary NBT, not a JSON string.
 	 */
-	private static nbtToChat(nbt: unknown): unknown {
+	public static nbtToChat(nbt: unknown): unknown {
 		if (typeof nbt !== "object" || nbt === null) return nbt;
 		if ("type" in nbt && "value" in nbt) {
 			if (nbt.type === "compound") {
@@ -60,7 +60,7 @@ export class ChatManager {
 	private static readonly SPACE_WIDTH = 5;
 
 	/** Collapse and trim visible whitespace while preserving ANSI color sequences */
-	private static normalizeAnsiWhitespace(text: string): string {
+	public static normalizeAnsiWhitespace(text: string): string {
 		let result = "";
 		let started = false;
 		let pendingSpace = false;
@@ -117,19 +117,13 @@ export class ChatManager {
 
 	constructor(bot: Mineflayer) {
 
-		let lastChatMessage: ChatMessage | null = null;
-
 		// Log all system chat messages to the console in a readable format
 		bot._client.on("system_chat", async function(packet: Packets.Schema["system_chat"]) {
+			if (Client.queue.isQueued) return;
 
 			// Parsed chat message objects can be deeply nested due to the way Minecraft formats text with extra components, translations, and selectors. We need to recursively unwrap these into a single string for logging.
 			const parsed = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
-
-			if (!lastChatMessage || parsed.toAnsi() !== lastChatMessage.toAnsi()) {
-				const chat = ChatManager.normalizeAnsiWhitespace(parsed.toAnsi());
-				ChatManager.logger.log(chat);
-			}
-			lastChatMessage = parsed;
+			ChatManager.logger.log(ChatManager.normalizeAnsiWhitespace(parsed.toAnsi()));
 
 		});
 		

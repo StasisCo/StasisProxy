@@ -217,7 +217,7 @@ export class PhysicsManager {
 		};
 
 		const afterQueue = () => {
-			if (Client.queue?.queued) {
+			if (Client.queue?.isQueued) {
 				Client.queue.once("leave-queue", () => bot.once("spawn", init));
 			} else {
 				init();

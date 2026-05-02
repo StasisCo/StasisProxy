@@ -9,14 +9,13 @@ import { Logger } from "~/class/Logger";
 
 export class DiscordManager {
 
-	public static readonly client = new Client({
-		intents: [
-			GatewayIntentBits.Guilds,
-			GatewayIntentBits.GuildMessages,
-			GatewayIntentBits.MessageContent,
-			GatewayIntentBits.GuildMembers
-		]
-	});
+	public static readonly client = new Client({ intents: [
+		GatewayIntentBits.Guilds,
+		GatewayIntentBits.GuildMessages,
+		GatewayIntentBits.MessageContent,
+		GatewayIntentBits.GuildMembers
+	]});
+	
 	public static readonly logger = new Logger(chalk.hex("#5662f6")("DISCORD"));
 
 	constructor(private readonly bot: Bot) {
@@ -26,9 +25,9 @@ export class DiscordManager {
 	private async init() {
 		if (!process.env.DISCORD_BOT_TOKEN) return;
 		await this.loadListeners();
-		DiscordManager.logger.log("Connecting to Discord...");
 		const now = Date.now();
-		DiscordManager.client.once(Events.ClientReady, client => DiscordManager.logger.log(`Authenticated as ${ chalk.cyan(client.user.tag) } in ${ chalk.yellow(prettyMilliseconds(Date.now() - now)) }`));
+		DiscordManager.logger.log("Connecting to Discord...");
+		DiscordManager.client.once(Events.ClientReady, client => DiscordManager.logger.log(`Authenticated as ${ chalk.cyan(client.user.tag) } ${ chalk.dim(`(${ client.user.id })`) } in ${ chalk.yellow(prettyMilliseconds(Date.now() - now)) }`));
 		DiscordManager.client.login(process.env.DISCORD_BOT_TOKEN);
 	}
 

@@ -74,7 +74,7 @@ export class Server {
 		const HEADER = "§8§l» §3§lStasisProxy §8§l«§r";
 		const BODY = [ `§b§n${ Client.bot.username }` ];
 
-		if (Client.queue.queued) {
+		if (Client.queue.isQueued) {
 			const position = Client.queue.position;
 			if (position !== null) {
 				BODY.push(`§6Position in queue: §e${ position }`);

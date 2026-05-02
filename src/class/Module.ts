@@ -82,7 +82,7 @@ export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 
 		};
 
-		if (Client.queue?.queued) {
+		if (Client.queue?.isQueued) {
 			Client.queue.once("leave-queue", () => Client.bot.once("spawn", ready));
 		} else if (Client.bot.entity) {
 			ready();

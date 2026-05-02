@@ -10,6 +10,7 @@ import { Pearl } from "~/class/Pearl";
 import { Stasis } from "~/class/Stasis";
 import { StasisColumn } from "~/class/StasisColumn";
 import { STASIS_USER_MAX } from "~/config";
+import { prisma } from "~/prisma";
 import { redis } from "~/redis";
 import type { zStasisStatus } from "~/schema/zStasisStatus";
 
@@ -25,12 +26,18 @@ export class StasisManager {
 		if (this.bot.game) this.attach();
 		else this.bot.once("login", this.attach);
 	}
-
+	
 	/**
 	 * Attach event listeners for tracking pearls and their velocities, as well as handling pearl destruction
-	 */
+	*/
 	private readonly attach = () => {
-
+		
+		// Unclaim any stasis previously owned by this bot on the same server (in case of unclean shutdown)
+		Client.queue.once("leave-queue", async() => {
+			const { count } = await prisma.stasis.updateMany({ where: { botId: Client.bot.player.uuid, server: Client.host }, data: { botId: null }});
+			if (count > 0) StasisManager.logger.log(`Disconnected ${ chalk.yellow(count) } managed stasis on ${ chalk.cyan.underline(Client.host) }`);
+		});
+		
 		// When an entity spawns
 		this.bot._client.on("spawn_entity", (packet: Packets.Schema["spawn_entity"]) => {
 			

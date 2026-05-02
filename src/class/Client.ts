@@ -117,7 +117,7 @@ export class Client {
 				Client.host = Client.options.host;
 			}
 
-			Client.logger.log("Connected to server:", chalk.cyan.underline(Client.host));
+			Client.logger.log("Connected to server:", chalk.cyan.underline(Client.host), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
 
 			if (!Client.session) {
 				Client.logger.error("Session object is not available after connection");
@@ -131,9 +131,7 @@ export class Client {
 			await prisma.player.upsert({ where: { id: botId }, update: { username: Client.session.selectedProfile.name }, create: { id: botId, username: Client.session.selectedProfile.name }});
 			await prisma.bot.upsert({ where: { id: botId }, update: {}, create: { player: { connect: { id: botId }}}});
 
-			// Unclaim any stasis previously owned by this bot on the same server (in case of unclean shutdown)
-			const { count } = await prisma.stasis.updateMany({ where: { botId, server: Client.host }, data: { botId: null }});
-			if (count > 0) StasisManager.logger.log(`Disconnected ${ chalk.yellow(count) } managed stasis on ${ chalk.cyan.underline(Client.host) }`);
+
 
 			// Subscribe to this bot's command channel so peers can request pearl loads
 			const channel = `${ name }:cluster:${ Client.host }:${ botId }:queue`;
