@@ -7,10 +7,10 @@ import { Logger } from "~/class/Logger";
 import { Stasis } from "~/class/Stasis";
 import { StasisManager } from "~/manager/StasisManager";
 import { prisma } from "~/prisma";
-import { createHologram, type HologramRenderer, type TextHologram } from "./client/hologram";
 import { ClientCommandManager } from "./ClientCommandManager";
 import { HologramCommand } from "./command/HologramCommand";
 import { StasisCommand } from "./command/StasisCommand";
+import { createHologram, type HologramRenderer, type TextHologram } from "./Hologram";
 import { PacketCache, RESERIALIZE_PACKETS, type CachedPacket } from "./PacketCache";
 import { PearlFilter } from "./PearlFilter";
 import type { PlayerListCache } from "./PlayerListCache";
@@ -318,7 +318,7 @@ export class ServerClient {
 			if (meta.name === "keep_alive" || meta.name === "kick_disconnect") return;
 
 			// Filter entity packets for suspended pearls.
-			if (data != null && data.entityId !== undefined && this.pearlFilter.isHidden(data.entityId)) return;
+			if (data !== null && data.entityId !== undefined && this.pearlFilter.isHidden(data.entityId)) return;
 			if (meta.name === "entity_destroy" && Array.isArray(data?.entityIds)) {
 				const filtered = (data.entityIds as number[]).filter(id => !this.pearlFilter.isHidden(id));
 				if (filtered.length === 0) return;
@@ -597,7 +597,7 @@ export class ServerClient {
 			// Resolve usernames + skin properties for each owner in parallel.
 			const items: Array<unknown> = new Array(totalSlots).fill({ present: false });
 			this.stasisListSlots = new Array(totalSlots).fill(null);
-			await Promise.all(owners.map(async ([ ownerId, list ], idx) => {
+			await Promise.all(owners.map(async([ ownerId, list ], idx) => {
 				const head = await this.buildPlayerHead(ownerId, list);
 				items[idx] = head;
 				this.stasisListSlots[idx] = { kind: "owner", ownerId };
@@ -645,6 +645,7 @@ export class ServerClient {
 				this.commandManager.sendSystemMessage(this.client, "§7That stasis is no longer tracked.");
 				return;
 			}
+
 			// Clear the list slot map: the upcoming open_window for the info
 			// GUI uses a different windowId, and the client closes the list
 			// implicitly. Stale entries would mis-route any racing click.
@@ -679,13 +680,13 @@ export class ServerClient {
 		}
 		if (!username) {
 			try {
-				const row = await prisma.player.findUnique({ where: { id: ownerId }, select: { username: true } });
+				const row = await prisma.player.findUnique({ where: { id: ownerId }, select: { username: true }});
 				if (row?.username) username = row.username;
 			} catch { /* ignore */ }
 		}
 
 		const items: Array<unknown> = new Array(totalSlots).fill({ present: false });
-		const slotMap: typeof this.stasisListSlots = new Array(totalSlots).fill(null);
+		const slotMap: ServerClient["stasisListSlots"] = new Array(totalSlots).fill(null);
 
 		for (let i = 0; i < capped.length && i < totalSlots; i++) {
 			const stasis = capped[i]!;
@@ -732,14 +733,14 @@ export class ServerClient {
 		};
 		const texture = properties.find(p => p.name === "textures");
 		if (texture) {
-			const texEntry: Record<string, unknown> = { Value: { type: "string", value: texture.value } };
+			const texEntry: Record<string, unknown> = { Value: { type: "string", value: texture.value }};
 			if (texture.signature) texEntry.Signature = { type: "string", value: texture.signature };
 			skullOwnerValue.Properties = {
 				type: "compound",
 				value: {
 					textures: {
 						type: "list",
-						value: { type: "compound", value: [ texEntry ] }
+						value: { type: "compound", value: [ texEntry ]}
 					}
 				}
 			};
@@ -757,7 +758,7 @@ export class ServerClient {
 						type: "compound",
 						value: {
 							Name: { type: "string", value: nameNbt },
-							Lore: { type: "list", value: { type: "string", value: loreNbt } }
+							Lore: { type: "list", value: { type: "string", value: loreNbt }}
 						}
 					},
 					SkullOwner: {
@@ -778,6 +779,7 @@ export class ServerClient {
 	 * untextured (vanilla client renders the default Steve skin).
 	 */
 	private async buildPlayerHead(ownerId: string, list: Stasis[]): Promise<unknown> {
+
 		// Username + skin properties (best-effort).
 		let username: string | null = null;
 		let properties: Array<{ name: string; value: string; signature?: string }> = [];
@@ -790,7 +792,7 @@ export class ServerClient {
 
 		if (!username) {
 			try {
-				const row = await prisma.player.findUnique({ where: { id: ownerId }, select: { username: true } });
+				const row = await prisma.player.findUnique({ where: { id: ownerId }, select: { username: true }});
 				if (row?.username) username = row.username;
 			} catch { /* ignore */ }
 		}
@@ -821,14 +823,14 @@ export class ServerClient {
 
 		const texture = properties.find(p => p.name === "textures");
 		if (texture) {
-			const texEntry: Record<string, unknown> = { Value: { type: "string", value: texture.value } };
+			const texEntry: Record<string, unknown> = { Value: { type: "string", value: texture.value }};
 			if (texture.signature) texEntry.Signature = { type: "string", value: texture.signature };
 			skullOwnerValue.Properties = {
 				type: "compound",
 				value: {
 					textures: {
 						type: "list",
-						value: { type: "compound", value: [ texEntry ] }
+						value: { type: "compound", value: [ texEntry ]}
 					}
 				}
 			};
@@ -846,7 +848,7 @@ export class ServerClient {
 						type: "compound",
 						value: {
 							Name: { type: "string", value: nameNbt },
-							Lore: { type: "list", value: { type: "string", value: loreLines } }
+							Lore: { type: "list", value: { type: "string", value: loreLines }}
 						}
 					},
 					SkullOwner: {

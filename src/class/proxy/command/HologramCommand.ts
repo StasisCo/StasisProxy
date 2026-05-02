@@ -1,5 +1,5 @@
 import { ClientCommand, type ClientCommandContext } from "../ClientCommand";
-import { VALID_RENDERERS, type HologramRenderer } from "../client/hologram";
+import { VALID_RENDERERS, type HologramRenderer } from "../Hologram";
 
 /**
  * Test command exercising the {@link ClientCommandManager} pipeline end-to-end.

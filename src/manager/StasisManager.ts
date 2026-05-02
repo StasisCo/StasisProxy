@@ -6,12 +6,10 @@ import type z from "zod";
 import { Client } from "~/class/Client";
 import { Goal } from "~/class/Goal";
 import { Logger } from "~/class/Logger";
-import { Module } from "~/class/Module";
 import { Pearl } from "~/class/Pearl";
 import { Stasis } from "~/class/Stasis";
 import { StasisColumn } from "~/class/StasisColumn";
 import { STASIS_USER_MAX } from "~/config";
-import Viewer from "~/module/Viewer";
 import { redis } from "~/redis";
 import type { zStasisStatus } from "~/schema/zStasisStatus";
 
@@ -109,7 +107,7 @@ export class StasisManager {
 			// If an owner is identified within the timeout, associate the pearl with that owner, otherwise ignore the pearl
 			const ownerId = await Promise.race([ ownerIdentified, ownerFailed ]) || null;
 			if (!ownerId) {
-				StasisManager.logger.warn(`Pearl ${ chalk.yellow(pearl.entity.id) } has no identifiable owner and will be ignored`);
+				StasisManager.logger.warn(`Existing pearl ${ chalk.yellow(pearl.entity.id) } has no identifiable owner and will be ignored`);
 				return;
 			}
 
