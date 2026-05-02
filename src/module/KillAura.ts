@@ -64,6 +64,8 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 
 			case "spider":
 			case "cave_spider":
+			case "endermite":
+			case "silverfish":
 				damage += normalizeEnch(item.enchants.find(e => e.name === "bane_of_arthropods")?.lvl);
 				break;
 
@@ -74,6 +76,7 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 			case "wither_skeleton":
 			case "wither":
 			case "drowned":
+			case "zombified_piglin":
 				damage += normalizeEnch(item.enchants.find(e => e.name === "smite")?.lvl);
 				break;
 
