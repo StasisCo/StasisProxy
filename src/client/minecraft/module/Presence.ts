@@ -65,6 +65,20 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		oxygen: 300
 	};
 
+	// Bound reference so we can remove it on subsequent onReady calls
+	private onIrcMessage = async(payload: z.infer<typeof zIrcPayload> & { type: "message" }) => {
+
+		const message = new ChatManager.parser(<string>payload.message);
+		Presence.logger.log(`${ chalk.gray("[") }${ payload.player.name }${ chalk.gray("]") }`, message.toAnsi());
+
+		// Ignore messages that don't start with the command prefix
+		if (!message.toString().toLowerCase().startsWith(chatCommandsConfig.prefix.toLowerCase())) return;
+
+		const command = message.toString().slice(chatCommandsConfig.prefix.length).trim();
+		await ChatCommandManager.handle(payload.player.name, command, "irc");
+
+	};
+
 	constructor() {
 		super("Presence");
 	}
@@ -81,19 +95,9 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		if (this.intervalTimer) clearInterval(this.intervalTimer);
 		this.intervalTimer = setInterval(() => this.requestPost(), this.config.maxInterval * 1000);
 
-		// Wire up IRC chat command handling
-		this.events.on("message", async payload => {
-
-			const message = new ChatManager.parser(<string>payload.message);
-			Presence.logger.log(`${ chalk.gray("[") }${ payload.player.name }${ chalk.gray("]") }`, message.toAnsi());
-
-			// Ignore messages that don't start with the command prefix
-			if (!message.toString().toLowerCase().startsWith(chatCommandsConfig.prefix.toLowerCase())) return;
-
-			const command = message.toString().slice(chatCommandsConfig.prefix.length).trim();
-			await ChatCommandManager.handle(payload.player.name, command, "irc");
-
-		});
+		// Wire up IRC chat command handling (remove first to avoid duplicates on rebind)
+		this.events.off("message", this.onIrcMessage);
+		this.events.on("message", this.onIrcMessage);
 
 		this.tryConnect();
 

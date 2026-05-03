@@ -27,9 +27,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 			text: interaction.user.displayName,
 			iconURL: interaction.user.displayAvatarURL()
 		});
-	await redis.set(`ign-link:${ code }:user`, stringify(interaction.user.toJSON()), "EX", timeInSeconds);
+	await redis.set(`stasisproxy:discord:ignlink:${ code }:user`, stringify(interaction.user.toJSON()), "EX", timeInSeconds);
 	await interaction.reply({ embeds: [ embed ], flags: "Ephemeral" });
-	await redis.set(`ign-link:${ code }:message`, stringify({
+	await redis.set(`stasisproxy:discord:ignlink:${ code }:message`, stringify({
 		type: "interaction-original",
 		applicationId: interaction.applicationId,
 		token: interaction.token

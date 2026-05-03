@@ -153,13 +153,13 @@ export class QueueManager extends EventEmitter<{
 					switch (MinecraftClient.host) {
 
 						case "connect.2b2t.org": {
-							redis.get(`queue:${ MinecraftClient.host }:eta`)
+							redis.get(`stasisproxy:queue:${ MinecraftClient.host }:eta`)
 								.then(zQueueEta.parseAsync)
 								.catch(() => fetch("https://api.2b2t.vc/queue/eta-equation")
 									.then(res => res.json())
 									.then(zQueueEta.parseAsync)
 									.then(({ factor, pow }) => {
-										redis.set(`queue:${ MinecraftClient.host }:eta`, stringify({ factor, pow }), "EX", "600");
+										redis.set(`stasisproxy:queue:${ MinecraftClient.host }:eta`, stringify({ factor, pow }), "EX", "600");
 										return { factor, pow };
 									}))
 								.then(({ factor, pow }) => Object.assign(this.queueEta, { factor, pow }));

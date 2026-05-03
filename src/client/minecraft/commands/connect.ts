@@ -18,7 +18,7 @@ export default function(program: Command) {
 			const { player } = ChatCommandManager.context;
 
 			// Get the Discord UID associated with the code from Redis
-			const user = await redis.get(`ign-link:${ code }:user`)
+			const user = await redis.get(`stasisproxy:discord:ignlink:${ code }:user`)
 				.then(data => data ? JSON.parse(data) : null)
 				.then(z.object({ id: z.string() }).parseAsync)
 				.then(parsed => DiscordClient.client.users.fetch(parsed.id).catch(() => null));
@@ -32,10 +32,10 @@ export default function(program: Command) {
 			MinecraftClient.chat.whisper(player, "Your account has been connected!");
 
 			// // Get the message ID of the original interaction reply to delete it
-			// const messageId = await redis.get(`ign-link:${ code }:message`);
+			// const messageId = await redis.get(`stasisproxy:discord:ignlink:${ code }:message`);
 			// const message = await DiscordManager.client.channels;
 			// Get the Discord UID associated with the code from Redis
-			const payload = await redis.get(`ign-link:${ code }:message`)
+			const payload = await redis.get(`stasisproxy:discord:ignlink:${ code }:message`)
 				.then(data => data ? JSON.parse(data) : null)
 				.catch(() => null);
 
@@ -64,7 +64,7 @@ export default function(program: Command) {
 					}
 				}
 			}
-			await redis.del(`ign-link:${ code }:user`, `ign-link:${ code }:message`);
+			await redis.del(`stasisproxy:discord:ignlink:${ code }:user`, `stasisproxy:discord:ignlink:${ code }:message`);
 
 		});
 

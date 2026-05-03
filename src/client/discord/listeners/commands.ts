@@ -50,7 +50,7 @@ DiscordClient.client.on(Events.InteractionCreate, async function(interaction) {
 
 	// Claim ownership of this interaction. TTL is short — the interaction
 	// token only lives 15 minutes anyway and we just need to deduplicate.
-	const claim = await redis.set(`stasis-proxy:discord:interaction:${ interaction.id }`, true, "EX", "60", "NX");
+	const claim = await redis.set(`stasisproxy:discord:interaction:${ interaction.id }`, true, "EX", "60", "NX");
 	if (claim !== "OK") return;
 
 	try {

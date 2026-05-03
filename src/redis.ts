@@ -7,7 +7,7 @@ import { Logger } from "./class/Logger";
 
 type SubListener<T = string> = (message: T, channel: string) => void;
 
-export const logger = new Logger(chalk.hex("#ff4438")("REDIS"));
+const logger = new Logger(chalk.hex("#ff4438")("REDIS"));
 
 /** Redis client options */
 const options: ConstructorParameters<typeof RedisClient>[1] = {
@@ -38,7 +38,7 @@ const kvClient = new RedisClient(redisUrl, options);
 const psClient = new RedisClient(redisUrl, options);
 
 // Expose the unified Redis interface with JSON parsing/stringifying and subscription tracking
-export const redis = { ...kvClient, emit, get, off, on, set };
+export const redis = { ...kvClient, emit, get, off, on, set, logger };
 
 // Handle connection events for both clients
 kvClient.onconnect = () => logger.log("Redis connected in", chalk.yellow(prettyMilliseconds(Date.now() - now)));

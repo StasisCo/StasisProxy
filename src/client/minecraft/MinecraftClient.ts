@@ -12,7 +12,7 @@ import { ChatManager } from "~/client/minecraft/manager/ChatManager";
 import { PathfindingManager } from "~/client/minecraft/manager/PathfindingManager";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
-import { redis, logger as redisLogger } from "~/redis";
+import { redis } from "~/redis";
 import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Server } from "~/server/minecraft/Server";
 import { normalizeUUID } from "~/utils";
@@ -136,6 +136,11 @@ export class MinecraftClient {
 				this.host = this.options.host;
 			}
 
+			if (!this.host) {
+				this.logger.error("Server host is not defined. Please set the MC_HOST environment variable.");
+				return this.exit(1);
+			}
+
 			this.logger.log("Connected to server:", chalk.cyan.underline(this.host), "in", chalk.yellow(prettyMilliseconds(Date.now() - connectTime)));
 
 			if (!this.session) {
@@ -150,24 +155,42 @@ export class MinecraftClient {
 			await prisma.player.upsert({ where: { id }, update: { username: this.session.selectedProfile.name }, create: { id, username: this.session.selectedProfile.name }});
 			await prisma.bot.upsert({ where: { id }, update: {}, create: { player: { connect: { id }}}});
 
-			// Subscribe to this bot's command channel so peers can request pearl loads (once)
-			const channel: `${ string }:cluster:${ string }:${ string }:queue` = `${ name }:cluster:${ this.host }:${ id }:queue`;
+			// Subscribe to the cluster channel for this bot to receive peer requests (only once)
+			const channel = `stasisproxy:cluster:${ this.host }` as const;
 			if (this.redisChannel !== channel) {
 				if (this.redisChannel) await redis.off(this.redisChannel);
 				this.redisChannel = channel;
 				await redis.on(channel, async data => {
+
 					switch (data.type) {
+
 						default:
-							redisLogger.warn("Received unknown message type on", channel);
+							redis.logger.warn("Peer send unknown message format");
 							break;
-						case "load": {
-							redisLogger.log(`Received load request for player ${ chalk.cyan(data.player) }`);
-							await StasisManager.enqueue(data.player, data.status);
+
+						case "bot-connect":
+							redis.logger.log(`Added peer to pool: ${ chalk.cyan(data.bot.name) } (${ chalk.gray(data.bot.id) })`);
 							break;
-						}
+
+						case "request-load":
+							if (data.destinationUuid !== id) return;
+							redis.logger.log(`Received peer request for player ${ chalk.cyan(data.playerUuid) }`);
+							await StasisManager.enqueue(data.playerUuid, data.statusKey);
+							break;
+
 					}
-				}).then(() => redisLogger.log(`Subscribed to ${ chalk.cyan(channel) }`));
+				}).then(() => redis.logger.log(`Subscribed to ${ chalk.cyan(channel) }`));
 			}
+
+			// Notify cluster of this bot's connection so peers can send requests
+			await redis.emit(channel, {
+				type: "bot-connect",
+				bot: {
+					id,
+					name: this.session.selectedProfile.name,
+					version: MinecraftClient.userAgent
+				}
+			});
 
 		});
 

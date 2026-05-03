@@ -4,7 +4,6 @@ import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import type { Player } from "~/generated/prisma/client";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
-import { name } from "../../../../package.json";
 import { DiscordClient } from "../DiscordClient";
 
 export const command = new SlashCommandBuilder()
@@ -225,18 +224,17 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 
 	await interaction.editReply({ embeds: [ embed ], components: []});
 
-	// Publish a message to the bot's
+	// Publish a load request to the bot's cluster channel
 	const expire = 75 * 1000;
-	const statusChannel = `${ id }:status` as const;
-	await redis.emit(`${ name }:cluster:${ MinecraftClient.host }:${ bot.id }:queue`, {
-		type: "load",
-		player: account.id,
-		status: statusChannel,
-		expire
+	await redis.emit(`stasisproxy:cluster:${ MinecraftClient.host }`, {
+		type: "request-load",
+		playerUuid: account.id,
+		destinationUuid: bot.id,
+		statusKey: `stasisproxy:stasis:status:${ id }`
 	});
 
 	// Subscribe to status updates from the bot on the status channel with the ID we generated,
-	await redis.on(`${ id }:status`, async data => {
+	await redis.on(`stasisproxy:stasis:status:${ id }`, async data => {
 		switch (data) {
 
 			case "arrived":
@@ -251,7 +249,7 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 				embed.setTitle("Stasis Loaded");
 				embed.setDescription(`**${ bot.username }** has successfully loaded your stasis.`);
 				await interaction.editReply({ embeds: [ embed ]});
-				redis.off(`${ id }:status`);
+				redis.off(`stasisproxy:stasis:status:${ id }`);
 				break;
 
 			case "failed":
@@ -259,7 +257,7 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 				embed.setTitle("Stasis Failed");
 				embed.setDescription(`**${ bot.username }** failed to load your stasis, please try again...`);
 				await interaction.editReply({ embeds: [ embed ]});
-				redis.off(`${ id }:status`);
+				redis.off(`stasisproxy:stasis:status:${ id }`);
 				break;
 
 			case "timed-out":
@@ -267,7 +265,7 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 				embed.setTitle("Timed Out Waiting for Login");
 				embed.setDescription(`**${ account.username }** didn't log in within the time limit, please try again...`);
 				await interaction.editReply({ embeds: [ embed ]});
-				redis.off(`${ id }:status`);
+				redis.off(`stasisproxy:stasis:status:${ id }`);
 				break;
 
 		}

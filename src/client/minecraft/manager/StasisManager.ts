@@ -208,7 +208,7 @@ export class StasisManager {
 	 * @param statusKey An optional Redis channel to publish status updates to (queued, arrived, succeeded, failed)
 	 * @returns The number of remaining stasis chambers for the player after this one is activated, or -1 if no stasis was found
 	 */
-	public static async enqueue(ownerId: string, statusKey?: `${ string }:status`, timeoutDuration = 1000 * 75) {
+	public static async enqueue(ownerId: string, statusKey?: `stasisproxy:stasis:status:${ string }`, timeoutDuration = 1000 * 75) {
 		StasisManager.logger.log(`Queuing stasis for player ${ chalk.cyan(ownerId) }...`);
 
 		/** Status updater helper */
