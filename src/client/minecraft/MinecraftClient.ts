@@ -169,7 +169,7 @@ export class MinecraftClient {
 							break;
 
 						case "bot-connect":
-							redis.logger.log(`Added peer to pool: ${ chalk.cyan(data.bot.name) } (${ chalk.gray(data.bot.id) })`);
+							redis.logger.log(`Added peer to pool: ${ chalk.cyan(data.bot.name) } ${ chalk.dim(`(${ data.bot.id })`) }`);
 							break;
 
 						case "request-load":
