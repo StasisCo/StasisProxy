@@ -160,9 +160,16 @@ export class ChatManager {
 	/** Clean up the whisper queue interval (called before reconnect). */
 	public close() {
 		if (this.queueInterval) clearInterval(this.queueInterval);
+		for (const listener of this.confirmListeners.values()) {
+			MinecraftClient.bot._client.off("system_chat", listener);
+		}
+		this.confirmListeners.clear();
 	}
 
 	private queueInterval?: ReturnType<typeof setInterval>;
+
+	/** Active confirmation listeners keyed by recipient username, so retries don't stack listeners */
+	private confirmListeners = new Map<string, (packet: Packets.Schema["system_chat"]) => void>();
 
 	private lastWhisper = -1;
 
@@ -188,14 +195,20 @@ export class ChatManager {
 		ChatManager.whisperQueue.set(next[0], { ...next[1], retries: (next[1].retries ?? 0) + 1 });
 		this.lastWhisper = Date.now();
 
+		// Remove previous confirmation listener for this recipient (from a prior retry)
+		const prev = this.confirmListeners.get(next[0]);
+		if (prev) MinecraftClient.bot._client.off("system_chat", prev);
+
 		const onSystemMessage = (packet: Packets.Schema["system_chat"]) => {
 			const content = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
 			if (content.toString().replace(/\u200C/g, "").endsWith(msg.replace(/\u200C/g, ""))) {
 				MinecraftClient.bot._client.off("system_chat", onSystemMessage);
+				this.confirmListeners.delete(next[0]);
 				ChatManager.whisperQueue.delete(next[0]);
 			}
 		};
 
+		this.confirmListeners.set(next[0], onSystemMessage);
 		MinecraftClient.bot._client.on("system_chat", onSystemMessage);
 
 	}
