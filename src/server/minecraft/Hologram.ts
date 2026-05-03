@@ -9,7 +9,7 @@ import { prisma } from "~/prisma";
 
 type SkinProperty = { name: string; value: string; signature?: string };
 
-export interface PlayerListLike {
+interface PlayerListLike {
 	properties: SkinProperty[];
 }
 
@@ -61,25 +61,11 @@ abstract class BaseHologram {
 
 	private clientPos: { x: number; y: number; z: number } | null = null;
 
-	public onTracked?: (pearlId: number) => void;
-
 	constructor(
 		protected readonly client: MinecraftClient,
 		protected readonly bot: Mineflayer,
 		protected readonly playerList?: Map<string, PlayerListLike>
 	) {}
-
-	public isTracking(pearlId: number): boolean {
-		return this.entities.has(pearlId);
-	}
-
-	public getPearlIdByEntity(entityId: number): number | null {
-		for (const [ pearlId, entry ] of this.entities) {
-			if (entry.entityId === entityId) return pearlId;
-			if (entry.nametagEntityIds.includes(entityId)) return pearlId;
-		}
-		return null;
-	}
 
 	protected abstract spawnVisual(params: SpawnVisualParams): SpawnVisualResult;
 
@@ -274,10 +260,6 @@ abstract class BaseHologram {
 		try {
 			this.sendRotation(entityId, column.pos2.x + 0.5, eyeY, column.pos2.z + 0.5);
 		} catch { /* bot position may not be available yet */ }
-
-		try {
-			this.onTracked?.(pearl.entity.id);
-		} catch { /* listener errors must not break spawn */ }
 	}
 
 	private despawn(pearlId: number) {
@@ -472,8 +454,7 @@ export function createHologram(
 	client: MinecraftClient,
 	bot: Mineflayer,
 	playerList?: Map<string, PlayerListLike>,
-	override?: HologramRenderer,
-	onTracked?: (pearlId: number) => void
+	override?: HologramRenderer
 ): TextHologram {
 	const renderer = override ?? DEFAULT_RENDERER;
 	let hologram: BaseHologram;
@@ -484,6 +465,5 @@ export function createHologram(
 		case "head":
 		default: hologram = new HeadHologram(client, bot, playerList);
 	}
-	hologram.onTracked = onTracked;
 	return hologram;
 }

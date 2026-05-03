@@ -6,7 +6,7 @@ import { Server } from "./Server";
  * One row of player-list state, built from `player_info` ADD packets and
  * mutated by UPDATE actions. Removed when `player_remove` arrives.
  */
-export interface PlayerListEntry {
+interface PlayerListEntry {
 	uuid: string;
 	name: string;
 	properties: Array<{ name: string; value: string; signature?: string }>;
@@ -37,12 +37,12 @@ export class PlayerListCache {
 	}
 
 	/** Number of tracked players. */
-	public get size(): number {
+	private get size(): number {
 		return this.entries.size;
 	}
 
 	/** Iterate the live entry view (do not retain the iterator across ticks). */
-	public values(): IterableIterator<PlayerListEntry> {
+	private values(): IterableIterator<PlayerListEntry> {
 		return this.entries.values();
 	}
 

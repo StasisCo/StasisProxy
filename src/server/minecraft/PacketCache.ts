@@ -100,7 +100,7 @@ const PACKET_KEYS: Record<string, true | ((data: any) => string)> = {
 };
 
 /** Names of all entity-keyed packets — used for invalidation when an entity is destroyed. */
-export const ENTITY_PACKET_NAMES = [
+const ENTITY_PACKET_NAMES = [
 	"spawn_entity",
 	"named_entity_spawn",
 	"spawn_entity_experience_orb",

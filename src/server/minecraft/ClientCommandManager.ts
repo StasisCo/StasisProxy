@@ -12,7 +12,7 @@ import type { ServerClient } from "./ServerClient";
  * Execution context available to every client command via
  * {@link ClientCommandManager.context}.
  */
-export interface ClientCommandContext {
+interface ClientCommandContext {
 	client: MinecraftClient;
 	bot: Mineflayer;
 	serverClient: ServerClient;
