@@ -266,31 +266,29 @@ export class ServerClient {
 		// If the bot joined 2b2t while it was already raining, no game_state_change
 		// packet would have been cached (servers only emit on change). Fall back to
 		// mineflayer's tracked isRaining / rainState / thunderState.
-		{
-			const gsc = "game_state_change";
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- rainState not in typedefs
-			const rainLevel: number = (this.bot as any).rainState ?? 0;
-			if (this.bot.isRaining && !this.packetCache.peek(gsc, "1")) {
-				try {
-					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
-						name: gsc, params: { reason: 1, gameMode: 0 }
-					}));
-				} catch { /* client may have disconnected */ }
-			}
-			if (rainLevel > 0 && !this.packetCache.peek(gsc, "7")) {
-				try {
-					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
-						name: gsc, params: { reason: 7, gameMode: rainLevel }
-					}));
-				} catch { /* client may have disconnected */ }
-			}
-			if (this.bot.thunderState > 0 && !this.packetCache.peek(gsc, "8")) {
-				try {
-					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
-						name: gsc, params: { reason: 8, gameMode: this.bot.thunderState }
-					}));
-				} catch { /* client may have disconnected */ }
-			}
+		const gsc = "game_state_change";
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- rainState not in typedefs
+		const rainLevel: number = (this.bot as any).rainState ?? 0;
+		if (this.bot.isRaining && !this.packetCache.peek(gsc, "1")) {
+			try {
+				this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
+					name: gsc, params: { reason: 1, gameMode: 0 }
+				}));
+			} catch { /* client may have disconnected */ }
+		}
+		if (rainLevel > 0 && !this.packetCache.peek(gsc, "7")) {
+			try {
+				this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
+					name: gsc, params: { reason: 7, gameMode: rainLevel }
+				}));
+			} catch { /* client may have disconnected */ }
+		}
+		if (this.bot.thunderState > 0 && !this.packetCache.peek(gsc, "8")) {
+			try {
+				this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
+					name: gsc, params: { reason: 8, gameMode: this.bot.thunderState }
+				}));
+			} catch { /* client may have disconnected */ }
 		}
 
 		// The replayed position has a stale teleportId — the client will send
