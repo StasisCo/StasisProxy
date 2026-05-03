@@ -5,6 +5,7 @@ import type { SessionObject } from "minecraft-protocol";
 import { createBot, type BotOptions } from "mineflayer";
 import prettyMilliseconds from "pretty-ms";
 import z from "zod";
+import type { Console } from "~/class/Console";
 import { Logger } from "~/class/Logger";
 import { ChatCommandManager } from "~/client/minecraft/manager/ChatCommandManager";
 import { ChatManager } from "~/client/minecraft/manager/ChatManager";

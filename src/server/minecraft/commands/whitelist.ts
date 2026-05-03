@@ -13,12 +13,8 @@ const ACTIONS = Object.keys(ALIASES);
 
 export const completions: CompletionLevel[] = [
 	ACTIONS,
-	async() => {
-		const clients = await prisma.client.findMany({
-			include: { player: { select: { username: true }}}
-		});
-		return clients.map(c => c.player.username);
-	}
+	async() => await prisma.client.findMany({ include: { player: { select: { username: true }}}})
+		.then(clients => clients.map(c => c.player.username))
 ];
 
 export default function(program: Command) {
