@@ -7,7 +7,7 @@ import z from "zod";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
-import { type Stasis as StasisData } from "../generated/prisma/client";
+import { type Stasis as StasisData } from "../../generated/prisma/client";
 import { Pearl } from "./Pearl";
 import { StasisColumn } from "./StasisColumn";
 

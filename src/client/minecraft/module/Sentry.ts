@@ -1,8 +1,8 @@
 import { Embed } from "@vermaysha/discord-webhook";
 import type { Entity } from "prismarine-entity";
-import { Stasis } from "~/class/Stasis";
 import { DiscordClient } from "~/client/discord/DiscordClient";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
+import { Stasis } from "~/client/minecraft/Stasis";
 import { STASIS_USER_MAX } from "~/config";
 import { prisma } from "~/prisma";
 import { MinecraftClient } from "../MinecraftClient";

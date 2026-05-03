@@ -3,9 +3,9 @@ import type { Client as MinecraftClient } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import { Vec3 } from "vec3";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
+import { Pearl } from "~/client/minecraft/Pearl";
+import { StasisColumn } from "~/client/minecraft/StasisColumn";
 import { prisma } from "~/prisma";
-import { Pearl } from "../Pearl";
-import { StasisColumn } from "../StasisColumn";
 
 type SkinProperty = { name: string; value: string; signature?: string };
 
@@ -54,7 +54,7 @@ abstract class BaseHologram {
 	protected static nextEntityId = 0x70000000;
 
 	private readonly entities = new Map<number, EntityEntry>();
-	private readonly pearlListeners = new Map<number, { suspended: () => void; destroyed: () => void }>();
+	private readonly pearlListeners = new Map<number, { suspended:() => void; destroyed: () => void }>();
 	private readonly skinCache = new Map<string, SkinProperty[]>();
 
 	protected static readonly HIDDEN_NAMETAG_TEAM = "__stasis_holo__";
@@ -200,7 +200,7 @@ abstract class BaseHologram {
 
 		const ownerName = ownerId
 			? Object.values(this.bot.players).find(p => p.uuid === ownerId)?.username
-				?? (await prisma.player.findUnique({ where: { id: ownerId } }).catch(() => null))?.username
+				?? (await prisma.player.findUnique({ where: { id: ownerId }}).catch(() => null))?.username
 				?? ownerId
 			: "(unknown)";
 
@@ -220,13 +220,13 @@ abstract class BaseHologram {
 		// All skin layers visible
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "entity_metadata",
-			params: { entityId, metadata: [ { key: 17, type: "byte", value: 0x7f } ] }
+			params: { entityId, metadata: [ { key: 17, type: "byte", value: 0x7f } ]}
 		}));
 
 		// Hide built-in nametag via team
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "teams",
-			params: { team: BaseHologram.HIDDEN_NAMETAG_TEAM, mode: 3, players: [ fakeName ] }
+			params: { team: BaseHologram.HIDDEN_NAMETAG_TEAM, mode: 3, players: [ fakeName ]}
 		}));
 
 		// Floating armor-stand nametag lines
@@ -296,16 +296,16 @@ abstract class BaseHologram {
 		const proto = this.client.serializer.proto;
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "entity_destroy",
-			params: { entityIds: [ entry.entityId, ...entry.nametagEntityIds ] }
+			params: { entityIds: [ entry.entityId, ...entry.nametagEntityIds ]}
 		}));
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "player_remove",
-			params: { players: [ entry.fakeUUID ] }
+			params: { players: [ entry.fakeUUID ]}
 		}));
 		if (entry.fakeName) {
 			this.client.writeRaw(proto.createPacketBuffer("packet", {
 				name: "teams",
-				params: { team: BaseHologram.HIDDEN_NAMETAG_TEAM, mode: 4, players: [ entry.fakeName ] }
+				params: { team: BaseHologram.HIDDEN_NAMETAG_TEAM, mode: 4, players: [ entry.fakeName ]}
 			}));
 		}
 	}

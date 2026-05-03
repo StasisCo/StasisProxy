@@ -1,14 +1,13 @@
 import chalk from "chalk";
-import type { Client as MinecraftClient, PacketMeta } from "minecraft-protocol";
+import { Client as ProtocolClient, type PacketMeta } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import type { Vec3 } from "vec3";
 import { Logger } from "~/class/Logger";
-import { Stasis } from "~/class/Stasis";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { Stasis } from "~/client/minecraft/Stasis";
 import { prisma } from "~/prisma";
 import { ClientCommandManager } from "./ClientCommandManager";
-import { HologramCommand } from "./command/HologramCommand";
-import { StasisCommand } from "./command/StasisCommand";
 import { createHologram, type HologramRenderer, type TextHologram } from "./Hologram";
 import { PacketCache, RESERIALIZE_PACKETS, type CachedPacket } from "./PacketCache";
 import { PearlFilter } from "./PearlFilter";
@@ -112,13 +111,10 @@ export class ServerClient {
 	private static readonly logger = new Logger(chalk.blue("PROXY"));
 
 	/** The connected proxy player's network connection. */
-	public readonly client: MinecraftClient;
+	public readonly client: ProtocolClient;
 
 	/** The upstream mineflayer bot. */
 	public readonly bot: Mineflayer;
-
-	/** Per-client command registry & dispatcher. */
-	public readonly commandManager: ClientCommandManager;
 
 	/** Hides suspended-stasis pearls. */
 	public readonly pearlFilter: PearlFilter;
@@ -151,7 +147,7 @@ export class ServerClient {
 	 * begin replay and bridging.
 	 */
 	constructor(
-		client: MinecraftClient,
+		client: ProtocolClient,
 		bot: Mineflayer,
 		packetCache: PacketCache,
 		playerListCache: PlayerListCache
@@ -161,16 +157,10 @@ export class ServerClient {
 		this.packetCache = packetCache;
 		this.playerListCache = playerListCache;
 
-		this.commandManager = new ClientCommandManager(this);
-
 		// PearlFilter delegates the "is this pearl hidden?" decision to the
 		// current hologram instance via this getter, so swapping renderers
 		// automatically swaps the visibility source without re-wiring.
 		this.pearlFilter = new PearlFilter(client, eid => this.holograms?.isTracking(eid) ?? false);
-
-		// Built-in test command.
-		this.commandManager.register(new HologramCommand());
-		this.commandManager.register(new StasisCommand());
 	}
 
 	/**
@@ -244,7 +234,7 @@ export class ServerClient {
 
 					// Decorate so our commands appear in tab-completion. The
 					// cached buffer is now stale — must re-serialize.
-					this.commandManager.decorateDeclareCommands(pkt.data);
+					ClientCommandManager.decorateDeclareCommands(pkt.data);
 					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", { name: pkt.name, params: pkt.data }));
 				} else if (pkt.name === "update_view_position" || RESERIALIZE_PACKETS.has(pkt.name)) {
 
@@ -317,7 +307,7 @@ export class ServerClient {
 			if (meta.name === "keep_alive" || meta.name === "kick_disconnect") return;
 
 			// Filter entity packets for suspended pearls.
-			if (data !== null && data.entityId !== undefined && this.pearlFilter.isHidden(data.entityId)) return;
+			if (data != null && data.entityId !== undefined && this.pearlFilter.isHidden(data.entityId)) return;
 			if (meta.name === "entity_destroy" && Array.isArray(data?.entityIds)) {
 				const filtered = (data.entityIds as number[]).filter(id => !this.pearlFilter.isHidden(id));
 				if (filtered.length === 0) return;
@@ -337,7 +327,7 @@ export class ServerClient {
 
 					// Decorate live updates too, otherwise switching dimensions
 					// would wipe our literals from tab-completion.
-					this.commandManager.decorateDeclareCommands(data);
+					ClientCommandManager.decorateDeclareCommands(data);
 					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", { name: meta.name, params: data }));
 				} else if (RESERIALIZE_PACKETS.has(meta.name)) {
 
@@ -402,7 +392,7 @@ export class ServerClient {
 			// so the latency is negligible; we await before forwarding the
 			// fall-through case so unknown commands aren't dispatched twice.
 			if (meta.name === "chat_command" || meta.name === "chat_command_signed" || meta.name === "chat") {
-				void this.commandManager.interceptClientPacket(this.client, data, meta).then(handled => {
+				void ClientCommandManager.interceptClientPacket(this.client, this, data, meta).then(handled => {
 					if (handled) return;
 					try {
 						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- writeRaw bypasses serialization
@@ -572,7 +562,7 @@ export class ServerClient {
 			}
 
 			if (byOwner.size === 0) {
-				this.commandManager.sendSystemMessage(this.client, "§7No stasis chambers in render distance.");
+				ClientCommandManager.sendSystemMessage(this.client, "§7No stasis chambers in render distance.");
 				return;
 			}
 
@@ -631,7 +621,7 @@ export class ServerClient {
 		if (entry.kind === "owner") {
 			const stasises = [ ...Stasis.instances.values() ].filter(s => s.ownerId === entry.ownerId);
 			if (stasises.length === 0) {
-				this.commandManager.sendSystemMessage(this.client, "§7That player no longer has any tracked stasis.");
+				ClientCommandManager.sendSystemMessage(this.client, "§7That player no longer has any tracked stasis.");
 				return;
 			}
 			await this.renderStasisDetailGui(entry.ownerId, stasises);
@@ -641,7 +631,7 @@ export class ServerClient {
 		if (entry.kind === "stasis") {
 			const stasis = Stasis.instances.get(entry.stasisId);
 			if (!stasis) {
-				this.commandManager.sendSystemMessage(this.client, "§7That stasis is no longer tracked.");
+				ClientCommandManager.sendSystemMessage(this.client, "§7That stasis is no longer tracked.");
 				return;
 			}
 
