@@ -54,6 +54,9 @@ model Player {
 
   // Players can sometimes be bots themselves
   bot Bot?
+
+  // Players that connect via the proxy will have a client record
+  client Client?
 }
 
 model Bot {
@@ -79,4 +82,25 @@ model Discord {
 
   // All uuids that this user
   players Player[]
+}
+
+model Client {
+  // A unique ID for the client record
+  id String @id @unique
+
+  // Timestamp of when the client record was created
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  // Persistent client configuration data
+  config Json?
+
+  // Whether this client is whitelisted to bypass queue and stasis checks
+  whitelisted Boolean @default(false)
+
+  // The remote address of the client connection (for logging and abuse prevention)
+  remoteAddress String
+
+  // The player instance that this client is associated with
+  player Player @relation(fields: [id], references: [id])
 }

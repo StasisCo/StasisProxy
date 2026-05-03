@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import type { Bot as Mineflayer } from "mineflayer";
 import { createInterface, type Interface } from "readline";
+import { ClientCommandManager } from "~/server/minecraft/ClientCommandManager";
 import { Logger } from "./Logger";
 
 export class Console {
@@ -23,7 +24,20 @@ export class Console {
 
 		this.rl.on("line", line => {
 			const trimmed = line.trim();
-			if (trimmed) bot.chat(trimmed);
+			if (!trimmed) {
+				this.rl.prompt();
+				return;
+			}
+
+			if (trimmed.startsWith("/")) {
+				void ClientCommandManager.tryHandleConsole(trimmed.slice(1)).then(handled => {
+					if (!handled) bot.chat(trimmed);
+					this.rl.prompt();
+				});
+				return;
+			}
+
+			bot.chat(trimmed);
 			this.rl.prompt();
 		});
 
@@ -54,9 +68,11 @@ export class Console {
 	private tabComplete(line: string): string[] {
 		const text = line.trimStart();
 
-		// For slash commands, filter from the declare_commands cache
+		// For slash commands, filter from the declare_commands cache + proxy commands
 		if (text.startsWith("/")) {
-			return this.completions.filter(c => c.startsWith(text));
+			const proxyCompletions = ClientCommandManager.commandNames.map(n => `/${ n }`);
+			const all = [ ...new Set([ ...proxyCompletions, ...this.completions ]) ];
+			return all.filter(c => c.startsWith(text));
 		}
 
 		// For plain chat, complete from online player names

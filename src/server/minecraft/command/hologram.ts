@@ -10,6 +10,11 @@ export default function(program: Command) {
 		.description("Switch the stasis-pearl hologram renderer")
 		.argument("[renderer]", "The renderer to use")
 		.action((renderer?: string) => {
+			if (!ClientCommandManager.hasContext) {
+				ClientCommandManager.reply("§cThis command can only be used in-game.");
+				return;
+			}
+
 			const { client, serverClient } = ClientCommandManager.context;
 			const requested = renderer?.toLowerCase();
 

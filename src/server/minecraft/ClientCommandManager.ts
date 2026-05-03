@@ -71,6 +71,43 @@ export class ClientCommandManager {
 		return ctx;
 	}
 
+	/** Whether we're currently inside a client command context (vs console). */
+	public static get hasContext(): boolean {
+		return this.store.getStore() !== undefined;
+	}
+
+	/** Map of Minecraft `§x` colour codes → chalk formatters. */
+	private static readonly mcToChalk: Record<string, (s: string) => string> = {
+		"0": chalk.black, "1": chalk.blue, "2": chalk.green,
+		"3": chalk.cyan, "4": chalk.red, "5": chalk.magenta,
+		"6": chalk.yellow, "7": chalk.gray, "8": chalk.blackBright,
+		"9": chalk.blueBright, "a": chalk.greenBright, "b": chalk.cyanBright,
+		"c": chalk.redBright, "d": chalk.magentaBright, "e": chalk.yellowBright,
+		"f": chalk.white, "l": chalk.bold, "n": chalk.underline,
+		"o": chalk.italic, "r": chalk.reset
+	};
+
+	/** Convert Minecraft `§x` colour codes to chalk ANSI sequences. */
+	private static mcToAnsi(text: string): string {
+		return text.replace(/§([0-9a-fk-or])(.*?)(?=§|$)/gi, (_, code: string, content: string) => {
+			const fn = this.mcToChalk[code.toLowerCase()];
+			return fn ? fn(content) : content;
+		});
+	}
+
+	/**
+	 * Send a reply that works from both proxy (system_chat) and console
+	 * (logger). Converts `§x` colour codes to ANSI for console output.
+	 */
+	public static reply(text: string) {
+		const ctx = this.store.getStore();
+		if (ctx) {
+			this.sendSystemMessage(ctx.client, text);
+		} else {
+			this.logger.log(this.mcToAnsi(text));
+		}
+	}
+
 	/** Names of all registered commands (for tab-completion decoration). */
 	public static get commandNames(): string[] {
 		return this.program.commands.map(c => c.name());
@@ -245,6 +282,34 @@ export class ClientCommandManager {
 				client.write("chat", { message: component, position: 1, sender: "00000000-0000-0000-0000-000000000000" });
 			} catch { /* nothing more we can do */ }
 		}
+	}
+
+	/**
+	 * Try to handle a raw command line from the console (without leading `/`).
+	 * Runs without a client context — commands that access {@link context}
+	 * will throw, which is caught and logged. Returns `true` when the command
+	 * was recognised.
+	 */
+	public static async tryHandleConsole(raw: string): Promise<boolean> {
+		const trimmed = raw.trim();
+		if (!trimmed) return false;
+
+		const [ name, ...args ] = trimmed.split(/\s+/);
+		const tokens = name ? [ name.toLowerCase(), ...args ] : [];
+
+		const known = this.program.commands.some(c => c.name() === tokens[0] || c.aliases().includes(tokens[0]!));
+		if (!known) return false;
+
+		try {
+			await this.program.parseAsync(tokens, { from: "user" });
+		} catch (error) {
+			if (error instanceof CommanderError && error.code === "commander.unknownCommand") return false;
+			if (error instanceof Error) {
+				this.logger.warn(`Command error: ${ error.message }`);
+			}
+		}
+
+		return true;
 	}
 
 }

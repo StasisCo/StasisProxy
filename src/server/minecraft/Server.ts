@@ -8,6 +8,8 @@ import { Logger } from "~/class/Logger";
 import { ChatManager } from "~/client/minecraft/manager/ChatManager";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { Stasis } from "~/client/minecraft/Stasis";
+import { prisma } from "~/prisma";
+import { zClientConfig } from "~/schema/server/minecraft/zClientConfig";
 import { PacketCache } from "./PacketCache";
 import { PlayerListCache } from "./PlayerListCache";
 import { ServerClient } from "./ServerClient";
@@ -134,15 +136,18 @@ export class Server {
 				const profile = this.bot._client.session?.selectedProfile;
 				if (!profile) return;
 
-				// Preserve the real username before overwriting (used for
-				// disconnect logs).
+				// Preserve the real identity before overwriting (used for
+				// disconnect logs and DB upserts).
 				const _originalUsername = client.username;
+				const _originalUuid = client.uuid;
 				const rawId = profile.id.replace(/-/g, "");
 
 				client.uuid = `${ rawId.slice(0, 8) }-${ rawId.slice(8, 12) }-${ rawId.slice(12, 16) }-${ rawId.slice(16, 20) }-${ rawId.slice(20) }`;
 				client.username = profile.name;
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- attaching arbitrary metadata
 				(client as any)._originalUsername = _originalUsername;
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- attaching arbitrary metadata
+				(client as any)._originalUuid = _originalUuid;
 
 				// Inject bot skin properties into login_success
 				// (minecraft-protocol hardcodes properties: []).
@@ -173,12 +178,40 @@ export class Server {
 				return;
 			}
 
-			const sc = new ServerClient(client, this.bot, this.packetCache, this.playerListCache);
-			this.current = sc;
-			client.once("end", () => {
-				if (this.current === sc) this.current = null;
-			});
-			sc.attach();
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading attached metadata
+			const originalUuid: string = (client as any)._originalUuid ?? client.uuid;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading attached metadata
+			const originalUsername: string = (client as any)._originalUsername ?? client.username;
+			const remoteAddress = client.socket.remoteAddress ?? "unknown";
+			const defaultConfig = zClientConfig.parse({});
+
+			void prisma.player.upsert({
+				where: { id: originalUuid },
+				update: {},
+				create: { id: originalUuid, username: originalUsername }
+			}).then(() => prisma.client.upsert({
+				where: { id: originalUuid },
+				update: { remoteAddress },
+				create: {
+					id: originalUuid,
+					remoteAddress,
+					config: defaultConfig
+				}
+			})).then(record => {
+				if (!record.whitelisted) {
+					Server.logger.warn(chalk.red(`${ originalUsername } is not whitelisted — kicked.`));
+					client.end("You are not whitelisted on this proxy.");
+					return;
+				}
+
+				const config = zClientConfig.parse(record.config ?? {});
+				const sc = new ServerClient(client, this.bot, this.packetCache, this.playerListCache, originalUuid, config);
+				this.current = sc;
+				client.once("end", () => {
+					if (this.current === sc) this.current = null;
+				});
+				sc.attach();
+			}).catch(err => Server.logger.warn("Failed to upsert client:", err));
 		});
 
 		Server.logger.log("Listening on", chalk.yellow(`:${ port }`));

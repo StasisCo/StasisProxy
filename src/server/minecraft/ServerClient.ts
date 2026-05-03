@@ -7,6 +7,7 @@ import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { Stasis } from "~/client/minecraft/Stasis";
 import { prisma } from "~/prisma";
+import type { ClientConfig } from "~/schema/server/minecraft/zClientConfig";
 import { ClientCommandManager } from "./ClientCommandManager";
 import { createHologram, type HologramRenderer, type TextHologram } from "./Hologram";
 import { PacketCache, RESERIALIZE_PACKETS, type CachedPacket } from "./PacketCache";
@@ -116,11 +117,17 @@ export class ServerClient {
 	/** The upstream mineflayer bot. */
 	public readonly bot: Mineflayer;
 
+	/** The real UUID of the connecting player (before bot-swap). */
+	public readonly playerId: string;
+
 	/** Hides suspended-stasis pearls. */
 	public readonly pearlFilter: PearlFilter;
 
 	private readonly packetCache: PacketCache;
 	private readonly playerListCache: PlayerListCache;
+
+	/** Parsed client config loaded from the DB on connect. */
+	private config: ClientConfig;
 
 	/** The live hologram renderer; replaced wholesale by {@link swapHologram}. */
 	private holograms: TextHologram | null = null;
@@ -150,12 +157,16 @@ export class ServerClient {
 		client: ProtocolClient,
 		bot: Mineflayer,
 		packetCache: PacketCache,
-		playerListCache: PlayerListCache
+		playerListCache: PlayerListCache,
+		playerId: string,
+		config: ClientConfig
 	) {
 		this.client = client;
 		this.bot = bot;
 		this.packetCache = packetCache;
 		this.playerListCache = playerListCache;
+		this.playerId = playerId;
+		this.config = config;
 
 		// PearlFilter delegates the "is this pearl hidden?" decision to the
 		// current hologram instance via this getter, so swapping renderers
@@ -417,7 +428,7 @@ export class ServerClient {
 			this.client,
 			this.bot,
 			this.playerListCache as unknown as Map<string, never>,
-			undefined,
+			this.config.holograms.renderer,
 			id => this.pearlFilter.hide(id)
 		);
 		this.holograms.attach();
@@ -446,6 +457,13 @@ export class ServerClient {
 		);
 		this.holograms.attach();
 		ServerClient.logger.log(`Hologram renderer swapped to ${ renderer }`);
+
+		// Persist the choice.
+		this.config.holograms.renderer = renderer;
+		void prisma.client.update({
+			where: { id: this.playerId },
+			data: { config: this.config }
+		}).catch(err => ServerClient.logger.warn("Failed to persist config:", err));
 	}
 
 	/**
