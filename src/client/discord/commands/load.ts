@@ -1,13 +1,9 @@
-import chalk from "chalk";
 import { randomBytes } from "crypto";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, Events, SlashCommandBuilder, StringSelectMenuBuilder, type ButtonInteraction, type CacheType } from "discord.js";
-import stringify from "fast-json-stable-stringify";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import type { Player } from "~/generated/prisma/client";
 import { prisma } from "~/prisma";
-import { redis, logger as redisLogger, redisSub } from "~/redis";
-import { zPeerRequest } from "~/schema/zPeerRequest";
-import { zStasisStatus } from "~/schema/zStasisStatus";
+import { redis } from "~/redis";
 import { name } from "../../../../package.json";
 import { DiscordClient } from "../DiscordClient";
 
@@ -228,21 +224,19 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 	embed.setDescription(`**${ bot.username }** is traveling to your stasis, please wait...`);
 
 	await interaction.editReply({ embeds: [ embed ], components: []});
-	redisLogger.log(`Requesting peer ${ chalk.cyan(bot.id) } to load stasis for player ${ chalk.cyan(account.id) }`);
 
 	// Publish a message to the bot's
 	const expire = 75 * 1000;
-	await redis.publish(`${ name }:cluster:${ MinecraftClient.host }:${ bot.id }:queue`, stringify(zPeerRequest.parse({
+	const statusChannel = `${ id }:status` as const;
+	await redis.emit(`${ name }:cluster:${ MinecraftClient.host }:${ bot.id }:queue`, {
 		type: "load",
 		player: account.id,
-		status: `${ id }:status`,
+		status: statusChannel,
 		expire
-	})));
+	});
 
 	// Subscribe to status updates from the bot on the status channel with the ID we generated,
-	await redisSub.subscribe(`${ id }:status`, async(raw: string) => {
-		const { success, data } = zStasisStatus.safeParse(raw);
-		if (!success) return redisLogger.warn("Received invalid status update from peer", chalk.cyan(bot.id), raw);
+	await redis.on(`${ id }:status`, async data => {
 		switch (data) {
 
 			case "arrived":
@@ -257,7 +251,7 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 				embed.setTitle("Stasis Loaded");
 				embed.setDescription(`**${ bot.username }** has successfully loaded your stasis.`);
 				await interaction.editReply({ embeds: [ embed ]});
-				redisSub.unsubscribe(`${ id }:status`);
+				redis.off(`${ id }:status`);
 				break;
 
 			case "failed":
@@ -265,7 +259,7 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 				embed.setTitle("Stasis Failed");
 				embed.setDescription(`**${ bot.username }** failed to load your stasis, please try again...`);
 				await interaction.editReply({ embeds: [ embed ]});
-				redisSub.unsubscribe(`${ id }:status`);
+				redis.off(`${ id }:status`);
 				break;
 
 			case "timed-out":
@@ -273,7 +267,7 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 				embed.setTitle("Timed Out Waiting for Login");
 				embed.setDescription(`**${ account.username }** didn't log in within the time limit, please try again...`);
 				await interaction.editReply({ embeds: [ embed ]});
-				redisSub.unsubscribe(`${ id }:status`);
+				redis.off(`${ id }:status`);
 				break;
 
 		}

@@ -9,7 +9,6 @@ import z from "zod";
 import { Logger } from "~/class/Logger";
 import { ChatManager } from "~/client/minecraft/manager/ChatManager";
 import { redis } from "~/redis";
-import { name as pkgname } from "../../../../package.json";
 import { MinecraftClient } from "../MinecraftClient";
 
 const zQueueEta = z.object({
@@ -154,13 +153,13 @@ export class QueueManager extends EventEmitter<{
 					switch (MinecraftClient.host) {
 
 						case "connect.2b2t.org": {
-							redis.get(`${ pkgname }:queue:${ MinecraftClient.host }:eta`)
+							redis.get(`queue:${ MinecraftClient.host }:eta`)
 								.then(zQueueEta.parseAsync)
 								.catch(() => fetch("https://api.2b2t.vc/queue/eta-equation")
 									.then(res => res.json())
 									.then(zQueueEta.parseAsync)
 									.then(({ factor, pow }) => {
-										redis.set(`${ pkgname }:queue:${ MinecraftClient.host }:eta`, stringify({ factor, pow }), "EX", "600");
+										redis.set(`queue:${ MinecraftClient.host }:eta`, stringify({ factor, pow }), "EX", "600");
 										return { factor, pow };
 									}))
 								.then(({ factor, pow }) => Object.assign(this.queueEta, { factor, pow }));

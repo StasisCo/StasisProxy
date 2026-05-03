@@ -208,11 +208,11 @@ export class StasisManager {
 	 * @param statusKey An optional Redis channel to publish status updates to (queued, arrived, succeeded, failed)
 	 * @returns The number of remaining stasis chambers for the player after this one is activated, or -1 if no stasis was found
 	 */
-	public static async enqueue(ownerId: string, statusKey?: string, timeoutDuration = 1000 * 75) {
+	public static async enqueue(ownerId: string, statusKey?: `${ string }:status`, timeoutDuration = 1000 * 75) {
 		StasisManager.logger.log(`Queuing stasis for player ${ chalk.cyan(ownerId) }...`);
 
 		/** Status updater helper */
-		const sendStatus = async(status: z.infer<typeof zStasisStatus>) => statusKey ? await redis.publish(statusKey, status) : undefined;
+		const sendStatus = async(status: z.infer<typeof zStasisStatus>) => statusKey ? await redis.emit(statusKey, status) : undefined;
 
 		// Get the nearest stasis chamber for this player
 		const all = await Stasis.fetch(ownerId)

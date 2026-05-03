@@ -12,8 +12,7 @@ import { ChatManager } from "~/client/minecraft/manager/ChatManager";
 import { PathfindingManager } from "~/client/minecraft/manager/PathfindingManager";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
-import { logger as redisLogger, redisSub } from "~/redis";
-import { zPeerRequest } from "~/schema/zPeerRequest";
+import { redis, logger as redisLogger } from "~/redis";
 import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Server } from "~/server/minecraft/Server";
 import { normalizeUUID } from "~/utils";
@@ -66,7 +65,7 @@ export class MinecraftClient {
 	private static exitCode = 1;
 
 	/** Redis channel currently subscribed for peer requests, to avoid duplicate subscriptions */
-	private static redisChannel?: string;
+	private static redisChannel?: Redis.ValidChannel;
 
 	/** Gracefully disconnects the bot and exits the process with the specified exit code (default is 1 for errors, or 0 for clean exits) */
 	public static exit(code = 1) {
@@ -145,23 +144,21 @@ export class MinecraftClient {
 			}
 
 			// Normalize ID
-			const botId = normalizeUUID(this.session.selectedProfile.id);
+			const id = normalizeUUID(this.session.selectedProfile.id);
 
 			// Upsert bot player in database
-			await prisma.player.upsert({ where: { id: botId }, update: { username: this.session.selectedProfile.name }, create: { id: botId, username: this.session.selectedProfile.name }});
-			await prisma.bot.upsert({ where: { id: botId }, update: {}, create: { player: { connect: { id: botId }}}});
+			await prisma.player.upsert({ where: { id }, update: { username: this.session.selectedProfile.name }, create: { id, username: this.session.selectedProfile.name }});
+			await prisma.bot.upsert({ where: { id }, update: {}, create: { player: { connect: { id }}}});
 
 			// Subscribe to this bot's command channel so peers can request pearl loads (once)
-			const channel = `${ name }:cluster:${ this.host }:${ botId }:queue`;
+			const channel: `${ string }:cluster:${ string }:${ string }:queue` = `${ name }:cluster:${ this.host }:${ id }:queue`;
 			if (this.redisChannel !== channel) {
-				if (this.redisChannel) await redisSub.unsubscribe(this.redisChannel);
+				if (this.redisChannel) await redis.off(this.redisChannel);
 				this.redisChannel = channel;
-				await redisSub.subscribe(channel, async(raw: string) => {
-					const { data, success } = zPeerRequest.safeParse(JSON.parse(raw));
-					if (!success) return redisLogger.warn("Received invalid message on", chalk.cyan(channel), raw);
+				await redis.on(channel, async data => {
 					switch (data.type) {
 						default:
-							redisLogger.warn("Received unknown message type on", raw);
+							redisLogger.warn("Received unknown message type on", channel);
 							break;
 						case "load": {
 							redisLogger.log(`Received load request for player ${ chalk.cyan(data.player) }`);

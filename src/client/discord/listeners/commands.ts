@@ -2,7 +2,7 @@ import { ChatInputCommandInteraction, Events, REST, Routes, SlashCommandBuilder 
 import { readdir } from "fs/promises";
 import { join } from "path";
 import { DiscordClient } from "~/client/discord/DiscordClient";
-import { redis, logger as redisLogger } from "~/redis";
+import { redis } from "~/redis";
 
 type Command = {
 	command: SlashCommandBuilder;
@@ -27,7 +27,7 @@ for (const file of await readdir(commandsDir)) {
  * per startup window — otherwise we hit the global app-command rate limit.
  */
 DiscordClient.client.once(Events.ClientReady, async function(readyClient) {
-	const claim = await redis.set("stasis-proxy:discord:register", "1", "EX", "60", "NX");
+	const claim = await redis.set("stasis-proxy:discord:register", true, "EX", "60", "NX");
 	if (claim !== "OK") return;
 	const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN!);
 	await rest.put(Routes.applicationCommands(readyClient.user.id), {
@@ -50,7 +50,7 @@ DiscordClient.client.on(Events.InteractionCreate, async function(interaction) {
 
 	// Claim ownership of this interaction. TTL is short — the interaction
 	// token only lives 15 minutes anyway and we just need to deduplicate.
-	const claim = await redis.set(`stasis-proxy:discord:interaction:${ interaction.id }`, "1", "EX", "60", "NX");
+	const claim = await redis.set(`stasis-proxy:discord:interaction:${ interaction.id }`, true, "EX", "60", "NX");
 	if (claim !== "OK") return;
 
 	try {
@@ -61,6 +61,5 @@ DiscordClient.client.on(Events.InteractionCreate, async function(interaction) {
 		// in case the claim race somehow lets two through (e.g. brief Redis blip).
 		const code = (err as { code?: number }).code;
 		if (code === 10062 || code === 40060) return;
-		redisLogger.warn(`Command ${ interaction.commandName } failed:`, err);
 	}
 });
