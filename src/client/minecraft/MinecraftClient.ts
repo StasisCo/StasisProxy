@@ -13,7 +13,7 @@ import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { logger as redisLogger, redisSub } from "~/redis";
 import { zPeerRequest } from "~/schema/zPeerRequest";
-import { ClientCommandManager } from "~/server/minecraft/ClientCommandManager";
+import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Server } from "~/server/minecraft/Server";
 import { normalizeUUID } from "~/utils";
 import { name, version } from "../../../package.json";
@@ -65,7 +65,7 @@ export class MinecraftClient {
 	public static readonly chat = new ChatManager(this.bot);
 	static {
 		void ChatCommandManager.init();
-		void ClientCommandManager.init();
+		void ClientCommands.init();
 	}
 	public static readonly pathfinding = new PathfindingManager(this.bot);
 	public static readonly physics = new PhysicsManager(this.bot);

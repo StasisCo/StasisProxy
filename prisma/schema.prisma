@@ -99,7 +99,7 @@ model Client {
   whitelisted Boolean @default(false)
 
   // The remote address of the client connection (for logging and abuse prevention)
-  remoteAddress String
+  remoteAddress String?
 
   // The player instance that this client is associated with
   player Player @relation(fields: [id], references: [id])

@@ -6,7 +6,7 @@ import { Logger } from "~/class/Logger";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { prisma } from "~/prisma";
 import type { ClientConfig } from "~/schema/server/minecraft/zClientConfig";
-import { ClientCommandManager } from "./ClientCommandManager";
+import { ClientCommands } from "./ClientCommands";
 import { createHologram, type HologramRenderer, type TextHologram } from "./Hologram";
 import { PacketCache, RESERIALIZE_PACKETS, type CachedPacket } from "./PacketCache";
 import type { PlayerListCache } from "./PlayerListCache";
@@ -139,7 +139,7 @@ export class ServerClient {
 
 					// Decorate so our commands appear in tab-completion. The
 					// cached buffer is now stale — must re-serialize.
-					ClientCommandManager.decorateDeclareCommands(pkt.data);
+					ClientCommands.decorateDeclareCommands(pkt.data);
 					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", { name: pkt.name, params: pkt.data }));
 				} else if (pkt.name === "update_view_position" || RESERIALIZE_PACKETS.has(pkt.name)) {
 
@@ -214,7 +214,7 @@ export class ServerClient {
 
 					// Decorate live updates too, otherwise switching dimensions
 					// would wipe our literals from tab-completion.
-					ClientCommandManager.decorateDeclareCommands(data);
+					ClientCommands.decorateDeclareCommands(data);
 					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", { name: meta.name, params: data }));
 				} else if (RESERIALIZE_PACKETS.has(meta.name)) {
 
@@ -248,8 +248,8 @@ export class ServerClient {
 			// Intercept commands. tryHandle is async but commands are local
 			// so the latency is negligible; we await before forwarding the
 			// fall-through case so unknown commands aren't dispatched twice.
-			if (meta.name === "chat_command" || meta.name === "chat_command_signed" || meta.name === "chat") {
-				void ClientCommandManager.interceptClientPacket(this.client, this, data, meta).then(handled => {
+			if (meta.name === "chat_command" || meta.name === "chat_command_signed" || meta.name === "chat" || meta.name === "tab_complete") {
+				void ClientCommands.interceptClientPacket(this.client, this, data, meta).then(handled => {
 					if (handled) return;
 					try {
 						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- writeRaw bypasses serialization

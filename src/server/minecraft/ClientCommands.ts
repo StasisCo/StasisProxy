@@ -5,12 +5,16 @@ import { readdir } from "fs/promises";
 import type { Client as MinecraftClient, PacketMeta } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import { join } from "path";
+import ChatMessageConstructor from "prismarine-chat";
 import { Logger } from "~/class/Logger";
 import type { ServerClient } from "./ServerClient";
 
+/** A single completion level: static literals or a function returning them. */
+export type CompletionLevel = string[] | (() => string[] | Promise<string[]>);
+
 /**
  * Execution context available to every client command via
- * {@link ClientCommandManager.context}.
+ * {@link ClientCommands.context}.
  */
 interface ClientCommandContext {
 	client: MinecraftClient;
@@ -37,7 +41,12 @@ interface CommandNode {
 	/** Indices into the parent `nodes` array. */
 	children: number[];
 	redirectNode?: number;
-	extraNodeData?: { name?: string };
+	extraNodeData?: {
+		name?: string;
+		parser?: string;
+		properties?: unknown;
+		suggestionType?: string;
+	};
 }
 
 /** Parsed shape of a `declare_commands` packet. */
@@ -54,16 +63,17 @@ interface DeclareCommandsData {
  * 3. Mutates `declare_commands` packets so registered commands appear in the
  *    client's tab-completion alongside the upstream server's commands.
  */
-export class ClientCommandManager {
+export class ClientCommands {
 
 	private static readonly logger = new Logger(chalk.blue("PROXY"));
+	private static readonly ChatMessage = ChatMessageConstructor(`${ process.env.MC_VERSION }`);
 
 	private static initialized = false;
 	private static program: Command;
 	private static store = new AsyncLocalStorage<ClientCommandContext>();
 
-	/** Per-command Brigadier literal completions, keyed by command name. */
-	private static completions = new Map<string, string[][]>();
+	/** Per-command Brigadier completions, keyed by command name. */
+	private static completions = new Map<string, CompletionLevel[]>();
 
 	public static get context(): ClientCommandContext {
 		const ctx = this.store.getStore();
@@ -76,23 +86,9 @@ export class ClientCommandManager {
 		return this.store.getStore() !== undefined;
 	}
 
-	/** Map of Minecraft `§x` colour codes → chalk formatters. */
-	private static readonly mcToChalk: Record<string, (s: string) => string> = {
-		"0": chalk.black, "1": chalk.blue, "2": chalk.green,
-		"3": chalk.cyan, "4": chalk.red, "5": chalk.magenta,
-		"6": chalk.yellow, "7": chalk.gray, "8": chalk.blackBright,
-		"9": chalk.blueBright, "a": chalk.greenBright, "b": chalk.cyanBright,
-		"c": chalk.redBright, "d": chalk.magentaBright, "e": chalk.yellowBright,
-		"f": chalk.white, "l": chalk.bold, "n": chalk.underline,
-		"o": chalk.italic, "r": chalk.reset
-	};
-
-	/** Convert Minecraft `§x` colour codes to chalk ANSI sequences. */
+	/** Convert Minecraft `§x` colour codes to ANSI sequences via prismarine-chat. */
 	private static mcToAnsi(text: string): string {
-		return text.replace(/§([0-9a-fk-or])(.*?)(?=§|$)/gi, (_, code: string, content: string) => {
-			const fn = this.mcToChalk[code.toLowerCase()];
-			return fn ? fn(content) : content;
-		});
+		return new this.ChatMessage(text).toAnsi();
 	}
 
 	/**
@@ -106,6 +102,16 @@ export class ClientCommandManager {
 		} else {
 			this.logger.log(this.mcToAnsi(text));
 		}
+	}
+
+	/** Send a red error message: `§c<text>`. */
+	public static error(text: string) {
+		this.reply(`§cError: §4${ text }`);
+	}
+
+	/** Send a formatted usage hint: `§eUsage: §7/<syntax>`. */
+	public static usage(syntax: Command) {
+		return this.reply(`§eUsage: §f/${ syntax.name() } ${ syntax.usage() }`);
 	}
 
 	/** Names of all registered commands (for tab-completion decoration). */
@@ -130,7 +136,7 @@ export class ClientCommandManager {
 	}
 
 	private static async loadCommands() {
-		const dir = join(import.meta.dir, "command");
+		const dir = join(import.meta.dir, "commands");
 		const files = await readdir(dir);
 
 		for (const file of files) {
@@ -173,7 +179,7 @@ export class ClientCommandManager {
 			} catch (error) {
 				if (error instanceof CommanderError && error.code === "commander.unknownCommand") return;
 				if (error instanceof Error) {
-					this.sendSystemMessage(client, `§cError: ${ error.message }`);
+					this.sendSystemMessage(client, `§cError: §4${ error.message.substring(6).trim() }`);
 				}
 			}
 		});
@@ -221,35 +227,110 @@ export class ClientCommandManager {
 			data.nodes.push(cmdNode);
 			root.children.push(cmdIdx);
 
-			// Append literal children for each completion level.
+			// Append children for each completion level.
 			const levels = this.completions.get(name);
 			if (levels) {
 				let parentIndices = [ cmdIdx ];
-				for (const options of levels) {
+				for (const level of levels) {
 					const nextParents: number[] = [];
-					for (const option of options) {
+
+					if (typeof level === "function") {
+
+						// Dynamic level — argument node with ask_server suggestions.
 						const childIdx = data.nodes.length;
 						data.nodes.push({
 							flags: {
 								unused: 0,
 								allows_restricted: 0,
-								has_custom_suggestions: 0,
+								has_custom_suggestions: 1,
 								has_redirect_node: 0,
 								has_command: 1,
-								command_node_type: 1
+								command_node_type: 2
 							},
 							children: [],
-							extraNodeData: { name: option }
+							extraNodeData: {
+								name: "arg",
+								parser: "brigadier:string",
+								properties: 0,
+								suggestionType: "minecraft:ask_server"
+							}
 						});
 						for (const pi of parentIndices) data.nodes[pi]!.children.push(childIdx);
 						nextParents.push(childIdx);
+					} else {
+
+						// Static level — literal nodes for each option.
+						for (const option of level) {
+							const childIdx = data.nodes.length;
+							data.nodes.push({
+								flags: {
+									unused: 0,
+									allows_restricted: 0,
+									has_custom_suggestions: 0,
+									has_redirect_node: 0,
+									has_command: 1,
+									command_node_type: 1
+								},
+								children: [],
+								extraNodeData: { name: option }
+							});
+							for (const pi of parentIndices) data.nodes[pi]!.children.push(childIdx);
+							nextParents.push(childIdx);
+						}
 					}
+
 					parentIndices = nextParents;
 				}
 			}
 		}
 
 		return data;
+	}
+
+	/**
+	 * Handle a `tab_complete` (C→S) packet for our commands. Resolves
+	 * dynamic (function) completion levels and responds directly.
+	 * Returns `true` if handled; `false` to forward upstream.
+	 */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol data
+	private static async handleTabComplete(client: MinecraftClient, data: any): Promise<boolean> {
+		const text: string = data?.text ?? "";
+		const raw = text.startsWith("/") ? text.slice(1) : text;
+		const parts = raw.split(/\s+/);
+		const cmdName = parts[0]?.toLowerCase();
+
+		if (!cmdName) return false;
+
+		const known = this.program.commands.some(c => c.name() === cmdName || c.aliases().includes(cmdName));
+		if (!known) return false;
+
+		const levels = this.completions.get(cmdName);
+		if (!levels) return false;
+
+		// parts[0] = command name, parts[1..] = arguments.
+		// argIndex maps to the completions level array.
+		const argIndex = parts.length - 2;
+		if (argIndex < 0 || argIndex >= levels.length) return false;
+
+		const level = levels[argIndex];
+		if (!level || typeof level !== "function") return false;
+
+		const options = await level();
+		const partial = parts[parts.length - 1] ?? "";
+		const filtered = partial
+			? options.filter(o => o.toLowerCase().startsWith(partial.toLowerCase()))
+			: options;
+
+		const start = text.length - partial.length;
+
+		client.write("tab_complete", {
+			transactionId: data.transactionId,
+			start,
+			length: partial.length,
+			matches: filtered.map(m => ({ match: m }))
+		});
+
+		return true;
 	}
 
 	/**
@@ -269,6 +350,10 @@ export class ClientCommandManager {
 			return await this.tryHandle(client, serverClient, raw.slice(1));
 		}
 
+		if (meta.name === "tab_complete") {
+			return await this.handleTabComplete(client, data);
+		}
+
 		return false;
 	}
 
@@ -282,6 +367,37 @@ export class ClientCommandManager {
 				client.write("chat", { message: component, position: 1, sender: "00000000-0000-0000-0000-000000000000" });
 			} catch { /* nothing more we can do */ }
 		}
+	}
+
+	/**
+	 * Resolve completions for a partial command line (without leading `/`).
+	 * Returns matching options synchronously for static levels, or via
+	 * promise for dynamic levels. Used by the console tab-completer.
+	 */
+	public static async resolveCompletions(line: string): Promise<string[]> {
+		const parts = line.split(/\s+/);
+		const cmdName = parts[0]?.toLowerCase();
+		if (!cmdName) return [];
+
+		// Complete the command name itself.
+		if (parts.length === 1) {
+			return this.commandNames.filter(n => n.startsWith(cmdName)).map(n => `/${ n }`);
+		}
+
+		const levels = this.completions.get(cmdName);
+		if (!levels) return [];
+
+		const argIndex = parts.length - 2;
+		if (argIndex < 0 || argIndex >= levels.length) return [];
+
+		const level = levels[argIndex]!;
+		const options = typeof level === "function" ? await level() : level;
+		const partial = parts[parts.length - 1] ?? "";
+		const prefix = `/${ parts.slice(0, -1).join(" ") } `;
+
+		return options
+			.filter(o => o.toLowerCase().startsWith(partial.toLowerCase()))
+			.map(o => `${ prefix }${ o }`);
 	}
 
 	/**
@@ -304,9 +420,7 @@ export class ClientCommandManager {
 			await this.program.parseAsync(tokens, { from: "user" });
 		} catch (error) {
 			if (error instanceof CommanderError && error.code === "commander.unknownCommand") return false;
-			if (error instanceof Error) {
-				this.logger.warn(`Command error: ${ error.message }`);
-			}
+			if (error instanceof Error) this.logger.error(chalk.redBright("Error:"), chalk.red(error.message.substring(6).trim()));
 		}
 
 		return true;

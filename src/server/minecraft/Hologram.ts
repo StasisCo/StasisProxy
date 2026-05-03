@@ -37,11 +37,11 @@ type EntityEntry = {
 	eyeY: number;
 };
 
-export const VALID_RENDERERS = [ "head", "body", "text", "off" ] as const;
-export type HologramRenderer = (typeof VALID_RENDERERS)[number];
+export const HOLOGRAM_MODES = [ "head", "body", "text", "off" ] as const;
+export type HologramRenderer = (typeof HOLOGRAM_MODES)[number];
 
 const envRaw = (process.env.HOLOGRAM_RENDERER ?? "body").toLowerCase();
-const DEFAULT_RENDERER: HologramRenderer = (VALID_RENDERERS as readonly string[]).includes(envRaw)
+const DEFAULT_RENDERER: HologramRenderer = (HOLOGRAM_MODES as readonly string[]).includes(envRaw)
 	? (envRaw as HologramRenderer)
 	: "body";
 

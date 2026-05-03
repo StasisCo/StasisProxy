@@ -1,11 +1,11 @@
 import z from "zod";
-import { VALID_RENDERERS } from "~/server/minecraft/Hologram";
+import { HOLOGRAM_MODES } from "~/server/minecraft/Hologram";
 
 export const zClientConfig = z.object({
 
 	holograms: z.object({
 
-		renderer: z.enum(VALID_RENDERERS).default("body")
+		renderer: z.enum(HOLOGRAM_MODES).default("body")
         
 	}).default({ renderer: "body" })
 

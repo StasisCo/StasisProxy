@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import type { Bot as Mineflayer } from "mineflayer";
 import { createInterface, type Interface } from "readline";
-import { ClientCommandManager } from "~/server/minecraft/ClientCommandManager";
+import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Logger } from "./Logger";
 
 export class Console {
@@ -16,7 +16,9 @@ export class Console {
 			input: process.stdin,
 			output: process.stdout,
 			prompt: chalk.gray("> "),
-			completer: (line: string) => [ this.tabComplete(line), line ]
+			completer: (line: string, cb: (err: null, result: [string[], string]) => void) => {
+				this.tabComplete(line).then(hits => cb(null, [ hits, line ]));
+			}
 		});
 
 		Logger.setRenderHook(() => this.rl.prompt(true));
@@ -30,7 +32,7 @@ export class Console {
 			}
 
 			if (trimmed.startsWith("/")) {
-				void ClientCommandManager.tryHandleConsole(trimmed.slice(1)).then(handled => {
+				void ClientCommands.tryHandleConsole(trimmed.slice(1)).then(handled => {
 					if (!handled) bot.chat(trimmed);
 					this.rl.prompt();
 				});
@@ -65,14 +67,16 @@ export class Console {
 	}
 
 	/** Filter cached completions for the current readline input */
-	private tabComplete(line: string): string[] {
+	private async tabComplete(line: string): Promise<string[]> {
 		const text = line.trimStart();
 
-		// For slash commands, filter from the declare_commands cache + proxy commands
+		// For slash commands, resolve proxy completions (including arguments)
+		// then fall back to the server's declare_commands cache.
 		if (text.startsWith("/")) {
-			const proxyCompletions = ClientCommandManager.commandNames.map(n => `/${ n }`);
-			const all = [ ...new Set([ ...proxyCompletions, ...this.completions ]) ];
-			return all.filter(c => c.startsWith(text));
+			const proxyHits = await ClientCommands.resolveCompletions(text.slice(1));
+			if (proxyHits.length > 0) return proxyHits;
+
+			return this.completions.filter(c => c.startsWith(text));
 		}
 
 		// For plain chat, complete from online player names
