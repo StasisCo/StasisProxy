@@ -11,7 +11,11 @@ export class Console {
 	/** Completions extracted from the server's declare_commands packet */
 	private completions: string[] = [];
 
-	constructor(private readonly bot: Mineflayer) {
+	private bot: Mineflayer;
+
+	constructor(bot: Mineflayer) {
+		this.bot = bot;
+
 		this.rl = createInterface({
 			input: process.stdin,
 			output: process.stdout,
@@ -33,26 +37,34 @@ export class Console {
 
 			if (trimmed.startsWith("/")) {
 				void ClientCommands.tryHandleConsole(trimmed.slice(1)).then(handled => {
-					if (!handled) bot.chat(trimmed);
+					if (!handled) this.bot.chat(trimmed);
 					this.rl.prompt();
 				});
 				return;
 			}
 
-			bot.chat(trimmed);
+			this.bot.chat(trimmed);
 			this.rl.prompt();
 		});
 
 		this.rl.on("close", () => {
 			Logger.setRenderHook(null);
-			bot.quit();
+			this.bot.quit();
 			process.exit(0);
 		});
 
-		// The server sends declare_commands on login with the full command tree.
-		// Extract the names of all top-level literal nodes (direct children of root)
-		// and store them as completions prefixed with "/".
-		bot._client.on("declare_commands", (packet: Packets.Schema["declare_commands"]) => {
+		this.bindBot();
+	}
+
+	/** Re-bind event listeners to a new bot instance after reconnect. */
+	public rebind(bot: Mineflayer) {
+		this.bot = bot;
+		this.completions = [];
+		this.bindBot();
+	}
+
+	private bindBot() {
+		this.bot._client.on("declare_commands", (packet: Packets.Schema["declare_commands"]) => {
 			const root = packet.nodes[packet.rootIndex];
 			if (!root) return;
 

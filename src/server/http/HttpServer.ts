@@ -13,31 +13,41 @@ export class HttpServer {
 	protected static listener: ReturnType<typeof HttpServer.app.listen>;
     
 	// The port to listen on
-	protected static PORT = parseInt(process.env.HTTP_PORT ?? "8080");
+	protected static PORT = parseInt(process.env.HTTP_PORT ?? "3000");
 
 	// The host to listen on
-	protected static HOST = process.env.HTTP_HOST ?? "0.0.0.0";
+	protected static readonly HOST = "0.0.0.0";
 
 	/**
 	 * Start the Bubble server
 	 */
 	public static async start() {
 
-		// Start the bubble server
-		return new Promise<void>(function(resolve, reject: (error: string) => void) {
+		// Start the bubble server, retrying on next port if bind fails
+		const tryListen = (): Promise<void> => new Promise<void>((resolve, reject) => {
 
 			HttpServer.listener = HttpServer.app
 
 				// Attempt to start the server
 				.listen(HttpServer.PORT, HttpServer.HOST, function() {
-					HttpServer.logger.log("Server started on", chalk.cyan.underline(`http://${ HttpServer.HOST }:${ HttpServer.PORT }`));
+					HttpServer.logger.log("HTTP server started on", chalk.cyan.underline(`http://${ HttpServer.HOST }:${ HttpServer.PORT }`));
 					resolve();
 				})
 
-				// If the server fails to start, 
-				.on("error", (error: { code: string }) => reject(error.code));
+				// If the server fails to start, retry on next port for bind errors
+				.on("error", (error: { code: string }) => {
+					if (error.code === "EADDRINUSE" || error.code === "EACCES") {
+						HttpServer.logger.warn(`Port ${ HttpServer.PORT } unavailable, trying ${ HttpServer.PORT + 1 }...`);
+						HttpServer.PORT++;
+						resolve(tryListen());
+					} else {
+						reject(error.code);
+					}
+				});
 
 		});
+
+		return tryListen();
 		
 	}
 

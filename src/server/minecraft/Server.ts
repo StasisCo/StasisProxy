@@ -3,7 +3,6 @@ import { createServer, type Server as MinecraftServer, type SessionObject } from
 import type { Bot as Mineflayer } from "mineflayer";
 import type { ChatMessage } from "prismarine-chat";
 import sharp from "sharp";
-import z from "zod";
 import { Logger } from "~/class/Logger";
 import { ChatManager } from "~/client/minecraft/manager/ChatManager";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
@@ -48,6 +47,9 @@ export class Server {
 	/** The single connected proxy player, if any. */
 	private current: ServerClient | null = null;
 
+	/** Set by close() to prevent a late `game` event from starting a new listener. */
+	private closed = false;
+
 	/**
 	 * Build a new proxy server bound to the given mineflayer bot. Starts
 	 * recording packets immediately; the actual TCP listener is started once
@@ -61,7 +63,13 @@ export class Server {
 		this.captureBotProperties();
 
 		if (bot.game) this.startServer();
-		else bot.once("game", () => this.startServer());
+		else {
+			const onGame = () => this.startServer();
+			bot.once("game", onGame);
+
+			// Store so close() can remove it before it fires.
+			this.pendingGameListener = onGame;
+		}
 	}
 
 	/** Whether a player is currently controlling the bot. */
@@ -101,8 +109,18 @@ export class Server {
 		return [ HEADER, BODY.join("§r — ") ].map(line => ChatManager.center(line, 270)).filter(Boolean).join("\n");
 	}
 
+	/** Listener stored so close() can remove a pending `game` → startServer binding. */
+	private pendingGameListener?: () => void;
+
 	/** Shut down the proxy server and detach all caches. */
 	public close() {
+		this.closed = true;
+
+		if (this.pendingGameListener) {
+			this.bot.removeListener("game", this.pendingGameListener);
+			this.pendingGameListener = undefined;
+		}
+
 		this.packetCache.close();
 		this.playerListCache.close();
 		this.current?.detach();
@@ -112,8 +130,9 @@ export class Server {
 
 	// ─────────────────────────────── internals ───────────────────────────────
 
-	private startServer() {
-		const port = parseInt(z.string().optional().parse(process.env.PROXY_PORT) ?? Math.floor(10000 + Math.random() * 50000).toString(), 10);
+	private startServer(port = parseInt(process.env.PROXY_PORT ?? "25577", 10)) {
+		if (this.closed) return;
+		this.pendingGameListener = undefined;
 
 		this.server = createServer({
 			port,
@@ -215,6 +234,17 @@ export class Server {
 		});
 
 		Server.logger.log("Listening on", chalk.yellow(`:${ port }`));
+
+		// Retry on next port if bind fails
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- socketServer exists at runtime but is missing from type defs
+		(this.server as any).socketServer?.on("error", (err: { code?: string }) => {
+			if (err.code === "EADDRINUSE" || err.code === "EACCES") {
+				Server.logger.warn(`Port ${ port } unavailable, trying ${ port + 1 }...`);
+				this.server?.close();
+				this.server = null;
+				this.startServer(port + 1);
+			}
+		});
 	}
 
 	private startFaviconFetch() {

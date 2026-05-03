@@ -2,7 +2,7 @@ import { zMojangUsername } from "@hackware/types/schema/mojang/zUsername";
 import chalk from "chalk";
 import { execSync } from "child_process";
 import type { SessionObject } from "minecraft-protocol";
-import { createBot, type BotOptions } from "mineflayer";
+import { createBot, type Bot, type BotOptions } from "mineflayer";
 import prettyMilliseconds from "pretty-ms";
 import z from "zod";
 import type { Console } from "~/class/Console";
@@ -18,8 +18,11 @@ import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Server } from "~/server/minecraft/Server";
 import { normalizeUUID } from "~/utils";
 import { name, version } from "../../../package.json";
+import { Module } from "./Module";
 import { PhysicsManager } from "./manager/PhysicsManager";
 import { QueueManager } from "./manager/QueueManager";
+
+const RECONNECT_DELAY_MS = 5_000;
 
 export class MinecraftClient {
 
@@ -28,26 +31,9 @@ export class MinecraftClient {
 
 	/** Logger instance */
 	public static logger = new Logger(chalk.cyan("CLIENT"));
-	
-	/** Resolved server host after connection; used for namespacing Redis channels and database records by server */
-	public static host?: string;
-
-	/** Minecraft protocol session object, set after successful login and used for accessing the bot's profile and other session-specific data */
-	public static session?: SessionObject;
-
-	/// /////////////////////////////////////////////
 
 	/** Console instance for interactive command input */
 	public static console?: Console;
-
-	/** Exit code to use when the process exits; set to 0 for clean exits, or 1 for errors */
-	private static exitCode = 1;
-
-	/** Gracefully disconnects the bot and exits the process with the specified exit code (default is 1 for errors, or 0 for clean exits) */
-	public static exit(code = 1) {
-		this.exitCode = code;
-		MinecraftClient.bot.quit();
-	}
 
 	public static readonly options: BotOptions = {
 		auth: "microsoft",
@@ -60,27 +46,59 @@ export class MinecraftClient {
 		version: z.string().refine(val => /\d+\.\d+(\.\d+)?/.test(val), "Invalid Minecraft version format").optional().parse(process.env.MC_VERSION)
 	};
 
-	public static readonly bot = createBot(this.options);
+	/** Resolved server host after connection; used for namespacing Redis channels and database records by server */
+	public static host?: string;
 
-	public static readonly proxy = new Server(this.bot);
-	public static readonly chat = new ChatManager(this.bot);
-	static {
-		void ChatCommandManager.init();
-		void ClientCommands.init();
+	/** Minecraft protocol session object, set after successful login and used for accessing the bot's profile and other session-specific data */
+	public static session?: SessionObject;
+
+	/** The mineflayer bot instance — recreated on each connection. */
+	public static bot: Bot;
+
+	public static proxy: Server;
+	public static chat: ChatManager;
+	public static pathfinding: PathfindingManager;
+	public static physics: PhysicsManager;
+	public static queue: QueueManager;
+	public static stasis: StasisManager;
+
+	/** Exit code to use when the process exits; set to 0 for clean exits, or 1 for errors */
+	private static exitCode = 1;
+
+	/** Redis channel currently subscribed for peer requests, to avoid duplicate subscriptions */
+	private static redisChannel?: string;
+
+	/** Gracefully disconnects the bot and exits the process with the specified exit code (default is 1 for errors, or 0 for clean exits) */
+	public static exit(code = 1) {
+		this.exitCode = code;
+		this.bot.quit();
 	}
-	public static readonly pathfinding = new PathfindingManager(this.bot);
-	public static readonly physics = new PhysicsManager(this.bot);
-	public static readonly queue = new QueueManager(this.bot);
-	public static readonly stasis = new StasisManager(this.bot);
 
-	static {
+	/** Create a new mineflayer bot and (re)initialize all managers. */
+	public static connect() {
+		this.session = undefined;
+		this.host = undefined;
+		this.exitCode = 1;
 
-		// Handle graceful shutdown on SIGINT and SIGTERM signals
-		process.once("SIGTERM", () => this.exit(0));
-		process.once("SIGINT", () => this.exit(0));
+		// Tear down previous connection's resources
+		this.physics?.stop();
+		this.chat?.close();
+		this.proxy?.close();
 
-		// Handle upstream connection
+		// Create fresh bot and managers
+		this.bot = createBot(this.options);
+		this.proxy = new Server(this.bot);
+		this.chat = new ChatManager(this.bot);
+		this.pathfinding = new PathfindingManager(this.bot);
+		this.physics = new PhysicsManager(this.bot);
+		this.queue = new QueueManager(this.bot);
+		this.stasis = new StasisManager(this.bot);
+
+		// Rebind the console's event listeners to the new bot
+		this.console?.rebind(this.bot);
+
 		this.logger.log("Connecting to server:", chalk.cyan.underline(this.options.host + ":" + this.options.port) + "...");
+		const connectTime = Date.now();
 
 		// Handle general bot errors
 		this.bot.on("error", err => this.logger.error(err));
@@ -88,78 +106,86 @@ export class MinecraftClient {
 		// Handle upstream disconnects
 		this.bot.on("kicked", reason => {
 			const component = new ChatManager.parser(JSON.parse(reason));
-			MinecraftClient.logger.warn("Disconnected:", component.toAnsi());
+			this.logger.warn("Disconnected:", component.toAnsi());
 			this.proxy.kickAll(component);
-			MinecraftClient.exit(1);
 		});
 
-		// On bot disconnect
+		// On bot disconnect — reconnect automatically unless exit(0) was called
 		this.bot.on("end", () => {
 			this.proxy.close();
-			process.exit(this.exitCode);
+			if (this.exitCode === 0) return process.exit(0);
+			this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
+			setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
 		});
 
 		// Handle account resolution
-		const now = Date.now();
-		MinecraftClient.bot._client.on("session", (session: SessionObject) => {
-			MinecraftClient.logger.log("Authenticated as", chalk.cyan(session.selectedProfile.name), chalk.dim(`(${ normalizeUUID(session.selectedProfile.id) })`), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
-			MinecraftClient.session = session;
+		this.bot._client.on("session", (session: SessionObject) => {
+			this.logger.log("Authenticated as", chalk.cyan(session.selectedProfile.name), chalk.dim(`(${ normalizeUUID(session.selectedProfile.id) })`), "in", chalk.yellow(prettyMilliseconds(Date.now() - connectTime)));
+			this.session = session;
 		});
 
 		// Handle upstream connection
-		MinecraftClient.bot._client.on("connect", async() => {
+		this.bot._client.on("connect", async() => {
 
 			// Resolve _host
-			const socket = MinecraftClient.bot._client.socket;
-			if (socket) MinecraftClient.host = "_host" in socket && typeof socket._host === "string" ? socket._host : undefined;
+			const socket = this.bot._client.socket;
+			if (socket) this.host = "_host" in socket && typeof socket._host === "string" ? socket._host : undefined;
 
-			// Fallback to configured host if resolution failed 
-			if (!MinecraftClient.host) {
-				MinecraftClient.logger.warn("Could not resolve server host from socket, falling back to MC_HOST environment variable");
-				MinecraftClient.host = MinecraftClient.options.host;
+			// Fallback to configured host if resolution failed
+			if (!this.host) {
+				this.logger.warn("Could not resolve server host from socket, falling back to MC_HOST environment variable");
+				this.host = this.options.host;
 			}
 
-			MinecraftClient.logger.log("Connected to server:", chalk.cyan.underline(MinecraftClient.host), "in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
+			this.logger.log("Connected to server:", chalk.cyan.underline(this.host), "in", chalk.yellow(prettyMilliseconds(Date.now() - connectTime)));
 
-			if (!MinecraftClient.session) {
-				MinecraftClient.logger.error("Session object is not available after connection");
-				return MinecraftClient.exit(1);
+			if (!this.session) {
+				this.logger.error("Session object is not available after connection");
+				return this.exit(1);
 			}
 
 			// Normalize ID
-			const botId = normalizeUUID(MinecraftClient.session.selectedProfile.id);
+			const botId = normalizeUUID(this.session.selectedProfile.id);
 
 			// Upsert bot player in database
-			await prisma.player.upsert({ where: { id: botId }, update: { username: MinecraftClient.session.selectedProfile.name }, create: { id: botId, username: MinecraftClient.session.selectedProfile.name }});
+			await prisma.player.upsert({ where: { id: botId }, update: { username: this.session.selectedProfile.name }, create: { id: botId, username: this.session.selectedProfile.name }});
 			await prisma.bot.upsert({ where: { id: botId }, update: {}, create: { player: { connect: { id: botId }}}});
 
-			// Subscribe to this bot's command channel so peers can request pearl loads
-			const channel = `${ name }:cluster:${ MinecraftClient.host }:${ botId }:queue`;
-			await redisSub.subscribe(channel, async(raw: string) => {
-				
-				// Log the received message for debugging purposes
-				const { data, success } = zPeerRequest.safeParse(JSON.parse(raw));
-				if (!success) return redisLogger.warn("Received invalid message on", chalk.cyan(channel), raw);
-				
-				switch (data.type) {
-
-					default:
-						redisLogger.warn("Received unknown message type on", raw);
-						break;
-
-					// Peer is requesting a stasis load for a player
-					case "load": {
-						redisLogger.log(`Received load request for player ${ chalk.cyan(data.player) }`);
-						await StasisManager.enqueue(data.player, data.status);
-						break;
+			// Subscribe to this bot's command channel so peers can request pearl loads (once)
+			const channel = `${ name }:cluster:${ this.host }:${ botId }:queue`;
+			if (this.redisChannel !== channel) {
+				if (this.redisChannel) await redisSub.unsubscribe(this.redisChannel);
+				this.redisChannel = channel;
+				await redisSub.subscribe(channel, async(raw: string) => {
+					const { data, success } = zPeerRequest.safeParse(JSON.parse(raw));
+					if (!success) return redisLogger.warn("Received invalid message on", chalk.cyan(channel), raw);
+					switch (data.type) {
+						default:
+							redisLogger.warn("Received unknown message type on", raw);
+							break;
+						case "load": {
+							redisLogger.log(`Received load request for player ${ chalk.cyan(data.player) }`);
+							await StasisManager.enqueue(data.player, data.status);
+							break;
+						}
 					}
+				}).then(() => redisLogger.log(`Subscribed to ${ chalk.cyan(channel) }`));
+			}
 
-				}
-
-			}).then(() => redisLogger.log(`Subscribed to ${ chalk.cyan(channel) }`));
-			
 		});
 
+		// Rebind modules to the new bot
+		Module.rebind();
+	}
+
+	static {
+		process.once("SIGTERM", () => this.exit(0));
+		process.once("SIGINT", () => this.exit(0));
+
+		void ChatCommandManager.init();
+		void ClientCommands.init();
+
+		this.connect();
 	}
 
 }

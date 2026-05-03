@@ -154,9 +154,15 @@ export class ChatManager {
 
 		});
 
-		setInterval(this.processQueue.bind(this));
-		
+		this.queueInterval = setInterval(this.processQueue.bind(this));
 	}
+
+	/** Clean up the whisper queue interval (called before reconnect). */
+	public close() {
+		if (this.queueInterval) clearInterval(this.queueInterval);
+	}
+
+	private queueInterval?: ReturnType<typeof setInterval>;
 
 	private lastWhisper = -1;
 

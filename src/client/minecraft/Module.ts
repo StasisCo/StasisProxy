@@ -15,14 +15,24 @@ export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
 
 	/** Loads all modules from src/module, binds the packet listener, and schedules onReady/onTick. */
 	public static init() {
+		Module.bindPacketListener();
+		void Module.load();
+	}
+
+	/** Re-register event listeners on the new bot and fire onReady. Called after reconnect. */
+	public static rebind() {
+		if (Module.modules.size === 0) return; // init() hasn't finished yet
+		Module.bindPacketListener();
+		Module.fireReady();
+	}
+
+	private static bindPacketListener() {
 		MinecraftClient.bot._client.on("packet", (data, { name }) => {
 			for (const module of Module.modules.values()) {
 				if (!module.enabled) continue;
 				if (module.onPacketReceive) module.onPacketReceive({ name: name as keyof Packets.Schema, data });
 			}
 		});
-
-		void Module.load();
 	}
 
 	private static async load() {
