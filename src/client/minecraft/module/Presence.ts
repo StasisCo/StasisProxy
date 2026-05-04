@@ -290,8 +290,12 @@ export default class Presence extends Module<typeof zConfigSchema> {
 					"Accept": "text/event-stream",
 					"Cache-Control": "no-cache"
 				}
-			}).then(res => {
-				if (!res.ok) Presence.logger.warn(`IRC SSE fetch returned ${ res.status } ${ res.statusText }`);
+			}).then(async res => {
+				const contentType = res.headers.get("content-type") ?? "(none)";
+				if (!res.ok || !contentType.includes("text/event-stream")) {
+					const body = await res.clone().text().catch(() => "(unreadable)");
+					Presence.logger.warn(`IRC SSE fetch: ${ res.status } ${ res.statusText } | content-type: ${ contentType } | body: ${ body }`);
+				}
 				return res;
 			})
 		});
@@ -330,7 +334,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		es.onerror = event => {
 			if (this.es !== es) return;
 			this.scheduleReconnect();
-			Presence.logger.warn(event);
+			Presence.logger.warn(event, es);
 		};
 	}
 

@@ -18,6 +18,8 @@ declare namespace Redis {
 
 		[key: `stasisproxy:queue:${ string }:eta`]: { factor: number, pow: number };
 
+		[key: `stasisproxy:mcacache:${ string }`]: z.infer<typeof zMojangUser>;
+
 	}
 
 	interface Subscriptions {

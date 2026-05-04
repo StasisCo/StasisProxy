@@ -1,3 +1,4 @@
+import { Glob } from "bun";
 import chalk from "chalk";
 import express, { type Application } from "express";
 import { Logger } from "~/class/Logger";
@@ -23,26 +24,40 @@ export class HttpServer {
 	 */
 	public static async start() {
 
+		// Import all route files from the api folder
+		const glob = new Glob("**/*.ts");
+		for await (const file of glob.scan(import.meta.dir + "/api")) {
+			await import(`./api/${ file }`);
+		}
+
+		let didLogPortChange = false;
+
 		// Start the bubble server, retrying on next port if bind fails
 		const tryListen = (): Promise<void> => new Promise<void>((resolve, reject) => {
 
 			HttpServer.listener = HttpServer.app
 
 				// Attempt to start the server
-				.listen(HttpServer.PORT, HttpServer.HOST, function() {
-					HttpServer.logger.log("HTTP server started on", chalk.cyan.underline(`http://${ HttpServer.HOST }:${ HttpServer.PORT }`));
-					resolve();
-				})
+				.listen(HttpServer.PORT, HttpServer.HOST, () => resolve())
 
 				// If the server fails to start, retry on next port for bind errors
 				.on("error", (error: { code: string }) => {
 					if (error.code === "EADDRINUSE" || error.code === "EACCES") {
-						HttpServer.logger.warn(`Port ${ HttpServer.PORT } unavailable, trying ${ HttpServer.PORT + 1 }...`);
+						if (!didLogPortChange) {
+							HttpServer.logger.warn(`Port ${ HttpServer.PORT } unavailable.`);
+							didLogPortChange = true;
+						}
 						HttpServer.PORT++;
 						resolve(tryListen());
 					} else {
 						reject(error.code);
 					}
+				})
+
+				.on("listening", () => {
+					const address = HttpServer.listener.address();
+					const port = typeof address === "string" ? address : address?.port;
+					HttpServer.logger.log("HTTP server listening on", chalk.yellow(`:${ port }`));
 				});
 
 		});

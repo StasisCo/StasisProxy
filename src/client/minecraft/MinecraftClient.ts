@@ -1,4 +1,3 @@
-import { zMojangUsername } from "@hackware/types/schema/mojang/zUsername";
 import chalk from "chalk";
 import { execSync } from "child_process";
 import type { SessionObject } from "minecraft-protocol";
@@ -21,6 +20,7 @@ import { name, version } from "../../../package.json";
 import { PhysicsManager } from "./manager/PhysicsManager";
 import { QueueManager } from "./manager/QueueManager";
 import { Module } from "./Module";
+import { zMojangUsername } from "~/schema/mojang/zUsername";
 
 const RECONNECT_DELAY_MS = 5_000;
 
@@ -100,23 +100,41 @@ export class MinecraftClient {
 		this.logger.log("Connecting to server:", chalk.cyan.underline(this.options.host + ":" + this.options.port) + "...");
 		const connectTime = Date.now();
 
-		// Handle general bot errors
-		this.bot.on("error", err => this.logger.error(err));
+		// Handle general bot errors — if the bot isn't connected yet, trigger reconnect
+		// (auth failures don't emit `end`, so the bot would sit dead without this)
+		this.bot.on("error", err => {
+			this.logger.error(err);
+
+			if (!this.bot.player) {
+				if (this.exitCode === 0) return;
+				this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
+				setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
+			}
+		});
 
 		// Handle upstream disconnects
 		this.bot.on("kicked", reason => {
-			const component = new ChatManager.parser(JSON.parse(reason));
-			this.logger.warn("Disconnected:", component.toAnsi());
-			this.proxy.kickAll(component);
+			try {
+				const component = new ChatManager.parser(JSON.parse(reason));
+				this.logger.warn("Disconnected:", component.toAnsi());
+				this.proxy.kickAll(component);
+			} catch (err) {
+				this.logger.warn("Disconnected:", reason);
+				this.logger.error("Error handling kick:", err);
+			}
 		});
 
 		// On bot disconnect — reconnect automatically unless exit(0) was called
 		this.bot.on("end", async() => {
-			this.proxy.close();
+			try {
+				this.proxy.close();
 
-			// Release management of all tracked stasis so other bots can pick them up
-			for (const stasis of Stasis.instances.values()) await stasis.releaseManagement();
-			Stasis.instances.clear();
+				// Release management of all tracked stasis so other bots can pick them up
+				for (const stasis of Stasis.instances.values()) await stasis.releaseManagement();
+				Stasis.instances.clear();
+			} catch (err) {
+				this.logger.error("Error during disconnect cleanup:", err);
+			}
 
 			if (this.exitCode === 0) return process.exit(0);
 			this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
