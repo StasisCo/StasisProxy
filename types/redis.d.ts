@@ -6,7 +6,7 @@ declare namespace Redis {
 
 	interface Schema {
 
-		"stasis-proxy:discord:register": true;
+		"stasisproxy:discord:register": true;
         
 		[key: `stasisproxy:discord:interaction:${ string }`]: true;
         

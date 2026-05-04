@@ -27,7 +27,7 @@ for (const file of await readdir(commandsDir)) {
  * per startup window — otherwise we hit the global app-command rate limit.
  */
 DiscordClient.client.once(Events.ClientReady, async function(readyClient) {
-	const claim = await redis.set("stasis-proxy:discord:register", true, "EX", "60", "NX");
+	const claim = await redis.set("stasisproxy:discord:register", true, "EX", "60", "NX");
 	if (claim !== "OK") return;
 	const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN!);
 	await rest.put(Routes.applicationCommands(readyClient.user.id), {
