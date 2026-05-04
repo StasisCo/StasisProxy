@@ -125,6 +125,6 @@ async function off(channel: Redis.ValidChannel, listener?: SubListener) {
  * @returns The number of subscribers that received the message
  */
 async function emit<T extends Redis.ValidChannel>(channel: T, data: Redis.MessageOf<T>) {
-	return kvClient.publish(channel, typeof data === "string" ? data : stringify(data));
+	return kvClient.publish(channel, stringify(data));
 }
 
