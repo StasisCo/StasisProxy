@@ -183,13 +183,14 @@ export class ChatManager {
 		if (!next) return;
 
 		const sanitized = next[1].message.trim().replace(/\n|\r/g, " ");
+		const id = randomBytes(6).toString("hex");
 		const chars = [];
 		for (const char of sanitized.split("")) {
 			chars.push(char);
 			const length = Math.floor(Math.random() * 3);
 			for (let i = 0; i < length; i++) chars.push("\u200C".repeat(Math.floor(Math.random() * ((next[1].retries ?? 0) + 1))));
 		}
-		const msg = `${ chars.join("") } [${ randomBytes(6).toString("hex") }]`;
+		const msg = `${ chars.join("") } [${ id }]`;
 
 		MinecraftClient.bot.chat(`/w ${ next[0] } ${ msg }`.slice(0, 256));
 		ChatManager.whisperQueue.set(next[0], { ...next[1], retries: (next[1].retries ?? 0) + 1 });
@@ -201,7 +202,7 @@ export class ChatManager {
 
 		const onSystemMessage = (packet: Packets.Schema["system_chat"]) => {
 			const content = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
-			if (content.toString().replace(/\u200C/g, "").endsWith(msg.replace(/\u200C/g, ""))) {
+			if (content.toString().includes(`[${ id }]`)) {
 				MinecraftClient.bot._client.off("system_chat", onSystemMessage);
 				this.confirmListeners.delete(next[0]);
 				ChatManager.whisperQueue.delete(next[0]);

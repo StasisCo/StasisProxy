@@ -69,7 +69,8 @@ psClient.onconnect = () => {
  */
 async function get<T extends keyof Redis.Schema>(key: T) {
 	return await kvClient.get(key)
-		.then(res => res ? JSON.parse(res) as Redis.ValueOf<T> : null);
+		.then(res => res ? JSON.parse(res) as Redis.ValueOf<T> : null)
+		.catch(() => null);
 }
 
 /**
