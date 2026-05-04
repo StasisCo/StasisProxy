@@ -11,15 +11,16 @@ import { ChatCommandManager } from "~/client/minecraft/manager/ChatCommandManage
 import { ChatManager } from "~/client/minecraft/manager/ChatManager";
 import { PathfindingManager } from "~/client/minecraft/manager/PathfindingManager";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
+import { Stasis } from "~/client/minecraft/Stasis";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
 import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Server } from "~/server/minecraft/Server";
 import { normalizeUUID } from "~/utils";
 import { name, version } from "../../../package.json";
-import { Module } from "./Module";
 import { PhysicsManager } from "./manager/PhysicsManager";
 import { QueueManager } from "./manager/QueueManager";
+import { Module } from "./Module";
 
 const RECONNECT_DELAY_MS = 5_000;
 
@@ -110,8 +111,13 @@ export class MinecraftClient {
 		});
 
 		// On bot disconnect — reconnect automatically unless exit(0) was called
-		this.bot.on("end", () => {
+		this.bot.on("end", async() => {
 			this.proxy.close();
+
+			// Release management of all tracked stasis so other bots can pick them up
+			for (const stasis of Stasis.instances.values()) await stasis.releaseManagement();
+			Stasis.instances.clear();
+
 			if (this.exitCode === 0) return process.exit(0);
 			this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
 			setTimeout(() => this.connect(), RECONNECT_DELAY_MS);

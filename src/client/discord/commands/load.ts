@@ -226,14 +226,8 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 
 	// Publish a load request to the bot's cluster channel
 	const expire = 75 * 1000;
-	await redis.emit(`stasisproxy:cluster:${ MinecraftClient.host }`, {
-		type: "request-load",
-		playerUuid: account.id,
-		destinationUuid: bot.id,
-		statusKey: `stasisproxy:stasis:status:${ id }`
-	});
 
-	// Subscribe to status updates from the bot on the status channel with the ID we generated,
+	// Subscribe to status updates BEFORE emitting the request to avoid missing early statuses
 	await redis.on(`stasisproxy:stasis:status:${ id }`, async data => {
 		switch (data) {
 
@@ -270,6 +264,14 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 
 		}
 
+	});
+
+	// Now emit the load request — the subscription above is already active
+	await redis.emit(`stasisproxy:cluster:${ MinecraftClient.host }`, {
+		type: "request-load",
+		playerUuid: account.id,
+		destinationUuid: bot.id,
+		statusKey: `stasisproxy:stasis:status:${ id }`
 	});
 
 }
