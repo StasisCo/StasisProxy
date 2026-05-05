@@ -54,6 +54,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 	private pending: ReturnType<typeof setTimeout> | null = null;
 	private reconnectAttempts = 0;
 	private reconnectTimer: NodeJS.Timeout | null = null;
+	private refreshingToken = false;
 	private lastPost = 0;
 
 	/** Default attributes for the IRC presence */
@@ -231,6 +232,39 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		};
 	}
 
+	/**
+	 * Refresh the Minecraft access token via prismarine-auth without reconnecting to the MC server.
+	 * Updates `MinecraftClient.session.accessToken` in place so subsequent requests use the new token.
+	 */
+	private async refreshToken(): Promise<boolean> {
+		if (this.refreshingToken) return false;
+		this.refreshingToken = true;
+
+		try {
+			const authflow = (MinecraftClient.bot._client as unknown as { authflow?: { getMinecraftJavaToken(opts: { fetchProfile: boolean }): Promise<{ token: string }> } }).authflow;
+			if (!authflow) {
+				Presence.logger.warn("Cannot refresh token: authflow not available");
+				return false;
+			}
+
+			Presence.logger.log("Refreshing Minecraft access token...");
+			const { token } = await authflow.getMinecraftJavaToken({ fetchProfile: true });
+
+			if (MinecraftClient.session) {
+				MinecraftClient.session.accessToken = token;
+				Presence.logger.log("Access token refreshed successfully");
+				return true;
+			}
+
+			return false;
+		} catch (err) {
+			Presence.logger.error("Failed to refresh access token:", err);
+			return false;
+		} finally {
+			this.refreshingToken = false;
+		}
+	}
+
 	// ── SSE connection ──
 
 	private tryConnect() {
@@ -282,22 +316,42 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		Presence.logger.log(`Connecting to IRC SSE stream: ${ chalk.cyan.underline(url) }...`);
 
 		const es = new EventSource(url, {
-			fetch: (input, init) => fetch(input, {
-				...init,
-				headers: {
-					...init.headers,
-					...this.headers,
-					"Accept": "text/event-stream",
-					"Cache-Control": "no-cache"
+			fetch: async(input, init) => {
+				let res = await fetch(input, {
+					...init,
+					headers: {
+						...init.headers,
+						...this.headers,
+						"Accept": "text/event-stream",
+						"Cache-Control": "no-cache"
+					}
+				});
+
+				if (res.status === 401) {
+					Presence.logger.warn("IRC returned 401, refreshing access token...");
+					const refreshed = await this.refreshToken();
+
+					if (refreshed) {
+						res = await fetch(input, {
+							...init,
+							headers: {
+								...init.headers,
+								...this.headers,
+								"Accept": "text/event-stream",
+								"Cache-Control": "no-cache"
+							}
+						});
+					}
 				}
-			}).then(async res => {
+
 				const contentType = res.headers.get("content-type") ?? "(none)";
 				if (!res.ok || !contentType.includes("text/event-stream")) {
 					const body = await res.clone().text().catch(() => "(unreadable)");
 					Presence.logger.warn(`IRC SSE fetch: ${ res.status } ${ res.statusText } | content-type: ${ contentType } | body: ${ body }`);
 				}
+
 				return res;
-			})
+			}
 		});
 
 		this.es = es;

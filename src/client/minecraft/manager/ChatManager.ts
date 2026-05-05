@@ -175,6 +175,9 @@ export class ChatManager {
 
 	private processQueue() {
 
+		// Don't attempt to send if the bot isn't fully connected
+		if (!MinecraftClient.bot?.player || !MinecraftClient.bot._client?.chat) return;
+
 		// If lastWhisper was more then 2s ago
 		if (Date.now() - this.lastWhisper < 2000) return;
 
