@@ -178,12 +178,15 @@ export class ChatManager {
 		// Don't attempt to send if the bot isn't fully connected
 		if (!MinecraftClient.bot?.player || !MinecraftClient.bot._client?.chat) return;
 
-		// If lastWhisper was more then 2s ago
+		// If lastWhisper was less than 2s ago, wait
 		if (Date.now() - this.lastWhisper < 2000) return;
 
 		const next = Array.from(ChatManager.whisperQueue.entries())
 			.sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
 		if (!next) return;
+
+		// Don't resend if we're still waiting for confirmation from the last attempt
+		if (this.confirmListeners.has(next[0])) return;
 
 		const sanitized = next[1].message.trim().replace(/\n|\r/g, " ");
 		const id = randomBytes(6).toString("hex");
@@ -199,18 +202,21 @@ export class ChatManager {
 		ChatManager.whisperQueue.set(next[0], { ...next[1], retries: (next[1].retries ?? 0) + 1 });
 		this.lastWhisper = Date.now();
 
-		// Remove previous confirmation listener for this recipient (from a prior retry)
-		const prev = this.confirmListeners.get(next[0]);
-		if (prev) MinecraftClient.bot._client.off("system_chat", prev);
-
 		const onSystemMessage = (packet: Packets.Schema["system_chat"]) => {
 			const content = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
 			if (content.toString().includes(`[${ id }]`)) {
+				clearTimeout(confirmTimeout);
 				MinecraftClient.bot._client.off("system_chat", onSystemMessage);
 				this.confirmListeners.delete(next[0]);
 				ChatManager.whisperQueue.delete(next[0]);
 			}
 		};
+
+		// If no confirmation after 10s, remove listener so we can retry
+		const confirmTimeout = setTimeout(() => {
+			MinecraftClient.bot._client.off("system_chat", onSystemMessage);
+			this.confirmListeners.delete(next[0]);
+		}, 10_000);
 
 		this.confirmListeners.set(next[0], onSystemMessage);
 		MinecraftClient.bot._client.on("system_chat", onSystemMessage);
