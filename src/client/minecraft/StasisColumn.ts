@@ -9,6 +9,7 @@ import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
 import { Stasis } from "./Stasis";
+import type { Vec3Like } from "prismarine-viewer/viewer";
 
 type StasisColumnEventMap = Record<string | symbol, unknown[]>;
 
@@ -30,9 +31,9 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
      * @param pos - A position inside the stasis to get the bounds for
      * @returns The top and bottom positions of the stasis bounding box, or null if no valid stasis was found
      */
-	public static getBoundingBox(position: Vec3) {
+	public static getBoundingBox(position: Vec3Like) {
 
-		const pos = position.floored();
+		const pos = new Vec3(position.x, position.y, position.z).floored();
     
 		const bottomY = "minY" in MinecraftClient.bot.game && typeof MinecraftClient.bot.game.minY === "number" ? MinecraftClient.bot.game.minY : -64;
 		const height = "height" in MinecraftClient.bot.game && typeof MinecraftClient.bot.game.height === "number" ? MinecraftClient.bot.game.height : 384;
@@ -67,13 +68,13 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
      * @param search - A Vec3, Block, Entity, or Pearl to find the stasis for
      * @returns A Stasis instance if a valid stasis was found at the given location, or null if not
      */
-	public static get(search: Block | Entity | Pearl | Vec3) {
+	public static get(search: Block | Entity | Pearl | Vec3Like) {
     
 		// Extract the position from the input, whether it's a Vec3 or a Pearl entity
 		const position =
-			("x" in search && "y" in search && "z" in search) ? search as Vec3 :
-				search instanceof Pearl ? search.entity.position as Vec3 :
-					"position" in search ? search.position as Vec3 : null;
+			("x" in search && "y" in search && "z" in search) ? search :
+				search instanceof Pearl ? search.entity.position :
+					"position" in search ? search.position : null;
 
 		// If we couldn't get a position from the input, return null
 		if (!position) return null;

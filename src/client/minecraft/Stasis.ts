@@ -1,7 +1,8 @@
 import chalk from "chalk";
 import type { Dimension } from "mineflayer";
-import type { Block } from "prismarine-block";
+import type { Block, Shape } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
+import type { Vec3Like } from "prismarine-viewer/viewer";
 import { Vec3 } from "vec3";
 import z from "zod";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
@@ -47,13 +48,13 @@ export class Stasis extends StasisColumn<{
 	 * @param search - A Vec3, Block, Entity, or Pearl to find the stasis for
 	 * @returns A Stasis instance if a valid stasis was found at the given location, or null if not
 	 */
-	public static async from(search: Block | Entity | Pearl | Vec3) {
+	public static async from(search: Block | Entity | Pearl | Vec3Like) {
 
 		// Extract the position from the input, whether it's a Vec3 or a Pearl entity
 		const position =
-			("x" in search && "y" in search && "z" in search) ? search as Vec3 :
-				search instanceof Pearl ? search.entity.position as Vec3 :
-					"position" in search ? search.position as Vec3 : null;
+			("x" in search && "y" in search && "z" in search) ? search :
+				search instanceof Pearl ? search.entity.position :
+					"position" in search ? search.position : null;
 					
 		// If we couldn't get a position from the input, return null
 		if (!position) return null;
@@ -358,6 +359,36 @@ export class Stasis extends StasisColumn<{
 
 		return pearls.map(p => p.entity.id).every(id => !StasisManager.pearls.has(id));
 
+	}
+
+	/**
+	 * Determines if the stasis has a pearl in it that is within the trigger block's bounding box
+	 * @return {boolean} true if a pearl is within the trigger, false otherwise
+	 */
+	public isArmed(): boolean {
+		const shapes: Shape[] = [ [ 0, 0, 0, 1, 1, 1 ] ];
+		return this.pearls.some(pearl => {
+			const pos = pearl.entity.position;
+			const hw = pearl.entity.width / 2;
+			const h = pearl.entity.height;
+			const pMinX = pos.x - hw;
+			const pMinY = pos.y;
+			const pMinZ = pos.z - hw;
+			const pMaxX = pos.x + hw;
+			const pMaxY = pos.y + h;
+			const pMaxZ = pos.z + hw;
+			return shapes.some((shape: Shape) => {
+				const bMinX = this.block.position.x + shape[0];
+				const bMinY = this.block.position.y + shape[1];
+				const bMinZ = this.block.position.z + shape[2];
+				const bMaxX = this.block.position.x + shape[3];
+				const bMaxY = this.block.position.y + shape[4];
+				const bMaxZ = this.block.position.z + shape[5];
+				return pMinX < bMaxX && pMaxX > bMinX
+					&& pMinY < bMaxY && pMaxY > bMinY
+					&& pMinZ < bMaxZ && pMaxZ > bMinZ;
+			});
+		});
 	}
 
 }

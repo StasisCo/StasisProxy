@@ -217,8 +217,10 @@ export class StasisManager {
 		// Get the nearest stasis chamber for this player
 		const all = await Stasis.fetch(ownerId)
 			.then(all => all.sort((a, b) => MinecraftClient.bot.entity.position.distanceTo(a.block.position) - MinecraftClient.bot.entity.position.distanceTo(b.block.position)));
-		const [ stasis ] = all;
 
+		// Find the closest stasis chamber that has a pearl within the trigger area
+		const stasis = all.find(s => s.isArmed());
+		
 		if (!stasis) {
 			StasisManager.logger.warn(`No stasis chambers found for player ${ chalk.cyan(ownerId) }`);
 			return -1;
