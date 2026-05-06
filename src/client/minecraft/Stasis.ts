@@ -28,6 +28,35 @@ export class Stasis extends StasisColumn<{
 
 }> implements StasisData {
 
+	/** The ID of the stasis, which is a unique identifier for the stasis in the database */
+	public readonly id: string;
+
+	/** The date and time when the stasis was created */
+	public readonly createdAt: Date;
+
+	public readonly updatedAt: Date;
+
+	/** The dimension the stasis is located in (e.g. "overworld", "the_nether", "the_end") */
+	public readonly dimension: Dimension;
+
+	/** The Minecraft UUID of the player who owns the stasis */
+	public readonly ownerId: string;
+
+	/** The ID of the bot associated with the stasis, if any */
+	public botId: string | null;
+
+	/** The server the stasis is located on */
+	public readonly server: string;
+
+	/** The X coordinate of the stasis block */
+	public readonly x: number;
+
+	/** The Y coordinate of the stasis block */
+	public readonly y: number;
+
+	/** The Z coordinate of the stasis block */
+	public readonly z: number;
+
 	/** A map of all stasis instances currently tracked by the manager, keyed by their unique ID */
 	public static readonly instances = new Map<string, Stasis>();
 
@@ -132,35 +161,6 @@ export class Stasis extends StasisColumn<{
 
 	}
 
-	/** The ID of the stasis, which is a unique identifier for the stasis in the database */
-	public readonly id: string;
-
-	/** The date and time when the stasis was created */
-	public readonly createdAt: Date;
-
-	public readonly updatedAt: Date;
-
-	/** The dimension the stasis is located in (e.g. "overworld", "the_nether", "the_end") */
-	public readonly dimension: Dimension;
-
-	/** The Minecraft UUID of the player who owns the stasis */
-	public readonly ownerId: string;
-
-	/** The ID of the bot associated with the stasis, if any */
-	public botId: string | null;
-
-	/** The server the stasis is located on */
-	public readonly server: string;
-
-	/** The X coordinate of the stasis block */
-	public readonly x: number;
-
-	/** The Y coordinate of the stasis block */
-	public readonly y: number;
-
-	/** The Z coordinate of the stasis block */
-	public readonly z: number;
-
 	/**
 	 * Creates a new Stasis instance from a Stasis object retrieved from the database
 	 * @param data - The Stasis data object retrieved from the database
@@ -257,7 +257,10 @@ export class Stasis extends StasisColumn<{
 		if (this.state.open === false) return Promise.resolve(true);
 
 		// Force-look at the block center (resolves immediately)
-		const delta = (pos.offset(0.5, 0.5, 0.5) as Vec3).minus(MinecraftClient.bot.entity.position.offset(0, MinecraftClient.bot.entity.height, 0) as Vec3);
+		const offsetted = MinecraftClient.bot.entity.position.offset(0, MinecraftClient.bot.entity.height, 0);
+		const ofsettedVec = new Vec3(offsetted.x, offsetted.y, offsetted.z);
+	
+		const delta = pos.offset(0.5, 0.5, 0.5).minus(ofsettedVec);
 		MinecraftClient.bot.entity.yaw = Math.atan2(-delta.x, -delta.z);
 		MinecraftClient.bot.entity.pitch = Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z));
 
@@ -321,7 +324,7 @@ export class Stasis extends StasisColumn<{
 			});
 		}
 
-		MinecraftClient.bot.swingArm(undefined);
+		MinecraftClient.bot.swingArm("right");
 
 		return promise;
 	}

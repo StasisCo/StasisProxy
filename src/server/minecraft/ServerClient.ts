@@ -328,7 +328,7 @@ export class ServerClient {
 		const pos = this.bot.entity?.position;
 		if (pos && Number.isFinite(pos.x)) {
 			const floored = pos.floored();
-			MinecraftClient.pathfinding.setHome(floored.offset(0.5, 0, 0.5) as Vec3);
+			MinecraftClient.pathfinding.setHome(floored.offset(0.5, 0, 0.5));
 		}
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading stored field

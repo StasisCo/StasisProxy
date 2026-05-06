@@ -157,7 +157,7 @@ export class StasisManager {
 			pearl.off("destroyed", onDestroyed);
 
 			// Get the bounding box of the pearl in stasis, which we will use to find the corresponding stasis chamber
-			const column = StasisColumn.get(pearl.entity.position as Vec3);
+			const column = StasisColumn.get(pearl.entity.position);
 			if (!column) {
 				StasisManager.logger.warn(`Failed to find a stasis chamber for pearl ${ chalk.yellow(pearl.entity.id) } belonging to player ${ chalk.cyan(owner.uuid) }`);
 				return;

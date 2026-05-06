@@ -1,4 +1,5 @@
 import type { Bot } from "mineflayer";
+import type { Vec3Like } from "prismarine-viewer/viewer";
 import { Vec3 } from "vec3";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { Goal } from "../../../class/Goal";
@@ -7,7 +8,7 @@ export class PathfindingManager {
 
 	private queue: Goal[] = [];
 	private active: Goal | null = null;
-	private home: Vec3 | null = null;
+	private home: Vec3Like | null = null;
 	private returningHome = false;
 
 	/** True while awaiting async onArrived/onTimeout listeners — blocks premature processNext and returnHome */
@@ -43,16 +44,16 @@ export class PathfindingManager {
 
 		bot.on("spawn", () => {
 			const pos = this.bot.entity.position.floored();
-			this.home = pos.offset(0.5, 0, 0.5) as Vec3;
+			this.home = pos.offset(0.5, 0, 0.5);
 		});
 	}
 
-	public getHome(): Vec3 | null {
+	public getHome(): Vec3Like | null {
 		return this.home;
 	}
 
-	public setHome(position: Vec3) {
-		this.home = position;
+	public setHome(position: Vec3Like) {
+		this.home = new Vec3(position.x, position.y, position.z);
 
 		// Cancel stale return-home and navigate to the new position
 		if (this.returningHome) {
@@ -100,9 +101,10 @@ export class PathfindingManager {
 
 	private returnHome() {
 		if (!this.home || this.returningHome) return;
+		const pos = new Vec3(this.home.x, this.home.y, this.home.z);
 
 		// Already at home — stay idle instead of creating a new goal that oscillates
-		if (this.bot.entity && this.bot.entity.position.distanceTo(this.home) <= 0.5) return;
+		if (this.bot.entity && this.bot.entity.position.distanceTo(pos) <= 0.5) return;
 
 		const goal = new Goal(this.home);
 		goal.setRange(0.5);
@@ -166,18 +168,21 @@ export class PathfindingManager {
 
 		// Always look straight ahead — prevent pitch getting stuck (e.g. after Stasis.interact() looks at a block below)
 		this.bot.entity.pitch = 0;
-
+		
 		// No active goal — check if we've drifted from home and need to return
 		if (!this.active) {
-			if (!this.finishing && this.home && this.bot.entity.position.distanceTo(this.home) > 1.0) {
-				this.returnHome();
+			if (!this.finishing && this.home) {
+				const home = new Vec3(this.home.x, this.home.y, this.home.z);
+				if (this.bot.entity.position.distanceTo(home) > 1.0) {
+					this.returnHome();
+				}
 			}
 			return;
 		}
 
 		const pos = this.bot.entity.position;
-		const target = this.active.position;
-		const distance = pos.distanceTo(target);
+		const targetPos = new Vec3(this.active.position.x, this.active.position.y, this.active.position.z);
+		const distance = pos.distanceTo(targetPos);
 
 		if (distance <= this.active.range) {
 			await this.finishActive("arrived");
@@ -215,8 +220,8 @@ export class PathfindingManager {
 		this.lastPos.z = pos.z;
 
 		// Steer toward target, avoiding hazards and solid obstacles
-		const dx = target.x - pos.x;
-		const dz = target.z - pos.z;
+		const dx = targetPos.x - pos.x;
+		const dz = targetPos.z - pos.z;
 		const len = Math.sqrt(dx * dx + dz * dz);
 
 		if (len > 0.01) {

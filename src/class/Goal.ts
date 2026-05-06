@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import type { Vec3 } from "vec3";
+import type { Vec3Like } from "prismarine-viewer/viewer";
 
 export class Goal extends EventEmitter<{
 
@@ -16,7 +16,7 @@ export class Goal extends EventEmitter<{
 
 	/** @internal */ _timer: ReturnType<typeof setTimeout> | null = null;
 
-	constructor(public readonly position: Vec3) {
+	constructor(public readonly position: Vec3Like) {
 		super();
 	}
 

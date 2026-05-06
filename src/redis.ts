@@ -38,7 +38,7 @@ const kvClient = new RedisClient(redisUrl, options);
 const psClient = new RedisClient(redisUrl, options);
 
 // Expose the unified Redis interface with JSON parsing/stringifying and subscription tracking
-export const redis = { ...kvClient, emit, get, off, on, set, del: kvClient.del, logger };
+export const redis = { ...kvClient, emit, get, off, on, set, del, logger };
 
 // Handle connection events for both clients
 kvClient.onconnect = () => logger.log("Redis connected in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
@@ -128,3 +128,11 @@ async function emit<T extends Redis.ValidChannel>(channel: T, data: Redis.Messag
 	return kvClient.publish(channel, stringify(data));
 }
 
+/**
+ * Delete one or more keys from Redis.
+ * @param keys The keys to delete
+ * @returns The number of keys that were deleted
+ */
+async function del(...keys: Array<keyof Redis.Schema>) {
+	return kvClient.del(...keys);
+}

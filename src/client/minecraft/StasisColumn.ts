@@ -2,6 +2,7 @@ import EventEmitter from "events";
 import type { Player } from "mineflayer";
 import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
+import type { Vec3Like } from "prismarine-viewer/viewer";
 import { Vec3 } from "vec3";
 import z from "zod";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
@@ -9,11 +10,16 @@ import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { Pearl } from "./Pearl";
 import { Stasis } from "./Stasis";
-import type { Vec3Like } from "prismarine-viewer/viewer";
 
 type StasisColumnEventMap = Record<string | symbol, unknown[]>;
 
 export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap> extends EventEmitter<T> {
+
+	/** The bottom position of the stasis column bounding box (the soul sand block) */
+	public readonly pos1: Vec3;
+
+	/** The top position of the stasis column bounding box (the trapdoor block) */
+	public readonly pos2: Vec3;
 
 	/**
      * Checks if a block is a valid stasis trigger (a trapdoor that isn't made of iron)
@@ -90,12 +96,6 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 		}
     
 	}
-
-	/** The bottom position of the stasis column bounding box (the soul sand block) */
-	public readonly pos1: Vec3;
-
-	/** The top position of the stasis column bounding box (the trapdoor block) */
-	public readonly pos2: Vec3;
 
 	protected constructor(x: number, y: number, z: number) {
 		super();

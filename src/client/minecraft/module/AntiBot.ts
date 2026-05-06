@@ -34,7 +34,7 @@ export default class AntiBot extends Module {
 			const home = MinecraftClient.pathfinding.getHome();
 			if (!home) return;
 
-			const origin = home.floored() as Vec3;
+			const origin = new Vec3(home.x, home.y, home.z).floored();
 			for (const dir of AntiBot.DIRECTIONS) {
 
 				const feet = origin.plus(dir);
@@ -46,7 +46,7 @@ export default class AntiBot extends Module {
 				if (!feetBlock || !headBlock) continue;
 				if (feetBlock.boundingBox === "empty" && headBlock.boundingBox === "empty") {
 
-					const target = origin.plus(dir).offset(0.5, 0, 0.5) as Vec3;
+					const target = origin.plus(dir).offset(0.5, 0, 0.5);
 					MinecraftClient.pathfinding.pushGoal(new Goal(target).setRange(0.3).setTimeout(5000));
 
 					break;
