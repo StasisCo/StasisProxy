@@ -38,7 +38,7 @@ const kvClient = new RedisClient(redisUrl, options);
 const psClient = new RedisClient(redisUrl, options);
 
 // Expose the unified Redis interface with JSON parsing/stringifying and subscription tracking
-export const redis = { ...kvClient, emit, get, off, on, set, logger };
+export const redis = { ...kvClient, emit, get, off, on, set, del: kvClient.del, logger };
 
 // Handle connection events for both clients
 kvClient.onconnect = () => logger.log("Redis connected in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
