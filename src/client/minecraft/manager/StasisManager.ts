@@ -33,10 +33,14 @@ export class StasisManager {
 	*/
 	private readonly attach = () => {
 		
-		// Unclaim any stasis previously owned by this bot on the same server (in case of unclean shutdown)
+		// Unclaim any stasis previously managed by this bot on the same server (in case of unclean shutdown)
 		MinecraftClient.queue.once("leave-queue", async() => {
-			const { count } = await prisma.stasis.updateMany({ where: { botId: MinecraftClient.bot.player.uuid, server: MinecraftClient.host }, data: { botId: null }});
-			if (count > 0) StasisManager.logger.log(`Disconnected ${ chalk.yellow(count) } managed stasis on ${ chalk.cyan.underline(MinecraftClient.host) }`);
+			const botId = MinecraftClient.bot.player.uuid.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
+			const managed = await prisma.stasis.findMany({ where: { managers: { some: { id: botId } }, server: MinecraftClient.host } });
+			if (managed.length > 0) {
+				await prisma.bot.update({ where: { id: botId }, data: { stasis: { disconnect: managed.map(s => ({ id: s.id })) } } });
+				StasisManager.logger.log(`Disconnected ${ chalk.yellow(managed.length) } managed stasis on ${ chalk.cyan.underline(MinecraftClient.host) }`);
+			}
 		});
 		
 		// When an entity spawns

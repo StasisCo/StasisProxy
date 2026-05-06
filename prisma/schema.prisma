@@ -30,9 +30,8 @@ model Stasis {
   ownerId String
   owner   Player @relation(fields: [ownerId], references: [id])
 
-  // The bot that is managing this stasis (if any)
-  botId String?
-  bot   Bot?    @relation(fields: [botId], references: [id])
+  // Managers that are observing this stasis (if any)
+  managers Bot[] @relation("StasisManagers")
 
   // Only 1 stasis can exist at a given position in a given dimension on a given server
   @@unique([server, x, y, z, dimension], name: "position")
@@ -69,8 +68,8 @@ model Bot {
   // The player instance that this bot is associated with
   player Player @relation(fields: [id], references: [id])
 
-  // Observing stasis
-  managing Stasis[]
+  // Stasis managed by this bot
+  stasis Stasis[] @relation("StasisManagers")
 }
 
 model Discord {

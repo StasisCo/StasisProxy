@@ -42,8 +42,8 @@ export class Stasis extends StasisColumn<{
 	/** The Minecraft UUID of the player who owns the stasis */
 	public readonly ownerId: string;
 
-	/** The ID of the bot associated with the stasis, if any */
-	public botId: string | null;
+	/** The IDs of the bots currently managing this stasis */
+	public managerIds: string[] = [];
 
 	/** The server the stasis is located on */
 	public readonly server: string;
@@ -171,7 +171,6 @@ export class Stasis extends StasisColumn<{
 		this.dimension = z.enum([ "overworld", "the_nether", "the_end" ]).parse(data.dimension);
 		this.id = data.id;
 		this.ownerId = data.ownerId;
-		this.botId = data.botId;
 		this.server = data.server;
 		this.updatedAt = data.updatedAt;
 		this.x = data.x;
@@ -184,44 +183,48 @@ export class Stasis extends StasisColumn<{
 	}
 
 	/**
-	 * Claims management of this stasis for the current bot by setting the botId in the database. 
-	 * This allows the bot to track and manage the stasis, and ensures that only one bot manages a given stasis at a time. 
-	 * If the stasis is already managed by another bot, it will update to be managed by this bot instead.
+	 * Claims management of this stasis for the current bot by connecting it to the managers relation.
+	 * Multiple bots can manage a single stasis simultaneously.
 	 */
 	private async claimManagement() {
 		const rawBotId = MinecraftClient.bot.player?.uuid;
 		if (!rawBotId) return;
 
 		const botId = rawBotId.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
-		if (this.botId === botId) return;
+		if (this.managerIds.includes(botId)) return;
 
 		await prisma.stasis.update({
 			where: {
 				id: this.id
 			},
 			data: {
-				botId
+				managers: { connect: { id: botId } }
 			}
 		});
 
-		this.botId = botId;
+		this.managerIds.push(botId);
 	}
 
 	/**
-	 * Releases management of this stasis for the current bot by setting the botId in the database to null.
-	 * This allows other bots to manage the stasis if needed.
+	 * Releases management of this stasis for the current bot by disconnecting it from the managers relation.
 	 */
 	public async releaseManagement() {
-		if (this.botId === null) return;
+		const rawBotId = MinecraftClient.bot.player?.uuid;
+		if (!rawBotId) return;
+
+		const botId = rawBotId.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
+		if (!this.managerIds.includes(botId)) return;
+
 		await prisma.stasis.update({
 			where: {
 				id: this.id
 			},
 			data: {
-				botId: null
+				managers: { disconnect: { id: botId } }
 			}
 		}).catch(() => {});
-		this.botId = null;
+
+		this.managerIds = this.managerIds.filter(id => id !== botId);
 	}
 
 	/**
