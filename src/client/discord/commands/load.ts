@@ -95,14 +95,14 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 	});
 
-	// Get all pearls for this account that are in range of any online bot
-	const all = await prisma.stasis.findMany({ where: { ownerId: account.id, botId: { not: null }}, select: { id: true, owner: true, bot: { include: { player: { select: { id: true, username: true }}}}}})
-		.then(pearls => pearls.filter(pearl => Object.values(MinecraftClient.bot.players).some(player => pearl.bot && player.uuid === pearl.bot.id)))
+	// Get all pearls for this account that are managed by any bot in range
+	const all = await prisma.stasis.findMany({ where: { ownerId: account.id, managers: { some: {} }}, select: { id: true, owner: true, managers: { include: { player: { select: { id: true, username: true }}}}}})
+		.then(pearls => pearls.filter(pearl => pearl.managers.some(manager => Object.values(MinecraftClient.bot.players).some(player => player.uuid === manager.id))))
 		.catch(() => []);
 
 	// Get the unique bots that have pearls for this account
 	const bots = new Map();
-	for (const pearl of all) if (pearl.bot) bots.set(pearl.bot.id, pearl.bot.player);
+	for (const pearl of all) for (const manager of pearl.managers) bots.set(manager.id, manager.player);
 
 	// If no pearls are found, inform the user and exit
 	if (all.length === 0) {
@@ -115,7 +115,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 	// Group pearls by bot
 	const byBot = new Map<string, Set<typeof all[number]>>();
-	for (const pearl of all) if (pearl.bot) byBot.getOrInsert(pearl.bot.id, new Set()).add(pearl);
+	for (const pearl of all) for (const manager of pearl.managers) byBot.getOrInsert(manager.id, new Set()).add(pearl);
 
 	// Get the bot to request to load. If there is only one bot, select it automatically, otherwise ask the user to select a bot from a dropdown menu
 	const bot = await new Promise<Player>(resolve => {
