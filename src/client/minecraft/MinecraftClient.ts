@@ -13,6 +13,7 @@ import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { Stasis } from "~/client/minecraft/Stasis";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
+import { zMojangUsername } from "~/schema/mojang/zUsername";
 import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Server } from "~/server/minecraft/Server";
 import { normalizeUUID } from "~/utils";
@@ -20,7 +21,6 @@ import { name, version } from "../../../package.json";
 import { PhysicsManager } from "./manager/PhysicsManager";
 import { QueueManager } from "./manager/QueueManager";
 import { Module } from "./Module";
-import { zMojangUsername } from "~/schema/mojang/zUsername";
 
 const RECONNECT_DELAY_MS = 5_000;
 
@@ -65,6 +65,9 @@ export class MinecraftClient {
 	/** Exit code to use when the process exits; set to 0 for clean exits, or 1 for errors */
 	private static exitCode = 1;
 
+	/** Whether a reconnect has already been scheduled for the current connection cycle */
+	private static reconnecting = false;
+
 	/** Redis channel currently subscribed for peer requests, to avoid duplicate subscriptions */
 	private static redisChannel?: Redis.ValidChannel;
 
@@ -79,6 +82,7 @@ export class MinecraftClient {
 		this.session = undefined;
 		this.host = undefined;
 		this.exitCode = 1;
+		this.reconnecting = false;
 
 		// Tear down previous connection's resources
 		this.physics?.stop();
@@ -105,8 +109,9 @@ export class MinecraftClient {
 		this.bot.on("error", err => {
 			this.logger.error(err);
 
-			if (!this.bot.player) {
+			if (!this.bot.player && !this.reconnecting) {
 				if (this.exitCode === 0) return;
+				this.reconnecting = true;
 				this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
 				setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
 			}
@@ -121,6 +126,14 @@ export class MinecraftClient {
 			} catch (err) {
 				this.logger.warn("Disconnected:", reason);
 				this.logger.error("Error handling kick:", err);
+			}
+
+			// Login-phase kicks (e.g. "logging in too fast") may not emit `end`, so trigger reconnect here
+			if (!this.bot.player && !this.reconnecting) {
+				if (this.exitCode === 0) return;
+				this.reconnecting = true;
+				this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
+				setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
 			}
 		});
 
@@ -137,6 +150,8 @@ export class MinecraftClient {
 			}
 
 			if (this.exitCode === 0) return process.exit(0);
+			if (this.reconnecting) return;
+			this.reconnecting = true;
 			this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
 			setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
 		});
