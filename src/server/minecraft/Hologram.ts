@@ -450,20 +450,12 @@ class OffHologram extends BaseHologram {
 
 export type TextHologram = BaseHologram;
 
-export function createHologram(
-	client: MinecraftClient,
-	bot: Mineflayer,
-	playerList?: Map<string, PlayerListLike>,
-	override?: HologramRenderer
-): TextHologram {
+export function createHologram(client: MinecraftClient, bot: Mineflayer, playerList?: Map<string, PlayerListLike>, override?: HologramRenderer): TextHologram {
 	const renderer = override ?? DEFAULT_RENDERER;
-	let hologram: BaseHologram;
 	switch (renderer) {
-		case "body": hologram = new BodyHologram(client, bot, playerList); break;
-		case "text": hologram = new TextOnlyHologram(client, bot, playerList); break;
-		case "off": hologram = new OffHologram(client, bot, playerList); break;
-		case "head":
-		default: hologram = new HeadHologram(client, bot, playerList);
+		default: return new BodyHologram(client, bot, playerList);
+		case "text": return new TextOnlyHologram(client, bot, playerList);
+		case "off": return new OffHologram(client, bot, playerList);
+		case "head": return new HeadHologram(client, bot, playerList);
 	}
-	return hologram;
 }

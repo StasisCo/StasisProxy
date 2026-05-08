@@ -1,6 +1,6 @@
 import { readdir } from "fs/promises";
 import z from "zod";
-import { ConfigManager } from "~/manager/ConfigManager";
+import { ConfigManager } from "~/class/ConfigManager";
 import { MinecraftClient } from "./MinecraftClient";
 
 export abstract class Module<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {

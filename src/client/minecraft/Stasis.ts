@@ -198,7 +198,7 @@ export class Stasis extends StasisColumn<{
 				id: this.id
 			},
 			data: {
-				managers: { connect: { id: botId } }
+				managers: { connect: { id: botId }}
 			}
 		});
 
@@ -220,7 +220,7 @@ export class Stasis extends StasisColumn<{
 				id: this.id
 			},
 			data: {
-				managers: { disconnect: { id: botId } }
+				managers: { disconnect: { id: botId }}
 			}
 		}).catch(() => {});
 

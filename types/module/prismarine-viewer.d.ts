@@ -6,7 +6,7 @@ declare module "prismarine-viewer/lib/common" {
 
 declare module "prismarine-viewer/viewer" {
 	import type EventEmitter from "events";
-    import type { Bot } from "mineflayer";
+	import type { Bot } from "mineflayer";
 
 	interface Vec3Like {
 		x: number;

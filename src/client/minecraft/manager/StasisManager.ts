@@ -36,9 +36,9 @@ export class StasisManager {
 		// Unclaim any stasis previously managed by this bot on the same server (in case of unclean shutdown)
 		MinecraftClient.queue.once("leave-queue", async() => {
 			const botId = MinecraftClient.bot.player.uuid.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
-			const managed = await prisma.stasis.findMany({ where: { managers: { some: { id: botId } }, server: MinecraftClient.host } });
+			const managed = await prisma.stasis.findMany({ where: { managers: { some: { id: botId }}, server: MinecraftClient.host }});
 			if (managed.length > 0) {
-				await prisma.bot.update({ where: { id: botId }, data: { stasis: { disconnect: managed.map(s => ({ id: s.id })) } } });
+				await prisma.bot.update({ where: { id: botId }, data: { stasis: { disconnect: managed.map(s => ({ id: s.id })) }}});
 				StasisManager.logger.log(`Disconnected ${ chalk.yellow(managed.length) } managed stasis on ${ chalk.cyan.underline(MinecraftClient.host) }`);
 			}
 		});

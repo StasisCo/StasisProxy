@@ -190,7 +190,7 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 				},
 				update: {
 					ownerId: player.id,
-					managers: { connect: { id: botId } }
+					managers: { connect: { id: botId }}
 				},
 				create: {
 					dimension: MinecraftClient.bot.game.dimension,
@@ -199,7 +199,7 @@ export class StasisColumn<T extends StasisColumnEventMap = StasisColumnEventMap>
 					y: this.block.position.y,
 					z: this.block.position.z,
 					ownerId: player.id,
-					managers: { connect: { id: botId } }
+					managers: { connect: { id: botId }}
 				},
 				include: {
 					owner: {

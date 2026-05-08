@@ -96,7 +96,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 	});
 
 	// Get all pearls for this account that are managed by any bot in range
-	const all = await prisma.stasis.findMany({ where: { ownerId: account.id, managers: { some: {} }}, select: { id: true, owner: true, managers: { include: { player: { select: { id: true, username: true }}}}}})
+	const all = await prisma.stasis.findMany({ where: { ownerId: account.id, managers: { some: {}}}, select: { id: true, owner: true, managers: { include: { player: { select: { id: true, username: true }}}}}})
 		.then(pearls => pearls.filter(pearl => pearl.managers.some(manager => Object.values(MinecraftClient.bot.players).some(player => player.uuid === manager.id))))
 		.catch(() => []);
 
