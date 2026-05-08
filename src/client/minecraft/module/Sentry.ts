@@ -41,45 +41,69 @@ export default class Sentry extends Module {
 
 	private readonly onEntityGone = async(entity: Entity) => {
 
-		// Get the pearl associated with this entity, if it exists
-		const pearl = StasisManager.pearls.get(entity.id);
-		if (!pearl) return;
+		switch (entity.type) {
 
-		// Resolve stasis
-		const stasis = await Stasis.from(pearl).catch(() => null);
-		if (!stasis) return;
-		
-		// If the stasis was interacted within the last 1s, ignore its removal to avoid logging pearl-induced stasis breaks as unexpected breakages
-		const lastInteraction = StasisManager.expectedInteractions.entries().find(([ key ]) => key.id === stasis.id)?.[1];
-		const didIntentionallyPull = lastInteraction && Date.now() - lastInteraction < 1000;
-		await stasis.remove();
+			case "projectile": {
 
-		const owner = await prisma.player.findUnique({ where: { id: stasis.ownerId }});
-		if (!owner) return;
+				// Get the pearl associated with this entity, if it exists
+				const pearl = StasisManager.pearls.get(entity.id);
+				if (!pearl) return;
 
-		// Fetch remaining stasis chambers for the owner of the pearl
-		const remaining = await Stasis.fetch(owner.id);
+				// Resolve stasis
+				const stasis = await Stasis.from(pearl).catch(() => null);
+				if (!stasis) return;
+				
+				// If the stasis was interacted within the last 1s, ignore its removal to avoid logging pearl-induced stasis breaks as unexpected breakages
+				const lastInteraction = StasisManager.expectedInteractions.entries().find(([ key ]) => key.id === stasis.id)?.[1];
+				const didIntentionallyPull = lastInteraction && Date.now() - lastInteraction < 1000;
+				await stasis.remove();
 
-		if (didIntentionallyPull) {
-			await DiscordClient.webhook(new Embed()
-				.setTitle(`${ owner.username } Pearled`)
-				.setColor(0x00c3b3)
-				.setThumbnail({ url: `https://mc-heads.net/head/${ owner.id.replace(/-/g, "") }` })
-				.addField({ name: "UUID", value: `${ owner.id }` })
-				.addField({ name: "Dimension", value: `${ MinecraftClient.bot.game.dimension }`, inline: true })
-				.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
-				.addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
-			return;
+				const owner = await prisma.player.findUnique({ where: { id: stasis.ownerId }});
+				if (!owner) return;
+
+				// Fetch remaining stasis chambers for the owner of the pearl
+				const remaining = await Stasis.fetch(owner.id);
+
+				if (didIntentionallyPull) {
+					await DiscordClient.webhook(new Embed()
+						.setTitle(`${ owner.username } Pearled`)
+						.setColor(0x00c3b3)
+						.setThumbnail({ url: `https://mc-heads.net/head/${ owner.id.replace(/-/g, "") }` })
+						.addField({ name: "UUID", value: `${ owner.id }` })
+						.addField({ name: "Dimension", value: `${ MinecraftClient.bot.game.dimension }`, inline: true })
+						.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
+						.addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
+					return;
+				}
+
+				await DiscordClient.webhook(new Embed()
+					.setTitle("Stasis Broke Unexpectedly")
+					.setColor(0xf43f5e)
+					.setThumbnail({ url: `https://mc-heads.net/head/${ owner.id.replace(/-/g, "") }` })
+					.addField({ name: "UUID", value: `${ entity.uuid }` })
+					.addField({ name: "Dimension", value: `${ MinecraftClient.bot.game.dimension }`, inline: true })
+					.addField({ name: "XYZ", value: `||\`${ entity.position.floored().x }\` \`${ entity.position.floored().y }\` \`${ entity.position.floored().z }\`||`, inline: true })
+					.addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
+
+				break;
+
+			}
+
+			case "player": {
+
+				// Get player
+				const player = Object.values(MinecraftClient.bot.players).find(p => p.entity && p.entity.id === entity.id);
+				if (!player) return;
+
+				const stasis = await Stasis.fetch(player.uuid);
+				if (stasis.length >= STASIS_USER_MAX) return;
+
+				if (stasis.length === 0) return MinecraftClient.chat.whisper(player, `You left without setting any pearls! You can set up to ${ STASIS_USER_MAX } pearls and use !load to be teleported back.`);
+				return MinecraftClient.chat.whisper(player, `You forgot to set a pearl! You only have ${ stasis.length } / ${ STASIS_USER_MAX } pearls registered.`);
+
+			}
+
 		}
-
-		await DiscordClient.webhook(new Embed()
-			.setTitle("Stasis Broke Unexpectedly")
-			.setColor(0xf43f5e)
-			.setThumbnail({ url: `https://mc-heads.net/head/${ owner.id.replace(/-/g, "") }` })
-			.addField({ name: "UUID", value: `${ entity.uuid }` })
-			.addField({ name: "Dimension", value: `${ MinecraftClient.bot.game.dimension }`, inline: true })
-			.addField({ name: "XYZ", value: `||\`${ entity.position.floored().x }\` \`${ entity.position.floored().y }\` \`${ entity.position.floored().z }\`||`, inline: true })
-			.addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
 
 	};
 
