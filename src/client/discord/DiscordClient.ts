@@ -38,7 +38,12 @@ export class DiscordClient {
 
 		const now = Date.now();
 		this.client.once(Events.ClientReady, client => DiscordClient.logger.log(`Authenticated as ${ chalk.cyan(client.user.tag) } ${ chalk.dim(`(${ client.user.id })`) } in ${ chalk.yellow(prettyMilliseconds(Date.now() - now)) }`));
-		this.client.login(process.env.DISCORD_BOT_TOKEN);
+		this.client.on("error", error => this.logger.error("Discord client error:", error));
+		this.client.login(process.env.DISCORD_BOT_TOKEN)
+			.catch(error => {
+				this.logger.error("Failed to connect to Discord:", error);
+				this.initialized = false;
+			});
 		this.logger.log("Connecting to Discord...");
 	}
 
