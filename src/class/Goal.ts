@@ -1,5 +1,4 @@
 import { EventEmitter } from "events";
-import type { Vec3Like } from "prismarine-viewer/viewer";
 
 export class Goal extends EventEmitter<{
 

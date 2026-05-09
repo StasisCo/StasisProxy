@@ -2,7 +2,6 @@ import EventEmitter from "events";
 import type { Player } from "mineflayer";
 import type { Block } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
-import type { Vec3Like } from "prismarine-viewer/viewer";
 import { Vec3 } from "vec3";
 import z from "zod";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";

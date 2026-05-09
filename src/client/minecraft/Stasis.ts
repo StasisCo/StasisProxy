@@ -2,7 +2,6 @@ import chalk from "chalk";
 import type { Dimension } from "mineflayer";
 import type { Block, Shape } from "prismarine-block";
 import type { Entity } from "prismarine-entity";
-import type { Vec3Like } from "prismarine-viewer/viewer";
 import { Vec3 } from "vec3";
 import z from "zod";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";

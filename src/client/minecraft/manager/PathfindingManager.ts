@@ -1,5 +1,4 @@
 import type { Bot } from "mineflayer";
-import type { Vec3Like } from "prismarine-viewer/viewer";
 import { Vec3 } from "vec3";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { Goal } from "../../../class/Goal";
