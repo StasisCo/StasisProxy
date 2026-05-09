@@ -1,9 +1,9 @@
-import { redis } from "bun";
 import EventEmitter from "events";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
+import { redis } from "~/redis";
 import { Stasis } from "./Stasis";
 
 export class Pearl extends EventEmitter<{
