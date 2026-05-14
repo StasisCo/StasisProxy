@@ -140,7 +140,13 @@ export class Server {
 			version: this.bot.version,
 			motd: this.motd,
 			maxPlayers: 1,
-			keepAlive: false,
+
+			// Let minecraft-protocol's server send keep_alive to the proxy
+			// client on its own timer. We filter upstream keep_alive in the
+			// bridge (the bot answers them itself), so without this the client
+			// would never receive a keep_alive and its tab-list ping would
+			// climb forever.
+			keepAlive: true,
 			errorHandler: (_client, err) => {
 				Server.logger.warn(`Protocol error: ${ err.message }`);
 			},

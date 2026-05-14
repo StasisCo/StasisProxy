@@ -54,6 +54,23 @@ export class ServerClient {
 	private detached = false;
 
 	/**
+	 * Last position reported by the proxied player via position / position_look
+	 * packets. Used on disconnect to set the pathfinding home — bot.entity.position
+	 * is not updated while the proxy is connected (PhysicsManager skips simulation),
+	 * so it would point at stale coordinates from before the player connected.
+	 */
+	private lastClientPos: { x: number; y: number; z: number } | null = null;
+
+	/**
+	 * Last position reported by the proxied player, or null if no movement
+	 * packet has been observed yet. Read by client commands that need the
+	 * player's authoritative position (e.g. `/stasis save` searching nearby).
+	 */
+	public get playerPosition(): { x: number; y: number; z: number } | null {
+		return this.lastClientPos;
+	}
+
+	/**
 	 * Construct a per-client controller. Call {@link ServerClient.attach} to
 	 * begin replay and bridging.
 	 */
@@ -245,6 +262,14 @@ export class ServerClient {
 			// Drop movement until the replayed position has been confirmed.
 			if (!movementAllowed && MOVEMENT_PACKETS_CS.has(meta.name)) return;
 
+			// Track the player's authoritative position from movement packets so
+			// detach() can save it as the pathfinding home (bot.entity.position is
+			// frozen while the proxy is connected — see PhysicsManager.tick).
+			if ((meta.name === "position" || meta.name === "position_look")
+				&& typeof data?.x === "number" && typeof data?.y === "number" && typeof data?.z === "number") {
+				this.lastClientPos = { x: data.x, y: data.y, z: data.z };
+			}
+
 			// Intercept commands. tryHandle is async but commands are local
 			// so the latency is negligible; we await before forwarding the
 			// fall-through case so unknown commands aren't dispatched twice.
@@ -323,12 +348,17 @@ export class ServerClient {
 		this.holograms?.detach();
 		this.holograms = null;
 
-		// Save current bot position as the new home so pathfinding returns
-		// here after reconnect.
-		const pos = this.bot.entity?.position;
-		if (pos && Number.isFinite(pos.x)) {
-			const floored = pos.floored();
-			MinecraftClient.pathfinding.setHome(floored.offset(0.5, 0, 0.5));
+		// Save the player's last known position as the new home so the bot
+		// returns to where the player logged out. Prefer the tracked client
+		// position (authoritative while proxy is connected) and fall back to
+		// bot.entity.position if no movement packet was ever observed.
+		const src = this.lastClientPos ?? this.bot.entity?.position ?? null;
+		if (src && Number.isFinite(src.x) && Number.isFinite(src.y) && Number.isFinite(src.z)) {
+			MinecraftClient.pathfinding.setHome({
+				x: Math.floor(src.x) + 0.5,
+				y: Math.floor(src.y),
+				z: Math.floor(src.z) + 0.5
+			});
 		}
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading stored field
