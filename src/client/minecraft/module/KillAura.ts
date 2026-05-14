@@ -137,6 +137,10 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 
 		if (!entity) return;
 
+		// Skip attacks while airborne — server treats those as critical hits
+		// (fallDistance > 0 && !onGround), and crits cancel sweep entirely.
+		if (!MinecraftClient.bot.entity.onGround) return;
+
 		// Make sure a sword is in the hotbar
 		const [ sword ] = this.getSwords(entity);
 		if (!sword) return;
@@ -152,22 +156,56 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 
 		}
 		
-		// Save current rotation, then force-send target rotation before attack.
+		// Save current rotation so we can restore it after the attack.
 		const { pitch, yaw } = MinecraftClient.bot.entities[MinecraftClient.bot.entity.id] as Entity;
-		await MinecraftClient.bot.lookAt(entity.position, true);
-		MinecraftClient.physics.sendLook(entity.position);
+
+		// Aim at the target's eye-line (entity center + half height) — same
+		// point the Java SwordAura aims at. Aiming at the foot (.position)
+		// can produce a steep downward pitch on tall mobs that still hits
+		// but reads as a "head-down" attack server-side.
+		const aimY = entity.position.y + (entity.height ?? 1.8) * 0.5;
+		const eye = MinecraftClient.bot.entity.position.offset(0, MinecraftClient.bot.entity.height, 0);
+		const dx = entity.position.x - eye.x;
+		const dy = aimY - eye.y;
+		const dz = entity.position.z - eye.z;
+		const xz = Math.sqrt(dx * dx + dz * dz);
+		const aimYaw = Math.atan2(-dx, -dz);
+		const aimPitch = Math.atan2(dy, xz);
+
+		// Re-check onGround right before the synchronous attack burst — no
+		// awaits below this line so it can't change underneath us.
+		if (!MinecraftClient.bot.entity.onGround) return;
 
 		// Silent swap to sword if we have one
 		if (slot >= 0) MinecraftClient.bot.setQuickBarSlot(slot);
 
-		// Attack
-		MinecraftClient.bot.swingArm("right");
+		// Sweeping-edge requires the server to see us as NOT sprinting at the
+		const wasSprinting = MinecraftClient.bot.controlState.sprint;
+		MinecraftClient.bot._client.write("entity_action", {
+			entityId: MinecraftClient.bot.entity.id,
+			actionId: 4, // STOP_SPRINTING
+			jumpBoost: 0
+		});
+		if (wasSprinting) MinecraftClient.bot.controlState.sprint = false;
+
+		// Send aim rotation immediately before the attack so the server has
+		MinecraftClient.physics.sendLook(aimYaw, aimPitch);
+
+		// Attack — bot.attack() writes use_entity then arm_animation in 1.20.1
 		MinecraftClient.bot.attack(entity);
 		this.timeOfLastSwing = Date.now();
 
+		// Diagnostic: server-side sweep requires onGround && !sprinting && sword
+		if (wasSprinting) {
+			MinecraftClient.bot._client.write("entity_action", {
+				entityId: MinecraftClient.bot.entity.id,
+				actionId: 3, // START_SPRINTING
+				jumpBoost: 0
+			});
+			MinecraftClient.bot.controlState.sprint = true;
+		}
+
 		// Hold the sword in mainhand for the next 3 ticks (~150ms) so the XP
-		// orbs from the kill mend the sword in preference to armor. The tick
-		// counter at the top of onTickPre handles the deferred restore.
 		this.holdTicksRemaining = 3;
 		this.restoreSlot = quickBarSlot;
 
