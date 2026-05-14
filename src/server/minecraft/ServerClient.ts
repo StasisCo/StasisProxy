@@ -1,7 +1,6 @@
 import chalk from "chalk";
 import { Client as ProtocolClient, type PacketMeta } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
-import type { Vec3 } from "vec3";
 import { Logger } from "~/class/Logger";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { prisma } from "~/prisma";
