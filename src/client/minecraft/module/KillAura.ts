@@ -2,8 +2,9 @@ import mcData from "minecraft-data";
 import type { Entity } from "prismarine-entity";
 import type { Item } from "prismarine-item";
 import z from "zod";
-import { Module } from "../Module";
 import { MinecraftClient } from "../MinecraftClient";
+import { Module } from "../Module";
+import AutoEat from "./AutoEat";
 
 const zConfigSchema = z.object({
 	reachRange: z
@@ -28,6 +29,12 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 	}
 
 	private timeOfLastSwing = 0;
+
+	/** Ticks remaining to keep the sword in mainhand after a swing (so XP orbs from the kill mend it instead of armor). */
+	private holdTicksRemaining = 0;
+
+	/** Hotbar slot to restore once {@link holdTicksRemaining} reaches zero, or null if nothing to restore. */
+	private restoreSlot: number | null = null;
 
 	/**
 	 * List all available swords in an array, in order of most damage to least damage excluding swords under 20 durability
@@ -88,7 +95,22 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 
 	public override async onTickPre() {
 		if (!MinecraftClient.bot.entity) return;
+
+		// Hold the sword in mainhand for a few ticks after each swing so any XP
+		// orbs spawned by the kill mend the sword instead of armor.
+		if (this.holdTicksRemaining > 0) {
+			this.holdTicksRemaining--;
+			if (this.holdTicksRemaining === 0 && this.restoreSlot !== null) {
+				MinecraftClient.bot.setQuickBarSlot(this.restoreSlot);
+				this.restoreSlot = null;
+			}
+		}
+
 		if (Date.now() - this.timeOfLastSwing <= 625) return;
+
+		// Don't swap to a sword while AutoEat is feeding us — the swap would
+		// interrupt the use_item action and cancel the eat.
+		if (Module.get<AutoEat>("AutoEat").isEating) return;
 
 		const [ entity ] = Object.values(MinecraftClient.bot.entities)
 			.filter(e => e.id !== MinecraftClient.bot.entity.id)
@@ -143,8 +165,11 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 		MinecraftClient.bot.attack(entity);
 		this.timeOfLastSwing = Date.now();
 
-		// Restore swaps
-		MinecraftClient.bot.setQuickBarSlot(quickBarSlot);
+		// Hold the sword in mainhand for the next 3 ticks (~150ms) so the XP
+		// orbs from the kill mend the sword in preference to armor. The tick
+		// counter at the top of onTickPre handles the deferred restore.
+		this.holdTicksRemaining = 3;
+		this.restoreSlot = quickBarSlot;
 
 		// Restpre rtateion
 		MinecraftClient.bot.look(yaw, pitch, true);
