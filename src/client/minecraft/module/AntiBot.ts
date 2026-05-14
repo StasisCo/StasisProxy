@@ -31,6 +31,11 @@ export default class AntiBot extends Module {
 		MinecraftClient.bot.waitForChunksToLoad().then(() => {
 			if (!MinecraftClient.bot.entity) return;
 
+			// Re-check: a player may have connected during the chunk-load wait.
+			// AntiBot's pathfinding goal would fight the proxied player's own
+			// movement packets and cause position desync.
+			if (MinecraftClient.proxy.connected) return;
+
 			const home = MinecraftClient.pathfinding.getHome();
 			if (!home) return;
 
