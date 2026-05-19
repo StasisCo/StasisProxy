@@ -19,6 +19,19 @@ import type { PlayerListCache } from "./PlayerListCache";
 const MOVEMENT_PACKETS_CS = new Set([ "position", "position_look", "look", "flying" ]);
 
 /**
+ * S→C packet names that we drop from the bridge to relieve client back-pressure.
+ * At entity-dense locations (e.g. mob farms with 1k+ entities) the upstream
+ * sends thousands of these per second; the client's socket fills, queueing
+ * keep_alive responses and inflating measured ping.
+ *
+ * `entity_velocity`: vanilla clients predict velocity from the position deltas
+ * in {@code rel_entity_move} / {@code entity_teleport}, so dropping these has
+ * essentially no visible effect while removing one packet per moving entity
+ * per tick.
+ */
+const DROP_S2C = new Set([ "entity_velocity" ]);
+
+/**
  * One connected proxy player. Owns the per-connection lifecycle:
  * 1. Replays the upstream world state from {@link PacketCache} in priority order.
  * 2. Bridges packets in both directions, applying command interception and
@@ -224,6 +237,7 @@ export class ServerClient {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw packet data
 		const onServerPacket = (data: any, meta: PacketMeta, buffer: Buffer) => {
 			if (meta.name === "keep_alive" || meta.name === "kick_disconnect") return;
+			if (DROP_S2C.has(meta.name)) return;
 
 			try {
 				if (meta.name === "declare_commands") {
@@ -293,6 +307,42 @@ export class ServerClient {
 		this.client.on("packet", onClientPacket);
 		this.disposers.push(() => this.bot._client.off("packet", onServerPacket));
 		this.disposers.push(() => this.client.off("packet", onClientPacket));
+
+		// ── Diagnostic: log packet rates and both ping numbers every 5s ──
+		// "botPing" is the bot's RTT to 2b2t (what the user sees in tab).
+		// "proxyPing" is the proxy server's RTT to the connected client.
+		// "s2c"/"c2s" are bridged packets per second in each direction.
+		// Disparity tells us where the bottleneck is: bot ping climbing means
+		// our event loop can't keep up; proxy ping climbing means the client's
+		// TCP socket is back-pressured.
+		let s2cCount = 0;
+		let c2sCount = 0;
+		const s2cByName = new Map<string, number>();
+		const onServerPacketCount = (_d: unknown, meta: PacketMeta) => {
+			s2cCount++;
+			s2cByName.set(meta.name, (s2cByName.get(meta.name) ?? 0) + 1);
+		};
+		const onClientPacketCount = () => { c2sCount++; };
+		this.bot._client.on("packet", onServerPacketCount);
+		this.client.on("packet", onClientPacketCount);
+		const statsTimer = setInterval(() => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- mineflayer typing gap
+			const botPing: number = (this.bot._client as any).latency ?? -1;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- minecraft-protocol typing gap
+			const proxyPing: number = (this.client as any).latency ?? -1;
+			const top = [ ...s2cByName.entries() ]
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 6)
+				.map(([ n, c ]) => `${ n }=${ c / 5 | 0 }/s`)
+				.join(" ");
+			ServerClient.logger.log(`[stats] botPing=${ botPing }ms proxyPing=${ proxyPing }ms s2c=${ s2cCount / 5 | 0 }/s c2s=${ c2sCount / 5 | 0 }/s | top: ${ top }`);
+			s2cCount = 0;
+			c2sCount = 0;
+			s2cByName.clear();
+		}, 5000);
+		this.disposers.push(() => clearInterval(statsTimer));
+		this.disposers.push(() => this.bot._client.off("packet", onServerPacketCount));
+		this.disposers.push(() => this.client.off("packet", onClientPacketCount));
 
 		this.holograms = createHologram(
 			this.client,

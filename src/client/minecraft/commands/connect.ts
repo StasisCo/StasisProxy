@@ -17,6 +17,14 @@ export default function(program: Command) {
 		.action(async(code: string) => {
 			const { player } = ChatCommandManager.context;
 
+			// Cluster lock: only one bot responds to a given /connect attempt.
+			// Without this every online bot processes the command and whispers
+			// "Invalid or expired code." on a stale code. 10s TTL is enough
+			// for the linking work; the `:user` key is deleted on success
+			// which prevents re-runs anyway.
+			const lock = await redis.set(`stasisproxy:discord:ignlink:${ code }:lock`, true, "NX", "EX", "10");
+			if (lock !== "OK") return;
+
 			// Get the Discord UID associated with the code from Redis
 			const linked = await redis.get(`stasisproxy:discord:ignlink:${ code }:user`);
 			if (!linked) return void MinecraftClient.chat.whisper(player, "Invalid or expired code.");

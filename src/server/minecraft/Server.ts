@@ -203,6 +203,15 @@ export class Server {
 				return;
 			}
 
+			// Disable Nagle's algorithm on the proxy client socket. With 1k+
+			// entities upstream, the bridge writes hundreds of small entity
+			// packets per tick; Nagle would coalesce them with a ~40ms hold,
+			// queuing keep_alive responses behind the data flood and making
+			// the client's measured ping climb without bound. TCP-keepalive
+			// catches dead connections faster too.
+			client.socket.setNoDelay(true);
+			client.socket.setKeepAlive(true, 30_000);
+
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading attached metadata
 			const originalUuid: string = (client as any)._originalUuid ?? client.uuid;
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading attached metadata

@@ -1,8 +1,8 @@
 import chalk from "chalk";
 import z from "zod";
-import AutoTotem from "./AutoTotem";
-import { Module } from "../Module";
 import { MinecraftClient } from "../MinecraftClient";
+import { Module } from "../Module";
+import AutoTotem from "./AutoTotem";
 
 const zConfigSchema = z.object({
 	minHealth: z

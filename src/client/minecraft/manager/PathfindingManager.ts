@@ -262,11 +262,13 @@ export class PathfindingManager {
 		const headAhead = this.bot.blockAt(new Vec3(Math.floor(aheadX), feetBy + 1, Math.floor(aheadZ)));
 		const oneHighObstacle = footAhead?.boundingBox === "block" && headAhead?.boundingBox !== "block";
 
-		// 2-tall tunnel detection: head-level block is clear but ceiling is exactly 2 blocks above
-		// feet. Sprint-jumping continuously in this space is faster than walking.
-		const headBlockHere = this.bot.blockAt(new Vec3(Math.floor(pos.x), feetBy + 1, Math.floor(pos.z)));
-		const ceilingBlockHere = this.bot.blockAt(new Vec3(Math.floor(pos.x), feetBy + 2, Math.floor(pos.z)));
-		const inTwoTallTunnel = headBlockHere?.boundingBox !== "block" && ceilingBlockHere?.boundingBox === "block";
+		// 2-tall tunnel detection: the lowest collision surface above the bot's
+		// feet must be exactly 2.0 blocks up (within float epsilon). Using
+		// real collision shapes — not just the coarse `boundingBox === "block"`
+		// flag — means a closed trapdoor or top-slab above the head gives
+		// >2 blocks of headroom and we won't repeatedly jump into it.
+		const ceilingY = this.getCeilingY(pos.x, pos.y, pos.z);
+		const inTwoTallTunnel = ceilingY !== null && Math.abs(ceilingY - (feetBy + 2)) < 0.01;
 
 		if (inTwoTallTunnel && MinecraftClient.physics.controls.forward) {
 			MinecraftClient.physics.controls.sprint = true;
@@ -341,6 +343,36 @@ export class PathfindingManager {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Find the world-Y of the lowest collision surface directly above the
+	 * given XZ point starting from `feetY`. Walks the column upward one block
+	 * at a time and inspects each block's actual `shapes` (per-block AABBs)
+	 * rather than the coarse `boundingBox` flag, so partial blocks such as
+	 * trapdoors, top slabs and stairs report their true collision face.
+	 * Returns null if nothing solid is found within 4 blocks above.
+	 */
+	private getCeilingY(x: number, feetY: number, z: number): number | null {
+		const bx = Math.floor(x);
+		const bz = Math.floor(z);
+		const startBy = Math.floor(feetY);
+		let lowest = Infinity;
+
+		for (let dy = 1; dy <= 4; dy++) {
+			const by = startBy + dy;
+			const block = this.bot.blockAt(new Vec3(bx, by, bz));
+			if (!block?.shapes?.length) continue;
+			for (const shape of block.shapes) {
+
+				// shape = [xmin, ymin, zmin, xmax, ymax, zmax] in local block coords
+				const worldMinY = by + shape[1];
+				if (worldMinY > feetY + 0.01 && worldMinY < lowest) lowest = worldMinY;
+			}
+			if (lowest !== Infinity) break;
+		}
+
+		return lowest === Infinity ? null : lowest;
 	}
 
 	/** Check if the block at the given position is a hazard (water, bubble column, open trapdoor). */

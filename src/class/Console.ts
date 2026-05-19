@@ -3,6 +3,7 @@ import type { Bot as Mineflayer } from "mineflayer";
 import { createInterface, type Interface } from "readline";
 import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Logger } from "./Logger";
+import { randomBytes } from "crypto";
 
 export class Console {
 
@@ -43,7 +44,7 @@ export class Console {
 				return;
 			}
 
-			this.bot.chat(trimmed);
+			this.bot.chat(`> ${ trimmed } | StasisProxy [${ randomBytes(6).toString("hex") }]`);
 			this.rl.prompt();
 		});
 

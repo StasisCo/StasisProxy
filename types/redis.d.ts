@@ -14,6 +14,8 @@ declare namespace Redis {
 
 		[key: `stasisproxy:discord:ignlink:${ string }:user`]: { id: string };
 
+		[key: `stasisproxy:discord:ignlink:${ string }:lock`]: true;
+
 		[key: `stasisproxy:stasis:pearl:${ number }:owner`]: string;
 
 		[key: `stasisproxy:queue:${ string }:eta`]: { factor: number, pow: number };

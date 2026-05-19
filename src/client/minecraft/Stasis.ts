@@ -192,16 +192,23 @@ export class Stasis extends StasisColumn<{
 		const botId = rawBotId.replace(/([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})/, "$1-$2-$3-$4-$5");
 		if (this.managerIds.includes(botId)) return;
 
-		await prisma.stasis.update({
-			where: {
-				id: this.id
-			},
-			data: {
-				managers: { connect: { id: botId }}
-			}
-		});
+		// Race: the pearl can break/despawn between Stasis row creation and
+		// this update completing, removing the row. Prisma raises P2025 in
+		// that case — there's nothing to manage, so just drop it.
+		try {
+			await prisma.stasis.update({
+				where: {
+					id: this.id
+				},
+				data: {
+					managers: { connect: { id: botId }}
+				}
+			});
 
-		this.managerIds.push(botId);
+			this.managerIds.push(botId);
+		} catch (err) {
+			if (!(err instanceof Error) || !err.message.includes("P2025")) throw err;
+		}
 	}
 
 	/**

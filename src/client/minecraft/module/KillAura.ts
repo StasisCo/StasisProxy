@@ -30,6 +30,9 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 
 	private timeOfLastSwing = 0;
 
+	/** Last time we issued a mode=2 hotbar swap, debounced so we don't re-fire before the server confirms. */
+	private timeOfLastSwap = 0;
+
 	/** Ticks remaining to keep the sword in mainhand after a swing (so XP orbs from the kill mend it instead of armor). */
 	private holdTicksRemaining = 0;
 
@@ -145,14 +148,49 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 		const [ sword ] = this.getSwords(entity);
 		if (!sword) return;
 
-		let slot = sword.slot - 36;
+		const inv = MinecraftClient.bot.inventory;
 		const { quickBarSlot } = MinecraftClient.bot;
-		if (sword.slot < MinecraftClient.bot.inventory.hotbarStart || sword.slot >= MinecraftClient.bot.inventory.hotbarStart + 9) {
+		const isInHotbar = sword.slot >= inv.hotbarStart && sword.slot < inv.hotbarStart + 9;
 
-			// If not, swap it to the hotbar (preferably the current quick bar slot to minimize disruption)
-			const targetSlot = quickBarSlot >= MinecraftClient.bot.inventory.hotbarStart && quickBarSlot < MinecraftClient.bot.inventory.hotbarStart + 9 ? quickBarSlot : MinecraftClient.bot.inventory.hotbarStart;
-			MinecraftClient.bot.moveSlotItem(sword.slot, targetSlot);
-			slot = targetSlot - 36;
+		let slot: number;
+		if (isInHotbar) {
+
+			// Already in the hotbar — just switch to it. No window click,
+			// no cursor involvement, nothing the server can desync on.
+			slot = sword.slot - inv.hotbarStart;
+
+		} else {
+
+			// Bail if a previous swap left something on the cursor, or if
+			// we issued a swap recently and the server hasn't confirmed it
+			// yet (firing another click would race with the in-flight one).
+			if (inv.selectedItem) return;
+			if (Date.now() - this.timeOfLastSwap < 500) return;
+
+			// Prefer an empty hotbar slot so the swap doesn't displace
+			// anything important (totem, food, pickaxe). Fall back to the
+			// current quickBarSlot only if every hotbar slot is occupied.
+			let hotbarIndex = -1;
+			for (let i = 0; i < 9; i++) {
+				if (!inv.slots[inv.hotbarStart + i]) {
+					hotbarIndex = i;
+					break;
+				}
+			}
+			if (hotbarIndex === -1) {
+				hotbarIndex = quickBarSlot >= inv.hotbarStart && quickBarSlot < inv.hotbarStart + 9 ? quickBarSlot - inv.hotbarStart : 0;
+			}
+
+			// Single mode=2 (NUMBER_KEY) window_click — server atomically
+			// exchanges the inventory slot with the chosen hotbar slot,
+			// never picking the item up onto the cursor.
+			void MinecraftClient.bot.clickWindow(sword.slot, hotbarIndex, 2);
+			this.timeOfLastSwap = Date.now();
+
+			// Skip this tick's attack — let the server confirm the swap
+			// before we start swinging. Next tick the sword will be in the
+			// hotbar and we'll take the fast path above.
+			return;
 
 		}
 		
