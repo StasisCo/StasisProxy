@@ -270,11 +270,19 @@ export class PathfindingManager {
 		const ceilingY = this.getCeilingY(pos.x, pos.y, pos.z);
 		const inTwoTallTunnel = ceilingY !== null && Math.abs(ceilingY - (feetBy + 2)) < 0.01;
 
-		if (inTwoTallTunnel && MinecraftClient.physics.controls.forward) {
+		// Suppress the speed-jump when we're about to need precision: within
+		// 2 blocks of the target, or within 2 blocks of a solid block ahead.
+		// Jumping in those cases causes us to sail past the spot and have to
+		// double back. The required jumps (oneHighObstacle, isCollidedHorizontally)
+		// still fire — only the proactive tunnel-sprint-jump is gated.
+		const needsPrecision = distance <= 2.0 || this.isSolidWithin(pos, headingX, headingZ, 2.0);
+		const tunnelSpeedJump = inTwoTallTunnel && !needsPrecision;
+
+		if (tunnelSpeedJump && MinecraftClient.physics.controls.forward) {
 			MinecraftClient.physics.controls.sprint = true;
 		}
 
-		MinecraftClient.physics.controls.jump = entity.onGround && (oneHighObstacle || !!entity.isCollidedHorizontally || inTwoTallTunnel);
+		MinecraftClient.physics.controls.jump = entity.onGround && (oneHighObstacle || !!entity.isCollidedHorizontally || tunnelSpeedJump);
 	}
 
 	/**
@@ -341,6 +349,28 @@ export class PathfindingManager {
 				const headBlock = this.bot.blockAt(new Vec3(bx, feetBlockY + 1, bz));
 				if (feetBlock?.boundingBox === "block" && headBlock?.boundingBox === "block") return true;
 			}
+		}
+		return false;
+	}
+
+	/**
+	 * Probe along the current heading for a solid block at feet- or head-level
+	 * within `maxDist` blocks. Used to suppress proactive speed-jumping when
+	 * close to walls/obstacles, where momentum from a jump would overshoot.
+	 * Samples at 0.5-block intervals; single central ray (no shoulder offsets)
+	 * since this is a conservative "approaching something" check, not a
+	 * wedged-into-corner check like isWallAhead.
+	 */
+	private isSolidWithin(pos: { x: number; y: number; z: number }, headingX: number, headingZ: number, maxDist: number): boolean {
+		const by = Math.floor(pos.y);
+		for (let d = 0.5; d <= maxDist + 1e-6; d += 0.5) {
+			const probeX = pos.x + headingX * d;
+			const probeZ = pos.z + headingZ * d;
+			const bx = Math.floor(probeX);
+			const bz = Math.floor(probeZ);
+			const feetBlock = this.bot.blockAt(new Vec3(bx, by, bz));
+			const headBlock = this.bot.blockAt(new Vec3(bx, by + 1, bz));
+			if (feetBlock?.boundingBox === "block" || headBlock?.boundingBox === "block") return true;
 		}
 		return false;
 	}
