@@ -12,6 +12,7 @@ import { zClientConfig } from "~/schema/server/minecraft/zClientConfig";
 import { PacketCache } from "./PacketCache";
 import { PlayerListCache } from "./PlayerListCache";
 import { ServerClient } from "./ServerClient";
+import { normalizeUUID } from "~/utils";
 
 /**
  * The proxy server: a Minecraft listener that lets a single human player take
@@ -232,7 +233,7 @@ export class Server {
 					config: defaultConfig
 				}
 			})).then(record => {
-				if (!record.whitelisted && originalUuid !== this.bot._client.session?.selectedProfile.id) {
+				if (!record.whitelisted && this.bot._client.session?.selectedProfile.id && normalizeUUID(originalUuid) !== normalizeUUID(this.bot._client.session.selectedProfile.id)) {
 					Server.logger.warn(chalk.red(`${ originalUsername } is not whitelisted — kicked.`));
 					client.end("You are not whitelisted on this proxy.");
 					return;
