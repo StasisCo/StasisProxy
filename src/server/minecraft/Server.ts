@@ -232,7 +232,7 @@ export class Server {
 					config: defaultConfig
 				}
 			})).then(record => {
-				if (!record.whitelisted) {
+				if (!record.whitelisted && originalUuid !== this.bot._client.session?.selectedProfile.id) {
 					Server.logger.warn(chalk.red(`${ originalUsername } is not whitelisted — kicked.`));
 					client.end("You are not whitelisted on this proxy.");
 					return;
