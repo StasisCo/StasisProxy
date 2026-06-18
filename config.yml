@@ -67,6 +67,7 @@ modules:
         - green_shulker_box
         - red_shulker_box
         - black_shulker_box
+        - ender_pearl
   AutoTotem:
     # Whether this module is active
     enabled: true

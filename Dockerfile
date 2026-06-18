@@ -24,6 +24,12 @@ RUN bun run generate
 # Copy remaining source (includes pre-generated types in src/generated)
 COPY . .
 
+# IRC credentials injected from CI secrets and baked into the runtime image
+ARG IRC_CLIENT_ID
+ARG IRC_CLIENT_SECRET
+ENV IRC_CLIENT_ID=$IRC_CLIENT_ID
+ENV IRC_CLIENT_SECRET=$IRC_CLIENT_SECRET
+
 EXPOSE 3007
 EXPOSE 25577
 

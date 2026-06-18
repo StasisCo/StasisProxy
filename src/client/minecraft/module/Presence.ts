@@ -227,6 +227,8 @@ export default class Presence extends Module<typeof zConfigSchema> {
 	private get headers() {
 		return {
 			"X-IRC-Multiplayer-Server": `${ MinecraftClient.host }`,
+			"X-Hackware-Client-ID": `${ process.env.IRC_CLIENT_ID }`,
+			"X-Hackware-Client-Secret": `${ process.env.IRC_CLIENT_SECRET }`,
 			"User-Agent": MinecraftClient.options.brand || `${ name }/${ version }`,
 			"Authorization": `Bearer ${ MinecraftClient.session!.accessToken }`
 		};

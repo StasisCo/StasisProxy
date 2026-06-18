@@ -61,6 +61,9 @@ jobs:
           context: .
           build-contexts: |
             hackware-types=hackware-server/packages/types
+          build-args: |
+            IRC_CLIENT_ID=${{ secrets.IRC_CLIENT_ID }}
+            IRC_CLIENT_SECRET=${{ secrets.IRC_CLIENT_SECRET }}
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
