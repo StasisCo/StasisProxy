@@ -7,6 +7,10 @@ import { Module } from "../Module";
 import AutoEat from "./AutoEat";
 
 const zConfigSchema = z.object({
+	silentSwap: z
+		.boolean()
+		.default(true)
+		.describe("Whether to swap to the sword silently (without changing the client's current hotbar slot)"),
 	reachRange: z
 		.number()
 		.default(3)
@@ -244,10 +248,12 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 		}
 
 		// Hold the sword in mainhand for the next 3 ticks (~150ms) so the XP
-		this.holdTicksRemaining = 3;
-		this.restoreSlot = quickBarSlot;
+		if (this.config.silentSwap) {
+			this.holdTicksRemaining = 3;
+			this.restoreSlot = quickBarSlot;
+		}
 
-		// Restpre rtateion
+		// Restore rotation
 		MinecraftClient.bot.look(yaw, pitch, true);
 
 	}
