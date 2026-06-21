@@ -1,12 +1,19 @@
 import { Embed } from "@vermaysha/discord-webhook";
 import type { Item } from "prismarine-item";
+import z from "zod";
+import { DiscordClient } from "~/client/discord/DiscordClient";
+import { MinecraftClient } from "../MinecraftClient";
+import { Module } from "../Module";
 import AutoEat from "./AutoEat";
 import type AutoXP from "./AutoXP";
-import { Module } from "../Module";
-import { MinecraftClient } from "../MinecraftClient";
-import { DiscordClient } from "~/client/discord/DiscordClient";
 
-export default class AutoTotem extends Module {
+const zConfigSchema = z.object({
+	mainhand: z.boolean().default(true).describe("Whether to equip totems in the main hand")
+});
+
+export default class AutoTotem extends Module<typeof zConfigSchema> {
+
+	public override readonly zConfigSchema = zConfigSchema;
 
 	constructor() {
 		super("AutoTotem");
@@ -45,7 +52,7 @@ export default class AutoTotem extends Module {
 		if (Module.get<AutoXP>("AutoXP").isMending) return;
         
 		// Apply mainhand
-		this.applyHand("hand");
+		if (this.config.mainhand) this.applyHand("hand");
 
 	}
 
