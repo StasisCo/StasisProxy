@@ -22,7 +22,8 @@ import { PhysicsManager } from "./manager/PhysicsManager";
 import { QueueManager } from "./manager/QueueManager";
 import { Module } from "./Module";
 
-const RECONNECT_DELAY_MS = 5_000;
+/** Exponential backoff schedule for automatic reconnects. After the final (5m) attempt fails, the process exits. */
+const RECONNECT_DELAYS_MS = [ 0, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 60_000, 120_000, 300_000 ];
 
 export class MinecraftClient {
 
@@ -68,6 +69,9 @@ export class MinecraftClient {
 	/** Whether a reconnect has already been scheduled for the current connection cycle */
 	private static reconnecting = false;
 
+	/** Index into RECONNECT_DELAYS_MS for the next reconnect attempt; reset to 0 on a successful login */
+	private static reconnectAttempt = 0;
+
 	/** Redis channel currently subscribed for peer requests, to avoid duplicate subscriptions */
 	private static redisChannel?: Redis.ValidChannel;
 
@@ -75,6 +79,23 @@ export class MinecraftClient {
 	public static exit(code = 1) {
 		this.exitCode = code;
 		this.bot.quit();
+	}
+
+	/** Schedule an automatic reconnect using exponential backoff. Once every backoff step has been exhausted, exit the container. */
+	private static scheduleReconnect() {
+		if (this.exitCode === 0) return;
+		if (this.reconnecting) return;
+		this.reconnecting = true;
+
+		// Exhausted every backoff step — give up so the container can restart from a clean state
+		if (this.reconnectAttempt >= RECONNECT_DELAYS_MS.length) {
+			this.logger.error(`Failed to reconnect after ${ RECONNECT_DELAYS_MS.length } attempts, exiting.`);
+			return process.exit(1);
+		}
+
+		const delay = RECONNECT_DELAYS_MS[this.reconnectAttempt++]!;
+		this.logger.warn(`Reconnecting in ${ prettyMilliseconds(delay) }... (attempt ${ this.reconnectAttempt }/${ RECONNECT_DELAYS_MS.length })`);
+		setTimeout(() => this.connect(), delay);
 	}
 
 	/** Create a new mineflayer bot and (re)initialize all managers. */
@@ -109,12 +130,7 @@ export class MinecraftClient {
 		this.bot.on("error", err => {
 			this.logger.error(err);
 
-			if (!this.bot.player && !this.reconnecting) {
-				if (this.exitCode === 0) return;
-				this.reconnecting = true;
-				this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
-				setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
-			}
+			if (!this.bot.player) this.scheduleReconnect();
 		});
 
 		// Handle upstream disconnects
@@ -129,12 +145,7 @@ export class MinecraftClient {
 			}
 
 			// Login-phase kicks (e.g. "logging in too fast") may not emit `end`, so trigger reconnect here
-			if (!this.bot.player && !this.reconnecting) {
-				if (this.exitCode === 0) return;
-				this.reconnecting = true;
-				this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
-				setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
-			}
+			if (!this.bot.player) this.scheduleReconnect();
 		});
 
 		// On bot disconnect — reconnect automatically unless exit(0) was called
@@ -150,10 +161,12 @@ export class MinecraftClient {
 			}
 
 			if (this.exitCode === 0) return process.exit(0);
-			if (this.reconnecting) return;
-			this.reconnecting = true;
-			this.logger.warn(`Reconnecting in ${ RECONNECT_DELAY_MS / 1000 }s...`);
-			setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
+			this.scheduleReconnect();
+		});
+
+		// Reset the reconnect backoff once we've successfully logged in
+		this.bot.once("login", () => {
+			this.reconnectAttempt = 0;
 		});
 
 		// Handle account resolution
