@@ -209,8 +209,14 @@ export class PathfindingManager {
 		// Stuck detection — only count ticks where we're trying to move forward but XZ position
 		// isn't changing. Distance to target may not shrink for legitimate reasons (overshoot,
 		// jumping, dodging) — that's not the same as being wedged into a wall.
+		//
+		// The threshold has to account for how fast we could legitimately be moving. Using an
+		// item cuts movement input to a fifth — about 0.043 blocks per tick, under the walking
+		// threshold — so a bot eating on the move would otherwise register as wedged every tick
+		// and dodge its way in circles across completely open ground.
+		const moveThreshold = MinecraftClient.physics.isUsingItem ? 0.01 : 0.05;
 		const movedDist = Math.abs(pos.x - this.lastPos.x) + Math.abs(pos.z - this.lastPos.z);
-		if (movedDist > 0.05) {
+		if (movedDist > moveThreshold) {
 			this.stuckTicks = 0;
 		} else if (MinecraftClient.physics.controls.forward) {
 			this.stuckTicks++;
@@ -225,12 +231,29 @@ export class PathfindingManager {
 
 		if (len > 0.01) {
 
-			// While committed to a dodge, hold the yaw rather than re-picking every tick
+			// Abandon any dodge as soon as the straight line to the target is walkable again. The
+			// commitment exists to stop us oscillating while genuinely wedged, not to keep walking
+			// away from the target after whatever blocked us is gone — so anything that inflates
+			// stuckTicks without actually blocking us (eating, which cuts movement to a fifth)
+			// would otherwise buy a full second in the wrong direction every time it ends.
+			//
+			// stuckTicks is cleared with it: findSafeYaw drops the direct heading from its options
+			// entirely once stuckTicks passes 5, so leaving it set would send us off at an angle
+			// down a path we just confirmed is clear.
+			if (this.dodgeYaw !== null && this.isDirectPathClear(pos, dx / len, dz / len)) {
+				this.dodgeYaw = null;
+				this.dodgeTicksRemaining = 0;
+				this.stuckTicks = 0;
+			}
+
 			if (this.dodgeYaw !== null && this.dodgeTicksRemaining > 0) {
 				this.dodgeTicksRemaining--;
 				this.bot.entity.yaw = this.dodgeYaw;
 				MinecraftClient.physics.controls.forward = true;
 			} else {
+				this.dodgeYaw = null;
+				this.dodgeTicksRemaining = 0;
+
 				const yaw = this.findSafeYaw(pos, dx / len, dz / len);
 				if (yaw !== null) {
 					this.bot.entity.yaw = yaw;
@@ -283,6 +306,18 @@ export class PathfindingManager {
 		}
 
 		MinecraftClient.physics.controls.jump = entity.onGround && (oneHighObstacle || !!entity.isCollidedHorizontally || tunnelSpeedJump);
+	}
+
+	/**
+	 * Whether the straight line to the target is walkable right now — no hazard underfoot or
+	 * ahead, and no 2-high wall in the way. Used to abandon a dodge commitment early.
+	 */
+	private isDirectPathClear(pos: { x: number; y: number; z: number }, nx: number, nz: number): boolean {
+		const ax = pos.x + nx;
+		const az = pos.z + nz;
+		if (this.isDangerousBlock(ax, pos.y, az)) return false;
+		if (this.isDangerousBlock(ax, pos.y - 1, az)) return false;
+		return !this.isWallAhead(pos.x, Math.floor(pos.y), pos.z, nx, nz);
 	}
 
 	/**

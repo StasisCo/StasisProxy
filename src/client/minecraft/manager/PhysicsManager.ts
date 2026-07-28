@@ -1,7 +1,10 @@
+import chalk from "chalk";
 import mcData from "minecraft-data";
 import type { Bot } from "mineflayer";
 import { Physics, PlayerState, type Controls } from "prismarine-physics";
+import { Logger } from "~/class/Logger";
 import { MinecraftClient } from "../MinecraftClient";
+import { RotationManager } from "./RotationManager";
 
 const PI = Math.PI;
 const PI_2 = Math.PI * 2;
@@ -9,7 +12,20 @@ const TO_DEG = 180 / PI;
 const TO_RAD = PI / 180;
 const PHYSICS_INTERVAL_MS = 50;
 
-type LookTarget = { x: number; y: number; z: number };
+/**
+ * Metadata index of `LIVING_ENTITY_FLAGS` on 1.20.1. Bit 0x01 is "hand active" — the server's
+ * own view of whether we are using an item — and 0x02 selects the hand.
+ */
+const META_LIVING_FLAGS = 8;
+
+/**
+ * Longest an item use may stay active before we stop believing in it.
+ *
+ * Food is 32 ticks and nothing else the bot uses is slower, so three seconds is well clear of any
+ * real use plus a round trip. Past that it is a desync — most likely a state change we never
+ * observed — and letting it stand pins movement at item-use speed indefinitely.
+ */
+const ITEM_USE_MAX_TICKS = 60;
 
 function toNotchianYaw(yaw: number): number {
 	return TO_DEG * (PI - yaw);
@@ -32,7 +48,12 @@ const MOVEMENT_PACKETS = new Set([ "position", "position_look", "look", "flying"
 
 export class PhysicsManager {
 
+	public static readonly logger = new Logger(chalk.hex("#a3e635")("PHYSICS"));
+
 	private engine: ReturnType<typeof Physics> | null = null;
+
+	/** Silent rotation dispatch — see {@link RotationManager}. */
+	public readonly rotation: RotationManager;
 
 	/** Original bot._client.write, bypasses our suppression filter */
 	private readonly rawWrite: typeof this.bot._client.write;
@@ -52,12 +73,65 @@ export class PhysicsManager {
 	private lastSneak = false;
 
 	/**
-	 * Reliable item-use flag set by modules (AutoEat etc.).
-	 * Unlike bot.usingHeldItem, this is not affected by mineflayer's entity_status bug
-	 * (which clears usingHeldItem on ANY entity_status packet) or by heldItemChanged /
-	 * set_cooldown events that can fire spuriously on busy servers.
+	 * Whether an item use is in flight from our side. Set when we put a `use_item` on the wire,
+	 * cleared when we release or when the server tells us the use ended.
+	 *
+	 * This is deliberately optimistic: a vanilla client also starts slowing down the moment it
+	 * right-clicks, a round trip before the server agrees, so starting here keeps our simulated
+	 * movement aligned with what the anticheat predicts from the same packet.
 	 */
-	public isUsingItem = false;
+	private usingItemLocal = false;
+
+	/**
+	 * The server's own view of whether we are using an item, read off our entity's
+	 * `LIVING_ENTITY_FLAGS` metadata. This is the only authoritative signal — the flags
+	 * mineflayer maintains locally are set by us, so they can never disagree with us and are
+	 * useless for detecting that an eat silently failed.
+	 */
+	public serverUsingItem = false;
+
+	/**
+	 * Whether movement should be treated as item-use constrained. True when either side believes
+	 * an item is in use: erring toward the slower of the two predictions is always safe, because
+	 * moving *less* than the server expects is legal and moving more is not.
+	 */
+	public get isUsingItem(): boolean {
+		return this.usingItemLocal || this.serverUsingItem;
+	}
+
+	/** Physics ticks the item-use state has been continuously set, for the stall watchdog. */
+	private itemUseTicks = 0;
+
+	/** Note that a `use_item` has gone out, so physics starts applying the use-item slowdown. */
+	public beginItemUse() {
+		this.usingItemLocal = true;
+	}
+
+	/** Note that the item use has ended (released by us, or ended by the server). */
+	public endItemUse() {
+		this.usingItemLocal = false;
+	}
+
+	/**
+	 * Give up on an item use that has outlived any real one.
+	 *
+	 * Both halves of the item-use state are edge-driven — ours by sending `use_item`, the
+	 * server's by a metadata change — so either can be left set if the matching edge never
+	 * arrives. A stuck flag costs 80% of the bot's movement speed silently and forever, which is
+	 * far worse than briefly predicting an eat that is still going, so time it out.
+	 */
+	private tickItemUseWatchdog() {
+		if (!this.usingItemLocal && !this.serverUsingItem) {
+			this.itemUseTicks = 0;
+			return;
+		}
+
+		if (++this.itemUseTicks <= ITEM_USE_MAX_TICKS) return;
+
+		this.usingItemLocal = false;
+		this.serverUsingItem = false;
+		this.itemUseTicks = 0;
+	}
 
 	/** Rate-limited yaw/pitch — these are what physics simulates with AND what gets sent */
 	private smoothYaw = 0;
@@ -75,7 +149,12 @@ export class PhysicsManager {
 
 	private interval: NodeJS.Timeout | null = null;
 
-	constructor(private readonly bot: Bot) {
+	/** Physics ticks since this connection started. */
+	private tickCount = 0;
+
+	constructor(public readonly bot: Bot) {
+
+		this.rotation = new RotationManager(this);
 
 		// Intercept bot._client.write to suppress mineflayer's outgoing movement packets.
 		this.rawWrite = bot._client.write.bind(bot._client);
@@ -161,44 +240,42 @@ export class PhysicsManager {
 			this.lastSneak = !this.controls.sneak;
 		});
 
-		// Fix mineflayer bug: inventory.js entity_status handler sets bot.usingHeldItem = false
-		// for EVERY entity_status packet, regardless of entity ID or status code.
-		// On busy servers like 2b2t, hurt animations from any entity constantly reset this flag,
-		// breaking our item-use speed guards and sprint suppression during eating.
-		// Use prependListener to snapshot the value BEFORE mineflayer's handler clears it,
-		// then a post-listener to restore it when the clear was spurious.
-		let wasUsingHeldItem = false;
-		bot._client.prependListener("entity_status", () => {
-			wasUsingHeldItem = bot.usingHeldItem;
+		// Item-use state, straight from the server. The living-entity flags byte is broadcast to
+		// us for our own entity, and bit 0x01 is exactly "this player is using an item" — the
+		// same bit the server drives its own movement slowdown from. Everything else (mineflayer's
+		// bot.usingHeldItem, our own optimistic flag) is a local guess that can silently disagree
+		// with the server; this cannot.
+		bot._client.on("entity_metadata", (packet: { entityId: number; metadata: { key: number; value: unknown }[] }) => {
+			if (!bot.entity || packet.entityId !== bot.entity.id) return;
+			for (const entry of packet.metadata) {
+				if (entry.key !== META_LIVING_FLAGS) continue;
+
+				const using = ((entry.value as number) & 0x01) !== 0;
+
+				// Falling edge *after* the server had picked the use up: it is finished or was
+				// interrupted, so drop our own flag too. Without this the optimistic flag would
+				// latch on for a use the server has already ended, and every subsequent tick
+				// would simulate at item-use speed while nothing was actually being used —
+				// which is exactly what "walks at eating pace but never eats" looked like.
+				if (this.serverUsingItem && !using) this.usingItemLocal = false;
+
+				this.serverUsingItem = using;
+				break;
+			}
 		});
+
+		// Status 9 is the server telling us the use ended (finished, or interrupted).
 		bot._client.on("entity_status", (packet: { entityId: number; entityStatus: number }) => {
-			if (wasUsingHeldItem && !(packet.entityId === bot.entity?.id && packet.entityStatus === 9)) {
-				bot.usingHeldItem = true;
-			}
+			if (!bot.entity || packet.entityId !== bot.entity.id) return;
+			if (packet.entityStatus !== 9) return;
+			this.serverUsingItem = false;
+			this.usingItemLocal = false;
 		});
 
-		// Fix mineflayer bug: heldItemChanged handler clears usingHeldItem when any set_slot
-		// or window_items packet updates the inventory, even if the held item hasn't meaningfully
-		// changed. On busy servers, redundant slot updates reset the flag during eating.
-		let wasUsingHeldItemHeld = false;
-		(bot as unknown as NodeJS.EventEmitter).prependListener("heldItemChanged", () => {
-			wasUsingHeldItemHeld = bot.usingHeldItem;
-		});
-		(bot as unknown as NodeJS.EventEmitter).on("heldItemChanged", () => {
-			if (wasUsingHeldItemHeld) {
-				bot.usingHeldItem = true;
-			}
-		});
-
-		// Fix mineflayer bug: set_cooldown handler clears usingHeldItem unconditionally.
-		let wasUsingHeldItemCd = false;
-		bot._client.prependListener("set_cooldown", () => {
-			wasUsingHeldItemCd = bot.usingHeldItem;
-		});
-		bot._client.on("set_cooldown", () => {
-			if (wasUsingHeldItemCd) {
-				bot.usingHeldItem = true;
-			}
+		// Respawning clears any in-flight use on both sides.
+		bot.on("respawn", () => {
+			this.serverUsingItem = false;
+			this.usingItemLocal = false;
 		});
 
 		// Defer engine creation + tick loop until the bot is in-game with version and world ready
@@ -208,6 +285,9 @@ export class PhysicsManager {
 			this.engine = Physics(mcData(bot.version), bot.world);
 			this.smoothYaw = bot.entity?.yaw ?? 0;
 			this.smoothPitch = bot.entity?.pitch ?? 0;
+			this.rotation.reset();
+
+			this.reportProtocolVersion();
 
 			// Send initial sprint/sneak state so the server matches our defaults
 			this.rawWrite("entity_action", { entityId: bot.entity.id, actionId: 4, jumpBoost: 0 }); // stop sprint
@@ -238,6 +318,9 @@ export class PhysicsManager {
 	private tick() {
 		if (!this.engine || !this.bot.entity) return;
 
+		this.tickCount++;
+		this.rotation.onTick();
+
 		// When a player is controlling the bot via proxy, their client handles
 		// physics and sends movement packets directly to the server. Our simulation
 		// must NOT run — it would overwrite bot.entity.position with stale values,
@@ -265,8 +348,7 @@ export class PhysicsManager {
 
 		for (const fn of this.onPreTick) fn();
 
-		// Sync isUsingItem from mineflayer's flag
-		this.isUsingItem = this.bot.usingHeldItem;
+		this.tickItemUseWatchdog();
 
 		// Send sprint/sneak entity_action packets when controls change
 		this.syncActionPackets();
@@ -415,45 +497,111 @@ export class PhysicsManager {
 	}
 
 	/**
-	 * Force-send a look packet to the server immediately.
-	 * Used by modules that need the server to have the correct pitch/yaw
-	 * BEFORE a subsequent packet (e.g. use_item) in the same tick.
+	 * Send one extra `position_look` carrying a spoofed rotation and the last position we sent,
+	 * verbatim. Called by {@link RotationManager} — see there for why the duplicated position
+	 * matters.
+	 *
+	 * `lastSent` is advanced to the spoofed angles on purpose: the next tick's change detection
+	 * then sees a rotation mismatch and re-asserts the real rotation on that tick's normal
+	 * movement packet. Without it, a bot holding a steady rotation would send position-only
+	 * packets forever and the server would keep simulating us with the spoofed angle.
 	 */
-	public sendLook(target: LookTarget): void;
-	public sendLook(yaw: number, pitch: number): void;
-	public sendLook(targetOrYaw: LookTarget | number, pitch?: number) {
-		let yaw: number;
-		let resolvedPitch: number;
-
-		if (typeof targetOrYaw === "number") {
-			yaw = targetOrYaw;
-			resolvedPitch = pitch ?? this.bot.entity.pitch;
-		} else {
-			const eye = this.bot.entity.position.offset(0, this.bot.entity.height, 0);
-			const dx = targetOrYaw.x - eye.x;
-			const dy = targetOrYaw.y - eye.y;
-			const dz = targetOrYaw.z - eye.z;
-			const xz = Math.sqrt(dx * dx + dz * dz);
-
-			yaw = Math.atan2(-dx, -dz);
-			resolvedPitch = Math.atan2(dy, xz);
-		}
-
-		this.bot.entity.yaw = yaw;
-		this.bot.entity.pitch = resolvedPitch;
-
-		const notchYaw = Math.fround(toNotchianYaw(yaw));
-		const notchPitch = Math.fround(toNotchianPitch(resolvedPitch));
-		const onGround = this.bot.entity.onGround;
-
-		this.lastSent.yaw = notchYaw;
-		this.lastSent.pitch = notchPitch;
-		this.rawWrite("look", { yaw: notchYaw, pitch: notchPitch, onGround });
+	public writeSilentLook(yaw: number, pitch: number) {
+		this.rawWrite("position_look", {
+			x: this.lastSent.x,
+			y: this.lastSent.y,
+			z: this.lastSent.z,
+			yaw,
+			pitch,
+			onGround: this.lastSent.onGround
+		});
+		this.lastSent.yaw = yaw;
+		this.lastSent.pitch = pitch;
 	}
 
-	/** Install a property trap on bot.entity to catch position being replaced with NaN */
-	// Removed — NaN diagnostics no longer needed. Root cause was NaN velocity from mineflayer;
-	// now sanitized at tick start.
+	// ─── Sprint wire state ───────────────────────────────────────
+
+	/** Whether the server currently believes we are sprinting. */
+	public get sprintingOnWire(): boolean {
+		return this.lastSprint;
+	}
+
+	/**
+	 * Drop sprint on the wire, if it is up.
+	 *
+	 * Only ever transition a state the server is not already in — a redundant sprint packet is a
+	 * duplicate status change, which is its own flag. This is why nothing outside this class may
+	 * write sprint `entity_action`s directly: two trackers drift apart and every subsequent
+	 * assertion becomes a duplicate.
+	 * @returns whether a packet was sent (and therefore whether a restore is owed)
+	 */
+	public dropSprint(): boolean {
+		if (!this.lastSprint) return false;
+		this.lastSprint = false;
+		this.bot._client.write("entity_action", {
+			entityId: this.bot.entity.id,
+			actionId: 4, // stop_sprinting
+			jumpBoost: 0
+		});
+		return true;
+	}
+
+	/** Re-assert sprint after a {@link dropSprint}, if we still intend to be sprinting. */
+	public restoreSprint(): boolean {
+		if (this.lastSprint) return false;
+		if (!this.controls.sprint) return false;
+
+		// The server drops sprint for the duration of an item use anyway; re-asserting it here
+		// would be a transition it immediately undoes.
+		if (this.isUsingItem) return false;
+
+		this.lastSprint = true;
+		this.bot._client.write("entity_action", {
+			entityId: this.bot.entity.id,
+			actionId: 3, // start_sprinting
+			jumpBoost: 0
+		});
+		return true;
+	}
+
+	/**
+	 * Run `fn` with sprint dropped on the wire, restoring afterwards.
+	 *
+	 * Container clicks that arrive while the server thinks we are sprinting are flagged *and
+	 * cancelled* by the anticheat, so a swap performed while running simply never happens. The
+	 * drop, the click and the restore are ordered on the wire, which is all that matters — `fn`
+	 * may return a promise that resolves later, as long as it writes its packet synchronously.
+	 */
+	public withSprintDropped<T>(fn: () => T): T {
+		const dropped = this.dropSprint();
+		try {
+			return fn();
+		} finally {
+			if (dropped) this.restoreSprint();
+		}
+	}
+
+	// ─── Diagnostics ─────────────────────────────────────────────
+
+	/**
+	 * Warn if we ever present as 1.21 or newer.
+	 *
+	 * Silent rotations are only free because the anticheat exempts a movement packet that repeats
+	 * the previous position from both its tick-rate accounting and its movement prediction — and
+	 * that exemption only exists for clients below 1.21. Above it, every silent look becomes a
+	 * counted, simulated, zero-movement tick.
+	 */
+	private reportProtocolVersion() {
+		const version = this.bot.version;
+		const [ major, minor ] = version.split(".").map(part => parseInt(part, 10));
+		const below121 = major !== undefined && minor !== undefined && (major < 1 || (major === 1 && minor < 21));
+
+		if (below121) {
+			PhysicsManager.logger.log(`Protocol ${ chalk.cyan(version) } — silent-rotation duplicate exemption ${ chalk.green("active") }`);
+		} else {
+			PhysicsManager.logger.warn(`Protocol ${ chalk.cyan(version) } is 1.21+ — silent-rotation duplicate exemption is ${ chalk.red("dead") }, every silent look will be counted and simulated`);
+		}
+	}
 
 	private start() {
 		if (this.interval) return;

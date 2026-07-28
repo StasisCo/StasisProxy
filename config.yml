@@ -67,10 +67,12 @@ modules:
         - green_shulker_box
         - red_shulker_box
         - black_shulker_box
-        - ender_pearl
   AutoTotem:
     # Whether this module is active
     enabled: true
+    config:
+      # Whether to equip totems in the main hand
+      mainhand: true
   AutoXP:
     # Whether this module is active
     enabled: true
@@ -79,6 +81,8 @@ modules:
       minDurability: 0.7
       # After this many ms of no movement, repair to 100% instead of minDurability
       idleThreshold: 10000
+      # Ticks between XP bottle throws
+      throwInterval: 1
   Sentry:
     # Whether this module is active
     enabled: true
@@ -91,6 +95,8 @@ modules:
       # List of entity names to attack
       list:
         - hostile_mobs
+      # Whether to swap to the sword silently (without changing the client's current hotbar slot)
+      silentSwap: true
   Presence:
     # Whether this module is active
     enabled: true

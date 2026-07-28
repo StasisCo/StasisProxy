@@ -232,8 +232,10 @@ export class StasisManager {
 
 		StasisManager.logger.log(`Found ${ chalk.yellow(all.length) } stasis for player ${ chalk.cyan(ownerId) }`, chalk.dim(`closest=${ MinecraftClient.bot.entity.position.distanceTo(stasis.block.position).toFixed(1) }m`));
 
-		// Create a goal
-		const goal = new Goal(stasis.block.position).setRange(5.0);
+		// Create a goal. The range has to leave the trapdoor inside interaction reach — the server
+		// re-checks eye-to-hit distance and rejects anything past ~4.5 blocks, so arriving five
+		// blocks out guaranteed every interaction from there would be thrown away.
+		const goal = new Goal(stasis.block.position).setRange(3.0);
 		goal.once("arrived", async() => {
 			
 			// Check the player is online

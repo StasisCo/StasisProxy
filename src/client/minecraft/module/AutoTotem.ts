@@ -11,6 +11,12 @@ const zConfigSchema = z.object({
 	mainhand: z.boolean().default(true).describe("Whether to equip totems in the main hand")
 });
 
+/** Offhand inventory slot index. */
+const OFFHAND_SLOT = 45;
+
+/** Ticks to wait after issuing a swap before issuing another, so the server can catch up. */
+const SWAP_COOLDOWN_TICKS = 4;
+
 export default class AutoTotem extends Module<typeof zConfigSchema> {
 
 	public override readonly zConfigSchema = zConfigSchema;
@@ -18,6 +24,8 @@ export default class AutoTotem extends Module<typeof zConfigSchema> {
 	constructor() {
 		super("AutoTotem");
 	}
+
+	private cooldown = 0;
 
 	public override async onPacketReceive({ name, data }: Packets.PacketEvent) {
 		switch (name) {
@@ -27,8 +35,9 @@ export default class AutoTotem extends Module<typeof zConfigSchema> {
 				if (data.entityId !== MinecraftClient.bot.entity.id) return;
 				if (data.entityStatus !== 35) return;
 
-				// Apply totem to off-hand
-				this.applyHand("off-hand", true);
+				// Re-arm immediately — a pop means the offhand slot is now empty.
+				this.cooldown = 0;
+				this.applyOffhand();
 
 				// Send Discord notification
 				await DiscordClient.webhook(new Embed()
@@ -42,17 +51,32 @@ export default class AutoTotem extends Module<typeof zConfigSchema> {
 
 	public override onTickPre() {
 
-		// Verify offhand and reequip if needed
-		this.applyHand();
+		if (this.cooldown > 0) {
+			this.cooldown--;
+			return;
+		}
 
-		// Don't mainhand if were eating
+		// Keep the offhand stocked first — it is what actually saves us.
+		if (!this.hasOffHand) {
+
+			// Getting a totem into the offhand means swapping it out of the main hand, which
+			// would destroy an in-progress eat. Totem beats food: end the eat and take the totem
+			// on the next tick.
+			const autoEat = Module.get<AutoEat>("AutoEat");
+			if (autoEat.isEating) {
+				autoEat.stopEating();
+				return;
+			}
+
+			this.applyOffhand();
+			return;
+		}
+
+		// Don't fight AutoEat or AutoXP over the main hand.
 		if (Module.get<AutoEat>("AutoEat").isEating) return;
-		
-		// Don't mainhand if were mending
 		if (Module.get<AutoXP>("AutoXP").isMending) return;
-        
-		// Apply mainhand
-		if (this.config.mainhand) this.applyHand("hand");
+
+		if (this.config.mainhand) this.applyMainhand();
 
 	}
 
@@ -70,24 +94,64 @@ export default class AutoTotem extends Module<typeof zConfigSchema> {
 	}
 
 	public get hasOffHand() {
-		return MinecraftClient.bot.inventory.slots[45]?.name === "totem_of_undying";
+		return MinecraftClient.bot.inventory.slots[OFFHAND_SLOT]?.name === "totem_of_undying";
 	}
 
-	private async applyHand(hand: "hand" | "off-hand" = "off-hand", force = false) {
+	/** The hotbar index of a totem, or -1 if none is in the hotbar. */
+	private totemHotbarIndex(): number {
+		const inventory = MinecraftClient.bot.inventory;
+		for (let i = 0; i < 9; i++) {
+			if (inventory.slots[inventory.hotbarStart + i]?.name === "totem_of_undying") return i;
+		}
+		return -1;
+	}
 
-		const slot = hand === "hand" ? MinecraftClient.bot.heldItem : MinecraftClient.bot.inventory.slots[45] || null;
-		if (slot && slot.name === "totem_of_undying" && !force) return;
+	/**
+	 * Put a totem in the off-hand.
+	 *
+	 * Selects the hotbar slot holding a totem and exchanges the hands. That is a twelve-byte
+	 * player action with no container menu behind it — as opposed to `bot.equip(item, "off-hand")`,
+	 * which performs two pickup clicks with a live cursor against a menu whose state the server
+	 * independently tracks, and which is by far the most heavily validated way to move an item.
+	 */
+	private applyOffhand() {
+		const hotbarIndex = this.totemHotbarIndex();
 
-		// Don't try to equip a totem that's already in the other hand
-		const [ totem ] = this.totems.filter(totem => {
-			if (hand === "hand" && MinecraftClient.bot.inventory.slots[45]?.name === "totem_of_undying" && totem.slot === 45) return false;
-			if (hand === "off-hand" && MinecraftClient.bot.heldItem?.name === "totem_of_undying" && totem.slot === MinecraftClient.bot.heldItem.slot) return false;
-			return true;
-		});
+		if (hotbarIndex === -1) {
+			this.stageTotemIntoHotbar();
+			return;
+		}
 
-		// Equip the totem if we found one
-		if (totem) await MinecraftClient.bot.equip(totem, hand);
-        
+		if (MinecraftClient.bot.quickBarSlot !== hotbarIndex && !MinecraftClient.interaction.setHotbarSlot(hotbarIndex)) return;
+		if (!MinecraftClient.interaction.swapOffhand()) return;
+
+		this.cooldown = SWAP_COOLDOWN_TICKS;
+	}
+
+	/** Hold a totem in the main hand, if one is already in the hotbar. */
+	private applyMainhand() {
+		if (this.hasMainHand) return;
+
+		const hotbarIndex = this.totemHotbarIndex();
+		if (hotbarIndex === -1) {
+			this.stageTotemIntoHotbar();
+			return;
+		}
+
+		if (MinecraftClient.interaction.setHotbarSlot(hotbarIndex)) this.cooldown = SWAP_COOLDOWN_TICKS;
+	}
+
+	/** Move a totem from the main inventory into the hotbar with a single atomic swap click. */
+	private stageTotemIntoHotbar() {
+		const inventory = MinecraftClient.bot.inventory;
+		const totem = this.totems.find(item => item.slot < inventory.hotbarStart || item.slot >= inventory.hotbarStart + 9);
+		if (!totem) return;
+
+		const click = MinecraftClient.interaction.stageIntoHotbar(totem);
+		if (!click) return;
+
+		void click.catch(() => { /* slot moved underneath us; retried next tick */ });
+		this.cooldown = SWAP_COOLDOWN_TICKS;
 	}
 
 }

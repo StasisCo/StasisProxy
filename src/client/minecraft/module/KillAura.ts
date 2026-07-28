@@ -108,7 +108,7 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 		if (this.holdTicksRemaining > 0) {
 			this.holdTicksRemaining--;
 			if (this.holdTicksRemaining === 0 && this.restoreSlot !== null) {
-				MinecraftClient.bot.setQuickBarSlot(this.restoreSlot);
+				MinecraftClient.interaction.setHotbarSlot(this.restoreSlot);
 				this.restoreSlot = null;
 			}
 		}
@@ -156,14 +156,7 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 		const { quickBarSlot } = MinecraftClient.bot;
 		const isInHotbar = sword.slot >= inv.hotbarStart && sword.slot < inv.hotbarStart + 9;
 
-		let slot: number;
-		if (isInHotbar) {
-
-			// Already in the hotbar — just switch to it. No window click,
-			// no cursor involvement, nothing the server can desync on.
-			slot = sword.slot - inv.hotbarStart;
-
-		} else {
+		if (!isInHotbar) {
 
 			// Bail if a previous swap left something on the cursor, or if
 			// we issued a swap recently and the server hasn't confirmed it
@@ -171,24 +164,13 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 			if (inv.selectedItem) return;
 			if (Date.now() - this.timeOfLastSwap < 500) return;
 
-			// Prefer an empty hotbar slot so the swap doesn't displace
-			// anything important (totem, food, pickaxe). Fall back to the
-			// current quickBarSlot only if every hotbar slot is occupied.
-			let hotbarIndex = -1;
-			for (let i = 0; i < 9; i++) {
-				if (!inv.slots[inv.hotbarStart + i]) {
-					hotbarIndex = i;
-					break;
-				}
-			}
-			if (hotbarIndex === -1) {
-				hotbarIndex = quickBarSlot >= inv.hotbarStart && quickBarSlot < inv.hotbarStart + 9 ? quickBarSlot - inv.hotbarStart : 0;
-			}
+			// One atomic hotbar-swap click, dropped-sprint wrapped by the interaction manager —
+			// a click that arrives while the server thinks we are sprinting gets cancelled, which
+			// used to leave the sword sitting in the inventory while we swung an empty hand.
+			const click = MinecraftClient.interaction.stageIntoHotbar(sword);
+			if (!click) return;
 
-			// Single mode=2 (NUMBER_KEY) window_click — server atomically
-			// exchanges the inventory slot with the chosen hotbar slot,
-			// never picking the item up onto the cursor.
-			void MinecraftClient.bot.clickWindow(sword.slot, hotbarIndex, 2);
+			void click.catch(() => { /* slot moved underneath us; retried next tick */ });
 			this.timeOfLastSwap = Date.now();
 
 			// Skip this tick's attack — let the server confirm the swap
@@ -197,64 +179,46 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 			return;
 
 		}
-		
-		// Save current rotation so we can restore it after the attack.
-		const { pitch, yaw } = MinecraftClient.bot.entities[MinecraftClient.bot.entity.id] as Entity;
+
+		const slot = sword.slot - inv.hotbarStart;
 
 		// Aim at the target's eye-line (entity center + half height) — same
 		// point the Java SwordAura aims at. Aiming at the foot (.position)
 		// can produce a steep downward pitch on tall mobs that still hits
 		// but reads as a "head-down" attack server-side.
-		const aimY = entity.position.y + (entity.height ?? 1.8) * 0.5;
-		const eye = MinecraftClient.bot.entity.position.offset(0, MinecraftClient.bot.entity.height, 0);
-		const dx = entity.position.x - eye.x;
-		const dy = aimY - eye.y;
-		const dz = entity.position.z - eye.z;
-		const xz = Math.sqrt(dx * dx + dz * dz);
-		const aimYaw = Math.atan2(-dx, -dz);
-		const aimPitch = Math.atan2(dy, xz);
+		const aimPoint = {
+			x: entity.position.x,
+			y: entity.position.y + (entity.height ?? 1.8) * 0.5,
+			z: entity.position.z
+		};
 
 		// Re-check onGround right before the synchronous attack burst — no
 		// awaits below this line so it can't change underneath us.
 		if (!MinecraftClient.bot.entity.onGround) return;
 
 		// Silent swap to sword if we have one
-		if (slot >= 0) MinecraftClient.bot.setQuickBarSlot(slot);
+		if (slot >= 0) MinecraftClient.interaction.setHotbarSlot(slot);
 
-		// Sweeping-edge requires the server to see us as NOT sprinting at the
-		const wasSprinting = MinecraftClient.bot.controlState.sprint;
-		MinecraftClient.bot._client.write("entity_action", {
-			entityId: MinecraftClient.bot.entity.id,
-			actionId: 4, // STOP_SPRINTING
-			jumpBoost: 0
-		});
-		if (wasSprinting) MinecraftClient.bot.controlState.sprint = false;
+		// Sweeping edge requires the server to see us as not sprinting, and the anticheat
+		// separately dislikes attacking mid-sprint. Go through PhysicsManager so the wire state
+		// stays owned in one place — sending the transition ourselves would leave its tracker
+		// disagreeing with the server, after which every later sprint packet is a duplicate.
+		const dropped = MinecraftClient.physics.dropSprint();
 
-		// Send aim rotation immediately before the attack so the server has
-		MinecraftClient.physics.sendLook(aimYaw, aimPitch);
+		// Aim on the wire immediately before the attack. The attack packet carries no rotation of
+		// its own, so this is what the server checks reach and line of sight against.
+		MinecraftClient.rotation.silentLookAt(aimPoint);
 
 		// Attack — bot.attack() writes use_entity then arm_animation in 1.20.1
-		MinecraftClient.bot.attack(entity);
-		this.timeOfLastSwing = Date.now();
+		if (MinecraftClient.interaction.attack(entity)) this.timeOfLastSwing = Date.now();
 
-		// Diagnostic: server-side sweep requires onGround && !sprinting && sword
-		if (wasSprinting) {
-			MinecraftClient.bot._client.write("entity_action", {
-				entityId: MinecraftClient.bot.entity.id,
-				actionId: 3, // START_SPRINTING
-				jumpBoost: 0
-			});
-			MinecraftClient.bot.controlState.sprint = true;
-		}
+		if (dropped) MinecraftClient.physics.restoreSprint();
 
 		// Hold the sword in mainhand for the next 3 ticks (~150ms) so the XP
 		if (this.config.silentSwap) {
 			this.holdTicksRemaining = 3;
 			this.restoreSlot = quickBarSlot;
 		}
-
-		// Restore rotation
-		MinecraftClient.bot.look(yaw, pitch, true);
 
 	}
 

@@ -2,6 +2,7 @@ import type { Item } from "prismarine-item";
 import z from "zod";
 import { Module } from "../Module";
 import { MinecraftClient } from "../MinecraftClient";
+import AutoEat from "./AutoEat";
 
 const zConfigSchema = z.object({
 	minDurability: z
@@ -11,7 +12,11 @@ const zConfigSchema = z.object({
 	idleThreshold: z
 		.number()
 		.default(10_000)
-		.describe("After this many ms of no movement, repair to 100% instead of minDurability")
+		.describe("After this many ms of no movement, repair to 100% instead of minDurability"),
+	throwInterval: z
+		.number()
+		.default(1)
+		.describe("Ticks between XP bottle throws")
 });
 
 export default class AutoXP extends Module<typeof zConfigSchema> {
@@ -23,7 +28,8 @@ export default class AutoXP extends Module<typeof zConfigSchema> {
 
 	public isMending = false;
 
-	private savedPitch = 0;
+	/** Ticks until the next throw is allowed. */
+	private cooldown = 0;
 
 	constructor() {
 		super("AutoXP");
@@ -48,10 +54,12 @@ export default class AutoXP extends Module<typeof zConfigSchema> {
 		return lowestItem;
 	}
 
-	public override async onTickPre() {
+	public override onTickPre() {
 
 		const entity = MinecraftClient.bot.entity;
 		if (!entity) return;
+
+		if (this.cooldown > 0) this.cooldown--;
 
 		const now = Date.now();
 		const { x, y, z } = entity.position;
@@ -81,39 +89,53 @@ export default class AutoXP extends Module<typeof zConfigSchema> {
 			return;
 		}
 
+		// Eating owns the main hand and the item-use state — throwing a bottle would end the eat.
+		if (Module.get<AutoEat>("AutoEat").isEating) return;
+
 		// Find a bottle already in the hotbar
-		const bottle = this.bottles.find(b => MinecraftClient.bot.inventory.hotbarStart <= b.slot && b.slot < MinecraftClient.bot.inventory.hotbarStart + 9);
+		const hotbarStart = MinecraftClient.bot.inventory.hotbarStart;
+		const bottle = this.bottles.find(b => hotbarStart <= b.slot && b.slot < hotbarStart + 9);
 
 		if (!bottle) {
 
-			// No XP bottles in hotbar — move one there and wait for next tick
-			if (!this.isMending) {
-				const anyBottle = this.bottles[0];
-				if (anyBottle) {
-					MinecraftClient.bot.moveSlotItem(anyBottle.slot, MinecraftClient.bot.inventory.hotbarStart);
-				}
+			// No XP bottles in hotbar — swap one in and wait for the next tick.
+			const anyBottle = this.bottles[0];
+			if (anyBottle) {
+				const click = MinecraftClient.interaction.stageIntoHotbar(anyBottle);
+				if (click) void click.catch(() => { /* slot moved underneath us; retried next tick */ });
 			}
 			return;
 		}
 
-		if (!this.isMending) {
-			this.savedPitch = MinecraftClient.bot.entity.pitch;
-			this.isMending = true;
+		this.isMending = true;
+
+		if (this.cooldown > 0) return;
+
+		// Hold the bottle before throwing it. Selecting a hotbar slot is a three-byte packet with
+		// no container state behind it, and it lands before the use below.
+		const hotbarIndex = bottle.slot - hotbarStart;
+		if (MinecraftClient.bot.quickBarSlot !== hotbarIndex) {
+			if (!MinecraftClient.interaction.setHotbarSlot(hotbarIndex)) return;
 		}
 
-		// Force pitch down and send look to server BEFORE the throw packet
-		MinecraftClient.bot.entity.pitch = -Math.PI / 2;
-		MinecraftClient.physics.sendLook(MinecraftClient.bot.entity.yaw, -Math.PI / 2);
+		// The throw direction comes from whatever rotation the server last saw, so aim straight
+		// down on the wire — without moving the bot's real rotation, which pathfinding owns.
+		MinecraftClient.rotation.silent(MinecraftClient.bot.entity.yaw, -Math.PI / 2);
 
-		// Equip and throw the bottle
-		MinecraftClient.bot.equip(bottle, "hand");
-		MinecraftClient.bot.activateItem(false);
+		// Only throw once the server is genuinely looking down: a silent send is skipped when the
+		// angle is already there (fine) but also when something else owns the rotation this tick,
+		// and a bottle thrown level lands somewhere useless.
+		if (MinecraftClient.physics.lastSent.pitch < 80) return;
+
+		// Throwing every tick is most of the interaction budget on its own, so hold back a couple
+		// of slots for stasis activations and eating.
+		if (MinecraftClient.interaction.useItem(false, 2)) this.cooldown = this.config.throwInterval;
 
 	}
 
 	private stopMending() {
 		this.isMending = false;
-		MinecraftClient.bot.entity.pitch = this.savedPitch;
+		this.cooldown = 0;
 	}
 
 }

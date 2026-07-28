@@ -5,6 +5,7 @@ import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import z from "zod";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { Face, faceToward, type FaceIndex } from "~/client/minecraft/manager/InteractionManager";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { type Stasis as StasisData } from "../../generated/prisma/client";
@@ -255,23 +256,129 @@ export class Stasis extends StasisColumn<{
 	}
 
 	/**
+	 * Maximum eye-to-hit distance we will attempt an interaction from. Vanilla allows 4.5 blocks
+	 * and the server re-checks it; staying inside 4.0 leaves room for the position the server has
+	 * for us to be a tick behind ours.
+	 */
+	private static readonly INTERACT_REACH = 4.0;
+
+	/**
+	 * Work out where to click the trigger block from where the bot is standing.
+	 *
+	 * Prefers an actual raycast, so the hit point lands on the block's real collision shape — a
+	 * closed trapdoor is three pixels thick, so "the middle of the block" is a point in thin air
+	 * that no ray from the eye could have produced. The anticheat reconstructs the click from the
+	 * rotation we last sent and rejects hit vectors that don't line up with the claimed face,
+	 * which is why the old centre-of-block cursor silently never opened anything.
+	 *
+	 * Falls back to the centre of the face pointing at the bot when the ray is obstructed.
+	 * @returns the face to click, the absolute hit position, and the cursor relative to the block
+	 */
+	private resolveClick(pos: Vec3Like, eye: Vec3Like): { face: FaceIndex; hit: Vec3; cursor: Vec3 } {
+
+		// The union of the block's collision shapes, relative to its minimum corner. A closed
+		// trapdoor occupies roughly y 0..0.19 of its block, so this is nowhere near the middle.
+		const shapes = (this.block.shapes ?? []) as number[][];
+		let minX = 0, minY = 0, minZ = 0, maxX = 1, maxY = 1, maxZ = 1;
+		if (shapes.length > 0) {
+			minX = minY = minZ = 1;
+			maxX = maxY = maxZ = 0;
+			for (const shape of shapes) {
+				minX = Math.min(minX, shape[0] ?? 0);
+				minY = Math.min(minY, shape[1] ?? 0);
+				minZ = Math.min(minZ, shape[2] ?? 0);
+				maxX = Math.max(maxX, shape[3] ?? 1);
+				maxY = Math.max(maxY, shape[4] ?? 1);
+				maxZ = Math.max(maxZ, shape[5] ?? 1);
+			}
+		}
+		const centre = new Vec3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+
+		// Aim the ray at the middle of the actual shape, not the middle of the block — a ray at
+		// the block centre passes straight over a closed trapdoor without touching it.
+		const dx = pos.x + centre.x - eye.x;
+		const dy = pos.y + centre.y - eye.y;
+		const dz = pos.z + centre.z - eye.z;
+		const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+		if (length > 0) {
+
+			// The published raycast type doesn't describe what the implementation returns (it
+			// hands back the block itself, with `face` and `intersect` attached), so read it
+			// structurally rather than trusting the declaration.
+			const hit = MinecraftClient.bot.world.raycast(
+				new Vec3(eye.x, eye.y, eye.z),
+				new Vec3(dx / length, dy / length, dz / length),
+				Stasis.INTERACT_REACH + 1
+			) as unknown as { position?: Vec3Like; face?: number; intersect?: Vec3Like } | null;
+
+			if (hit?.position && hit.intersect
+				&& hit.position.x === pos.x && hit.position.y === pos.y && hit.position.z === pos.z
+				&& typeof hit.face === "number" && hit.face >= 0 && hit.face <= 5) {
+				const intersect = new Vec3(hit.intersect.x, hit.intersect.y, hit.intersect.z);
+				return {
+					face: hit.face as FaceIndex,
+					hit: intersect,
+					cursor: new Vec3(intersect.x - pos.x, intersect.y - pos.y, intersect.z - pos.z)
+				};
+			}
+		}
+
+		// Obstructed, or the ray clipped a neighbour first — fall back to the middle of whichever
+		// face of the shape points at the bot. Still on the shape's surface, which is what the
+		// reconstruction on the server side cares about.
+		const face = faceToward(pos, eye);
+		const cursor = centre.clone();
+		switch (face) {
+			case Face.DOWN:
+				cursor.y = minY;
+				break;
+			case Face.UP:
+				cursor.y = maxY;
+				break;
+			case Face.NORTH:
+				cursor.z = minZ;
+				break;
+			case Face.SOUTH:
+				cursor.z = maxZ;
+				break;
+			case Face.WEST:
+				cursor.x = minX;
+				break;
+			case Face.EAST:
+				cursor.x = maxX;
+				break;
+		}
+
+		return { face, hit: new Vec3(pos.x + cursor.x, pos.y + cursor.y, pos.z + cursor.z), cursor };
+	}
+
+	/**
 	 * Interact with the stasis by activating the trapdoor block.
-	 * Sends the block_place packet directly because mineflayer's
-	 * activateBlock hangs on lookAt when physics is disabled.
-	 * Resolves once the server confirms the block state changed, or rejects on timeout.
+	 *
+	 * Sends the packets directly rather than going through mineflayer's `activateBlock`, which
+	 * depends on the physics loop we replace. Order matters: the rotation has to be on the wire
+	 * *before* the interaction, because a 1.20.1 `block_place` carries no rotation of its own and
+	 * the server validates reach and line of sight against whatever it last saw us looking at.
+	 *
+	 * Resolves once the server confirms the block state changed, or false on timeout.
 	 * @returns {Promise<boolean>} whether the interaction was successful (i.e. the block state changed)
 	 */
 	public interact(): Promise<boolean> {
 		const pos = this.block.position;
 		if (this.state.open === false) return Promise.resolve(true);
 
-		// Force-look at the block center (resolves immediately)
-		const offsetted = MinecraftClient.bot.entity.position.offset(0, MinecraftClient.bot.entity.height, 0);
-		const ofsettedVec = new Vec3(offsetted.x, offsetted.y, offsetted.z);
-	
-		const delta = pos.offset(0.5, 0.5, 0.5).minus(ofsettedVec);
-		MinecraftClient.bot.entity.yaw = Math.atan2(-delta.x, -delta.z);
-		MinecraftClient.bot.entity.pitch = Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z));
+		const entity = MinecraftClient.bot.entity;
+		const eye = new Vec3(entity.position.x, entity.position.y + entity.height, entity.position.z);
+		const { face, hit, cursor } = this.resolveClick(pos, eye);
+
+		// Out of reach — retrying from here would just burn interaction budget against a server
+		// that is going to reject every attempt. Let the caller re-path instead.
+		const distance = eye.distanceTo(hit);
+		if (distance > Stasis.INTERACT_REACH) {
+			StasisManager.logger.warn(`Stasis ${ chalk.yellow(this.id) } is ${ chalk.yellow(distance.toFixed(1)) }m from the eye, out of interaction range`);
+			return Promise.resolve(false);
+		}
 
 		StasisManager.expectedInteractions.set(this, Date.now());
 
@@ -293,47 +400,20 @@ export class Stasis extends StasisColumn<{
 			MinecraftClient.bot._client.on("block_change", onBlockChange);
 		});
 
-		// A failed first click can be caused by client/server sneak desync.
-		MinecraftClient.bot._client.write("entity_action", {
-			entityId: MinecraftClient.bot.entity.id,
-			actionId: 1,
-			jumpBoost: 0
-		});
+		// Sneaking suppresses block interaction in favour of placing the held item, so make sure
+		// we are not — but only send the transition if the server actually thinks we are, since a
+		// redundant one is a duplicate status change.
+		if (MinecraftClient.physics.controls.sneak) MinecraftClient.physics.controls.sneak = false;
 
-		// Send block_place with version-appropriate fields
-		if (MinecraftClient.bot.supportFeature("blockPlaceHasInsideBlock")) {
-			MinecraftClient.bot._client.write("block_place", {
-				location: pos,
-				direction: 1,
-				hand: 0,
-				cursorX: 0.5,
-				cursorY: 0.5,
-				cursorZ: 0.5,
-				insideBlock: false,
-				sequence: 0,
-				worldBorderHit: false
-			});
-		} else if (MinecraftClient.bot.supportFeature("blockPlaceHasHandAndFloatCursor")) {
-			MinecraftClient.bot._client.write("block_place", {
-				location: pos,
-				direction: 1,
-				hand: 0,
-				cursorX: 0.5,
-				cursorY: 0.5,
-				cursorZ: 0.5
-			});
-		} else if (MinecraftClient.bot.supportFeature("blockPlaceHasHandAndIntCursor")) {
-			MinecraftClient.bot._client.write("block_place", {
-				location: pos,
-				direction: 1,
-				hand: 0,
-				cursorX: 8,
-				cursorY: 8,
-				cursorZ: 8
-			});
+		// Rotation first, then the interaction it is meant to validate.
+		MinecraftClient.rotation.silentLookAt(hit);
+
+		if (!MinecraftClient.interaction.useItemOn(pos, face, cursor)) {
+			StasisManager.logger.warn(`Interaction with stasis ${ chalk.yellow(this.id) } was dropped by the rate limiter`);
+			return Promise.resolve(false);
 		}
 
-		MinecraftClient.bot.swingArm("right");
+		MinecraftClient.interaction.swingArm();
 
 		return promise;
 	}

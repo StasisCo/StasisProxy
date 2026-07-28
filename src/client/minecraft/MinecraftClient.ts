@@ -18,12 +18,17 @@ import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Server } from "~/server/minecraft/Server";
 import { normalizeUUID } from "~/utils";
 import { name, version } from "../../../package.json";
+import { InteractionManager } from "./manager/InteractionManager";
 import { PhysicsManager } from "./manager/PhysicsManager";
 import { QueueManager } from "./manager/QueueManager";
+import type { RotationManager } from "./manager/RotationManager";
 import { Module } from "./Module";
 
 /** Exponential backoff schedule for automatic reconnects. After the final (5m) attempt fails, the process exits. */
 const RECONNECT_DELAYS_MS = [ 0, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 60_000, 120_000, 300_000 ];
+
+/** How long shutdown cleanup gets before the process is terminated regardless. */
+const SHUTDOWN_GRACE_MS = 3_000;
 
 export class MinecraftClient {
 
@@ -58,9 +63,11 @@ export class MinecraftClient {
 
 	public static proxy: Server;
 	public static chat: ChatManager;
+	public static interaction: InteractionManager;
 	public static pathfinding: PathfindingManager;
 	public static physics: PhysicsManager;
 	public static queue: QueueManager;
+	public static rotation: RotationManager;
 	public static stasis: StasisManager;
 
 	/** Exit code to use when the process exits; set to 0 for clean exits, or 1 for errors */
@@ -75,10 +82,42 @@ export class MinecraftClient {
 	/** Redis channel currently subscribed for peer requests, to avoid duplicate subscriptions */
 	private static redisChannel?: Redis.ValidChannel;
 
-	/** Gracefully disconnects the bot and exits the process with the specified exit code (default is 1 for errors, or 0 for clean exits) */
+	/** Whether a shutdown is already in progress, so a second interrupt can bypass cleanup. */
+	private static exiting = false;
+
+	/**
+	 * Gracefully disconnects the bot and exits the process with the specified exit code
+	 * (default is 1 for errors, or 0 for clean exits).
+	 */
 	public static exit(code = 1) {
 		this.exitCode = code;
-		this.bot.quit();
+
+		// A non-zero code means "drop this connection"; the end handler reconnects from there.
+		// Only a clean exit is an actual shutdown.
+		if (code !== 0) {
+			this.bot?.quit();
+			return;
+		}
+
+		// Asked twice — go now, whatever the cleanup is doing.
+		if (this.exiting) process.exit(code);
+		this.exiting = true;
+
+		// Stop everything that writes upstream *before* closing the connection. The physics loop
+		// ticks every 50 ms and would otherwise keep feeding position packets into a stream that
+		// is already ending — and its interval alone is enough to keep the event loop alive
+		// forever, since nothing else ever clears it.
+		this.physics?.stop();
+		this.proxy?.close();
+
+		// Releasing stasis management talks to a remote database, and the process holds open a
+		// Redis connection and a readline handle besides. None of that may be allowed to keep us
+		// running: the protocol library only destroys the socket 30 seconds after a graceful
+		// close, so a process that lingers is a bot that stays online until the server times it
+		// out. Cleanup is best-effort against this deadline.
+		setTimeout(() => process.exit(code), SHUTDOWN_GRACE_MS).unref();
+
+		this.bot?.quit();
 	}
 
 	/** Schedule an automatic reconnect using exponential backoff. Once every backoff step has been exhausted, exit the container. */
@@ -116,6 +155,8 @@ export class MinecraftClient {
 		this.chat = new ChatManager(this.bot);
 		this.pathfinding = new PathfindingManager(this.bot);
 		this.physics = new PhysicsManager(this.bot);
+		this.rotation = this.physics.rotation;
+		this.interaction = new InteractionManager(this.bot);
 		this.queue = new QueueManager(this.bot);
 		this.stasis = new StasisManager(this.bot);
 

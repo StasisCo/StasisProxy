@@ -54,8 +54,13 @@ export default class AutoEject extends Module<typeof zConfigSchema> {
 		);
 		if (!item) return;
 
+		// Routed through the interaction manager so the toss shares the container-click budget
+		// with every other module and lands while the server believes we are not sprinting.
+		const toss = MinecraftClient.interaction.tossStack(item);
+		if (!toss) return;
+
 		this.ejecting = true;
-		MinecraftClient.bot.tossStack(item)
+		toss
 			.catch(() => { /* item may have already been moved */ })
 			.finally(() => {
 				this.ejecting = false;
