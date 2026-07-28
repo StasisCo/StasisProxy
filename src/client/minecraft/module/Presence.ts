@@ -394,19 +394,50 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		};
 	}
 
-	public async post(body: z.infer<typeof zIrcPresence>) {
-		if (!MinecraftClient.session || !MinecraftClient.host || !MinecraftClient.bot.player) return;
+	/**
+	 * POST an arbitrary JSON body to the IRC endpoint.
+	 *
+	 * The body is sent verbatim — no schema is applied — so this can carry any payload type the
+	 * IRC server accepts. Auth headers, the endpoint and the 401-refresh-retry are shared with
+	 * every other request the module makes.
+	 *
+	 * @param body Any JSON-serialisable value
+	 * @returns the response, or null if the request could not be made at all
+	 */
+	public async post(body: z.infer<typeof zIrcPayload> | Array<z.infer<typeof zIrcPayload>>): Promise<Response | null> {
+		if (!MinecraftClient.session || !MinecraftClient.host || !MinecraftClient.bot.player) return null;
+
+		const send = () => fetch(new URL("/irc", process.env.IRC_HOST), {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...this.headers
+			},
+			body: JSON.stringify(body)
+		});
 
 		try {
-			await fetch(new URL("/irc", process.env.IRC_HOST), {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					...this.headers
-				},
-				body: JSON.stringify(body)
-			});
-		} catch { /* connection error, will retry on next interval */ }
+			const res = await send();
+
+			// The access token can expire mid-session; the SSE stream already recovers from this,
+			// so posts should too rather than silently dropping until the next reconnect.
+			if (res.status === 401 && await this.refreshToken()) return await send();
+
+			return res;
+		} catch {
+
+			// Connection error — presence posts retry on the next interval, and one-off payloads
+			// are the caller's to re-send if they care.
+			return null;
+		}
+	}
+
+	/**
+	 * POST a presence payload.
+	 * @param body The presence to send
+	 */
+	public async postPresence(body: z.infer<typeof zIrcPresence>) {
+		await this.post(body);
 	}
 
 	/** Request a presence post — rate-limited to config.maxRate per second */
@@ -420,7 +451,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		this.pending = setTimeout(() => {
 			this.pending = null;
 			this.lastPost = Date.now();
-			if (MinecraftClient.bot.player) this.post(this.presence);
+			if (MinecraftClient.bot.player) this.postPresence(this.presence);
 		}, delay);
 	}
 

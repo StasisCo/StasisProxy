@@ -1,3 +1,4 @@
+import { zMojangUserResponse } from "@hackware/types/schema/mojang/zMojangUserResponse";
 import EventEmitter from "events";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
@@ -68,6 +69,8 @@ export class Pearl extends EventEmitter<{
 	/** The UUID of the player who owns this pearl, if known */
 	public ownerId?: string;
 
+	public ownerName?: string;
+
 	/** The in-world entity for this pearl */
 	public readonly entity: Entity;
 
@@ -125,6 +128,28 @@ export class Pearl extends EventEmitter<{
 		return x === 0
             && y <= 1 / 8
             && z === 0;
+	}
+
+	/**
+	 * Resolves the owner name of the pearl's ownerId, if available. 
+	 */
+	public async resolveOwnerName() {
+		if (this.ownerName) return this.ownerName;
+		if (!this.ownerId) throw new Error("Cannot resolve owner name without an ownerId");
+
+		const player = Object.values(MinecraftClient.bot.players).find(p => p.uuid === this.ownerId);
+		if (player) {
+			this.ownerName = player.username;
+			return this.ownerName;
+		}
+
+		// Use Mojang API to resolve the name from UUID if not found in current players
+		const response = await fetch(`https://api.minecraftservices.com/minecraft/profile/lookup/${ this.ownerId.replace(/-/g, "") }`)
+			.then(resp => resp.json())
+			.then(zMojangUserResponse.parseAsync);
+
+		return this.ownerName = response.name;
+		
 	}
 
 }

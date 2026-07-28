@@ -1,3 +1,4 @@
+import { zIrcEntityOwner } from "@hackware/types/schema/irc/payload/zIrcEntityOwner";
 import { Embed } from "@vermaysha/discord-webhook";
 import chalk from "chalk";
 import { type Bot } from "mineflayer";
@@ -14,6 +15,8 @@ import { STASIS_USER_MAX } from "~/config";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
 import type { zStasisStatus } from "~/schema/zStasisStatus";
+import { Module } from "../Module";
+import Presence from "../module/Presence";
 
 export class StasisManager {
 	
@@ -100,6 +103,30 @@ export class StasisManager {
 
 			}
 		});
+
+		setInterval(async() => {
+
+			const pearls: Array<z.infer<typeof zIrcEntityOwner>> = [];
+			for (const pearl of StasisManager.pearls.values()) {
+				if (!pearl.entity.uuid) continue;
+				if (!pearl.ownerId) continue;
+				
+				await pearl.resolveOwnerName();
+				if (!pearl.ownerName) continue;
+				
+				pearls.push(zIrcEntityOwner.parse({
+					type: "entity_owner",
+					id: pearl.entity.uuid,
+					owner: {
+						uuid: pearl.ownerId,
+						name: pearl.ownerName
+					}
+				}));
+			}
+
+			Module.get<Presence>("Presence").post(pearls);
+
+		}, 1000);
 
 	};
 
