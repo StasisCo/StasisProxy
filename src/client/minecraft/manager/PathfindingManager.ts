@@ -25,6 +25,9 @@ export class PathfindingManager {
 	private dodgeYaw: number | null = null;
 	private dodgeTicksRemaining = 0;
 
+	/** Sign of the offset the current detour committed to — keeps successive picks turning the same way */
+	private preferredSide = 0;
+
 	constructor(private readonly bot: Bot) {
 		const init = () => {
 			MinecraftClient.physics.onPreTick.push(() => this.update());
@@ -120,6 +123,7 @@ export class PathfindingManager {
 		this.ticksSinceProgress = 0;
 		this.dodgeYaw = null;
 		this.dodgeTicksRemaining = 0;
+		this.preferredSide = 0;
 
 		if (goal.timeout !== null) {
 			goal._timer = setTimeout(async() => {
@@ -244,6 +248,20 @@ export class PathfindingManager {
 				this.dodgeYaw = null;
 				this.dodgeTicksRemaining = 0;
 				this.stuckTicks = 0;
+				this.preferredSide = 0;
+			}
+
+			// A committed detour heading that has itself become blocked or hazardous is worse
+			// than reconsidering — drop the commitment and re-pick this same tick.
+			if (this.dodgeYaw !== null) {
+				const ddx = -Math.sin(this.dodgeYaw);
+				const ddz = -Math.cos(this.dodgeYaw);
+				if (this.isDangerousBlock(pos.x + ddx, pos.y, pos.z + ddz) ||
+					this.isDangerousBlock(pos.x + ddx, pos.y - 1, pos.z + ddz) ||
+					this.isWallAhead(pos.x, Math.floor(pos.y), pos.z, ddx, ddz)) {
+					this.dodgeYaw = null;
+					this.dodgeTicksRemaining = 0;
+				}
 			}
 
 			if (this.dodgeYaw !== null && this.dodgeTicksRemaining > 0) {
@@ -254,15 +272,23 @@ export class PathfindingManager {
 				this.dodgeYaw = null;
 				this.dodgeTicksRemaining = 0;
 
-				const yaw = this.findSafeYaw(pos, dx / len, dz / len);
-				if (yaw !== null) {
-					this.bot.entity.yaw = yaw;
+				const pick = this.findSafeYaw(pos, dx / len, dz / len);
+				if (pick !== null) {
+					this.bot.entity.yaw = pick.yaw;
 					MinecraftClient.physics.controls.forward = true;
 
-					// If we picked a non-direct heading because we're stuck, commit to it for ~20 ticks (~1s)
-					if (this.stuckTicks > 5) {
-						this.dodgeYaw = yaw;
-						this.dodgeTicksRemaining = 20;
+					if (pick.deg !== 0) {
+
+						// Commit to an avoidance heading the moment one is needed, not only after
+						// we're already wedged. Re-picking every tick lets mirror-image candidates
+						// (+25/-25) alternate winners as the geometry shifts underfoot, which
+						// averages out to walking straight into the obstacle. The commitment is
+						// short and the direct-path check above still cancels it early.
+						this.preferredSide = Math.sign(pick.deg);
+						this.dodgeYaw = pick.yaw;
+						this.dodgeTicksRemaining = this.stuckTicks > 5 ? 20 : 10;
+					} else {
+						this.preferredSide = 0;
 					}
 				} else {
 
@@ -305,7 +331,12 @@ export class PathfindingManager {
 			MinecraftClient.physics.controls.sprint = true;
 		}
 
-		MinecraftClient.physics.controls.jump = entity.onGround && (oneHighObstacle || !!entity.isCollidedHorizontally || tunnelSpeedJump);
+		// A horizontal collision normally means "hop the lip we're pressed against", but when the
+		// thing ahead is a full 2-high wall (a pillar, a wall) no jump clears it — bunny-hopping
+		// against it just burns hunger and fights the steering that's trying to detour around.
+		const twoHighAhead = this.isWallAhead(pos.x, feetBy, pos.z, headingX, headingZ);
+
+		MinecraftClient.physics.controls.jump = entity.onGround && (oneHighObstacle || (!!entity.isCollidedHorizontally && !twoHighAhead) || tunnelSpeedJump);
 	}
 
 	/**
@@ -317,7 +348,11 @@ export class PathfindingManager {
 		const az = pos.z + nz;
 		if (this.isDangerousBlock(ax, pos.y, az)) return false;
 		if (this.isDangerousBlock(ax, pos.y - 1, az)) return false;
-		return !this.isWallAhead(pos.x, Math.floor(pos.y), pos.z, nx, nz);
+
+		// Extended probe distances: cancelling a detour while the obstacle is still ~2 blocks
+		// out just clips its corner and re-wedges, so the direct line has to be clear well
+		// past the obstacle before we give the detour up.
+		return !this.isWallAhead(pos.x, Math.floor(pos.y), pos.z, nx, nz, true);
 	}
 
 	/**
@@ -326,12 +361,22 @@ export class PathfindingManager {
 	 * When stuck (no progress for several ticks), expands search to wider angles
 	 * and skips the direct path that's clearly not working.
 	 */
-	private findSafeYaw(pos: { x: number; y: number; z: number }, nx: number, nz: number): number | null {
-		const offsets = this.stuckTicks > 10
+	private findSafeYaw(pos: { x: number; y: number; z: number }, nx: number, nz: number): { yaw: number; deg: number } | null {
+		let offsets = this.stuckTicks > 10
 			? [ 45, -45, 90, -90, 120, -120, 150, -150, 180 ]
 			: this.stuckTicks > 5
 				? [ 25, -25, 50, -50, 75, -75, 90, -90, 120, -120 ]
 				: [ 0, 25, -25, 50, -50, 75, -75, 90, -90 ];
+
+		// Once a detour side is chosen, try that side's angles first at every magnitude.
+		// Without this, mirror-image candidates alternate winners tick to tick and the bot
+		// zigzags into the thing it's avoiding. Direct (0°) keeps top priority — stickiness
+		// only breaks left/right ties.
+		if (this.preferredSide !== 0) {
+			offsets = [ ...offsets ].sort((a, b) =>
+				Math.abs(a) - Math.abs(b) ||
+				Number(Math.sign(b) === this.preferredSide) - Number(Math.sign(a) === this.preferredSide));
+		}
 		const feetY = pos.y;
 		const by = Math.floor(feetY);
 
@@ -351,7 +396,7 @@ export class PathfindingManager {
 			// Check for 2-high solid wall ahead (can't walk through or jump over)
 			if (this.isWallAhead(pos.x, by, pos.z, dirX, dirZ)) continue;
 
-			return Math.atan2(-dirX, -dirZ);
+			return { yaw: Math.atan2(-dirX, -dirZ), deg };
 		}
 
 		return null;
@@ -365,8 +410,8 @@ export class PathfindingManager {
 	 * Only flags as blocked when both feet- and head-level cells are solid at
 	 * any probed point (1-high obstacles can be jumped).
 	 */
-	private isWallAhead(posX: number, feetBlockY: number, posZ: number, dirX: number, dirZ: number): boolean {
-		const distances = this.stuckTicks > 5 ? [ 0.6, 1.2, 1.8, 2.4 ] : [ 0.8, 1.6 ];
+	private isWallAhead(posX: number, feetBlockY: number, posZ: number, dirX: number, dirZ: number, extended = false): boolean {
+		const distances = extended || this.stuckTicks > 5 ? [ 0.6, 1.2, 1.8, 2.4 ] : [ 0.8, 1.6 ];
 
 		// Perpendicular unit vector for shoulder offsets
 		const perpX = -dirZ;
