@@ -3,6 +3,16 @@ import { Vec3 } from "vec3";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { Goal } from "../../../class/Goal";
 
+/** A* search node — block coordinates plus bookkeeping for path reconstruction. */
+interface PathNode {
+	x: number;
+	y: number;
+	z: number;
+	g: number;
+	f: number;
+	parent: PathNode | null;
+}
+
 export class PathfindingManager {
 
 	private queue: Goal[] = [];
@@ -21,12 +31,12 @@ export class PathfindingManager {
 	private bestDistance = Infinity;
 	private ticksSinceProgress = 0;
 
-	/** When dodging, commit to a chosen yaw for this many ticks before reconsidering */
-	private dodgeYaw: number | null = null;
-	private dodgeTicksRemaining = 0;
+	/** Planned waypoints (block centers) for the active goal, or null when no plan exists yet. */
+	private path: Vec3[] | null = null;
+	private pathIndex = 0;
 
-	/** Sign of the offset the current detour committed to — keeps successive picks turning the same way */
-	private preferredSide = 0;
+	/** Ticks until another A* plan may be computed — prevents replan thrash while wedged. */
+	private replanCooldown = 0;
 
 	constructor(private readonly bot: Bot) {
 		const init = () => {
@@ -121,9 +131,9 @@ export class PathfindingManager {
 		this.stuckTicks = 0;
 		this.bestDistance = Infinity;
 		this.ticksSinceProgress = 0;
-		this.dodgeYaw = null;
-		this.dodgeTicksRemaining = 0;
-		this.preferredSide = 0;
+		this.path = null;
+		this.pathIndex = 0;
+		this.replanCooldown = 0;
 
 		if (goal.timeout !== null) {
 			goal._timer = setTimeout(async() => {
@@ -143,6 +153,8 @@ export class PathfindingManager {
 		this.stopMovement();
 		this.active = null;
 		this.returningHome = false;
+		this.path = null;
+		this.pathIndex = 0;
 
 		// Home goals have no listeners — skip awaiting
 		if (wasReturning) return;
@@ -171,7 +183,7 @@ export class PathfindingManager {
 
 		// Always look straight ahead — prevent pitch getting stuck (e.g. after Stasis.interact() looks at a block below)
 		this.bot.entity.pitch = 0;
-		
+
 		// No active goal — check if we've drifted from home and need to return
 		if (!this.active) {
 			if (!this.finishing && this.home) {
@@ -211,13 +223,9 @@ export class PathfindingManager {
 		}
 
 		// Stuck detection — only count ticks where we're trying to move forward but XZ position
-		// isn't changing. Distance to target may not shrink for legitimate reasons (overshoot,
-		// jumping, dodging) — that's not the same as being wedged into a wall.
-		//
-		// The threshold has to account for how fast we could legitimately be moving. Using an
-		// item cuts movement input to a fifth — about 0.043 blocks per tick, under the walking
-		// threshold — so a bot eating on the move would otherwise register as wedged every tick
-		// and dodge its way in circles across completely open ground.
+		// isn't changing. The threshold has to account for how fast we could legitimately be
+		// moving: using an item cuts movement input to a fifth — about 0.043 blocks per tick —
+		// so a bot eating on the move would otherwise register as wedged every tick.
 		const moveThreshold = MinecraftClient.physics.isUsingItem ? 0.01 : 0.05;
 		const movedDist = Math.abs(pos.x - this.lastPos.x) + Math.abs(pos.z - this.lastPos.z);
 		if (movedDist > moveThreshold) {
@@ -228,77 +236,91 @@ export class PathfindingManager {
 		this.lastPos.x = pos.x;
 		this.lastPos.z = pos.z;
 
-		// Steer toward target, avoiding hazards and solid obstacles
-		const dx = targetPos.x - pos.x;
-		const dz = targetPos.z - pos.z;
-		const len = Math.sqrt(dx * dx + dz * dz);
+		// ─── Plan ────────────────────────────────────────────────
 
-		if (len > 0.01) {
+		if (this.replanCooldown > 0) this.replanCooldown--;
 
-			// Abandon any dodge as soon as the straight line to the target is walkable again. The
-			// commitment exists to stop us oscillating while genuinely wedged, not to keep walking
-			// away from the target after whatever blocked us is gone — so anything that inflates
-			// stuckTicks without actually blocking us (eating, which cuts movement to a fifth)
-			// would otherwise buy a full second in the wrong direction every time it ends.
-			//
-			// stuckTicks is cleared with it: findSafeYaw drops the direct heading from its options
-			// entirely once stuckTicks passes 5, so leaving it set would send us off at an angle
-			// down a path we just confirmed is clear.
-			if (this.dodgeYaw !== null && this.isDirectPathClear(pos, dx / len, dz / len)) {
-				this.dodgeYaw = null;
-				this.dodgeTicksRemaining = 0;
-				this.stuckTicks = 0;
-				this.preferredSide = 0;
+		// Replan when: no plan exists, the plan ran out without arriving, we've been wedged
+		// long enough that the plan clearly doesn't match reality (a block changed, we got
+		// knocked back), or we've drifted well off the current waypoint.
+		const currentWp = this.path?.[this.pathIndex] ?? null;
+		const driftedOffPath = currentWp !== null &&
+			Math.hypot(pos.x - currentWp.x, pos.z - currentWp.z) > 4.0;
+
+		if (this.replanCooldown === 0 && (this.path === null || currentWp === null || this.stuckTicks > 12 || driftedOffPath)) {
+			this.path = this.planPath(targetPos, this.active.range);
+			this.pathIndex = 0;
+			this.stuckTicks = 0;
+
+			// A failed plan retries on a slower cadence than a successful one refreshes —
+			// hammering A* every tick against an unloaded or walled-off target just burns CPU
+			// until the no-progress watchdog fires.
+			this.replanCooldown = this.path === null ? 40 : 20;
+		}
+
+		// ─── Follow ──────────────────────────────────────────────
+
+		let aim: Vec3 | null = null;
+
+		if (this.path !== null) {
+
+			// Advance past every waypoint we've reached. The Y window is generous downward
+			// (mid-fall the waypoint is below us) but tight upward so a waypoint on a ledge
+			// above isn't "reached" by standing underneath it.
+			for (;;) {
+				const wp = this.path[this.pathIndex];
+				if (wp === undefined) break;
+				const dxz = Math.hypot(pos.x - wp.x, pos.z - wp.z);
+				const dy = pos.y - wp.y;
+				if (dxz < 0.45 && dy > -0.75 && dy < 1.6) this.pathIndex++;
+				else break;
 			}
 
-			// A committed detour heading that has itself become blocked or hazardous is worse
-			// than reconsidering — drop the commitment and re-pick this same tick.
-			if (this.dodgeYaw !== null) {
-				const ddx = -Math.sin(this.dodgeYaw);
-				const ddz = -Math.cos(this.dodgeYaw);
-				if (this.isDangerousBlock(pos.x + ddx, pos.y, pos.z + ddz) ||
-					this.isDangerousBlock(pos.x + ddx, pos.y - 1, pos.z + ddz) ||
-					this.isWallAhead(pos.x, Math.floor(pos.y), pos.z, ddx, ddz)) {
-					this.dodgeYaw = null;
-					this.dodgeTicksRemaining = 0;
-				}
-			}
-
-			if (this.dodgeYaw !== null && this.dodgeTicksRemaining > 0) {
-				this.dodgeTicksRemaining--;
-				this.bot.entity.yaw = this.dodgeYaw;
-				MinecraftClient.physics.controls.forward = true;
+			const wp = this.path[this.pathIndex];
+			if (wp !== undefined) {
+				aim = wp;
 			} else {
-				this.dodgeYaw = null;
-				this.dodgeTicksRemaining = 0;
 
-				const pick = this.findSafeYaw(pos, dx / len, dz / len);
-				if (pick !== null) {
-					this.bot.entity.yaw = pick.yaw;
-					MinecraftClient.physics.controls.forward = true;
+				// Plan exhausted without arriving (best-effort path to an unreachable target,
+				// or the goal range check simply hasn't passed yet) — head straight at the
+				// target and let the next replan or the watchdog sort it out.
+				this.path = null;
+			}
+		}
 
-					if (pick.deg !== 0) {
-
-						// Commit to an avoidance heading the moment one is needed, not only after
-						// we're already wedged. Re-picking every tick lets mirror-image candidates
-						// (+25/-25) alternate winners as the geometry shifts underfoot, which
-						// averages out to walking straight into the obstacle. The commitment is
-						// short and the direct-path check above still cancels it early.
-						this.preferredSide = Math.sign(pick.deg);
-						this.dodgeYaw = pick.yaw;
-						this.dodgeTicksRemaining = this.stuckTicks > 5 ? 20 : 10;
-					} else {
-						this.preferredSide = 0;
-					}
-				} else {
-
-					// All checked directions blocked by hazards — stop
+		// Fallback: no plan — steer directly at the target, but never walk into a hazard.
+		if (aim === null) {
+			const dx = targetPos.x - pos.x;
+			const dz = targetPos.z - pos.z;
+			const len = Math.hypot(dx, dz);
+			if (len > 0.01) {
+				const ax = pos.x + dx / len;
+				const az = pos.z + dz / len;
+				if (this.isDangerousBlock(ax, pos.y, az) || this.isDangerousBlock(ax, pos.y - 1, az)) {
 					MinecraftClient.physics.controls.forward = false;
+				} else {
+					aim = targetPos;
 				}
 			}
 		}
 
+		if (aim !== null) {
+			const dx = aim.x - pos.x;
+			const dz = aim.z - pos.z;
+			if (Math.hypot(dx, dz) > 0.01) {
+				this.bot.entity.yaw = Math.atan2(-dx, -dz);
+				MinecraftClient.physics.controls.forward = true;
+			}
+		}
+
+		// ─── Jumping ─────────────────────────────────────────────
+
 		const entity = this.bot.entity as typeof this.bot.entity & { isCollidedHorizontally?: boolean };
+		const feetBy = Math.floor(pos.y);
+
+		// Planned step-up: the current waypoint is a block above us and close — jump for it.
+		const wpAbove = aim !== null && aim !== targetPos &&
+			aim.y > pos.y + 0.5 && Math.hypot(pos.x - aim.x, pos.z - aim.z) < 1.4;
 
 		// Preemptive jump — if there's a 1-high obstacle (solid foot, air head) directly ahead in the
 		// current heading, jump now rather than waiting until we're wedged into it.
@@ -306,10 +328,19 @@ export class PathfindingManager {
 		const headingZ = -Math.cos(this.bot.entity.yaw);
 		const aheadX = pos.x + headingX * 0.6;
 		const aheadZ = pos.z + headingZ * 0.6;
-		const feetBy = Math.floor(pos.y);
-		const footAhead = this.bot.blockAt(new Vec3(Math.floor(aheadX), feetBy, Math.floor(aheadZ)));
-		const headAhead = this.bot.blockAt(new Vec3(Math.floor(aheadX), feetBy + 1, Math.floor(aheadZ)));
-		const oneHighObstacle = footAhead?.boundingBox === "block" && headAhead?.boundingBox !== "block";
+		const aheadBx = Math.floor(aheadX);
+		const aheadBz = Math.floor(aheadZ);
+		const footAhead = this.bot.blockAt(new Vec3(aheadBx, feetBy, aheadBz));
+		const headAhead = this.bot.blockAt(new Vec3(aheadBx, feetBy + 1, aheadBz));
+
+		// Only jump the step when it's actually clearable: our own column needs rising room
+		// above the head, and the landing spot needs the same 3-high clearance the planner
+		// demands — jumping into a 2-high pocket just bonks the ceiling and wedges us.
+		const oneHighObstacle = footAhead?.boundingBox === "block" &&
+			headAhead?.boundingBox !== "block" &&
+			!this.isSolidCell(Math.floor(pos.x), feetBy + 2, Math.floor(pos.z)) &&
+			!this.isSolidCell(aheadBx, feetBy + 2, aheadBz) &&
+			!this.isSolidCell(aheadBx, feetBy + 3, aheadBz);
 
 		// 2-tall tunnel detection: the lowest collision surface above the bot's
 		// feet must be exactly 2.0 blocks up (within float epsilon). Using
@@ -322,8 +353,7 @@ export class PathfindingManager {
 		// Suppress the speed-jump when we're about to need precision: within
 		// 2 blocks of the target, or within 2 blocks of a solid block ahead.
 		// Jumping in those cases causes us to sail past the spot and have to
-		// double back. The required jumps (oneHighObstacle, isCollidedHorizontally)
-		// still fire — only the proactive tunnel-sprint-jump is gated.
+		// double back.
 		const needsPrecision = distance <= 2.0 || this.isSolidWithin(pos, headingX, headingZ, 2.0);
 		const tunnelSpeedJump = inTwoTallTunnel && !needsPrecision;
 
@@ -332,86 +362,212 @@ export class PathfindingManager {
 		}
 
 		// A horizontal collision normally means "hop the lip we're pressed against", but when the
-		// thing ahead is a full 2-high wall (a pillar, a wall) no jump clears it — bunny-hopping
-		// against it just burns hunger and fights the steering that's trying to detour around.
+		// thing ahead is a full 2-high wall no jump clears it — bunny-hopping against it just
+		// burns hunger and fights the path that's trying to route around.
 		const twoHighAhead = this.isWallAhead(pos.x, feetBy, pos.z, headingX, headingZ);
 
-		MinecraftClient.physics.controls.jump = entity.onGround && (oneHighObstacle || (!!entity.isCollidedHorizontally && !twoHighAhead) || tunnelSpeedJump);
+		MinecraftClient.physics.controls.jump = entity.onGround &&
+			(wpAbove || oneHighObstacle || (!!entity.isCollidedHorizontally && !twoHighAhead) || tunnelSpeedJump);
 	}
 
-	/**
-	 * Whether the straight line to the target is walkable right now — no hazard underfoot or
-	 * ahead, and no 2-high wall in the way. Used to abandon a dodge commitment early.
-	 */
-	private isDirectPathClear(pos: { x: number; y: number; z: number }, nx: number, nz: number): boolean {
-		const ax = pos.x + nx;
-		const az = pos.z + nz;
-		if (this.isDangerousBlock(ax, pos.y, az)) return false;
-		if (this.isDangerousBlock(ax, pos.y - 1, az)) return false;
-
-		// Extended probe distances: cancelling a detour while the obstacle is still ~2 blocks
-		// out just clips its corner and re-wedges, so the direct line has to be clear well
-		// past the obstacle before we give the detour up.
-		return !this.isWallAhead(pos.x, Math.floor(pos.y), pos.z, nx, nz, true);
-	}
+	// ─── A* planning ─────────────────────────────────────────────
 
 	/**
-	 * Find a yaw that steers toward the target while avoiding dangerous blocks
-	 * and solid obstacles. Tries the direct path first, then offsets up to ±90°.
-	 * When stuck (no progress for several ticks), expands search to wider angles
-	 * and skips the direct path that's clearly not working.
+	 * A* over the block grid from the bot's position toward `target`, succeeding on any
+	 * node whose center is within `range` of the target. Returns waypoints as block
+	 * centers, or a best-effort path toward the closest reachable point when the target
+	 * is walled off, or null when even that gains nothing.
+	 *
+	 * Moves: 4 cardinals (flat, 1-up jump, up-to-3 drop) and 4 flat diagonals (both
+	 * adjacent cardinal columns must be clear — no corner clipping). Unloaded chunks
+	 * read as solid so the search never plans through unknown terrain.
 	 */
-	private findSafeYaw(pos: { x: number; y: number; z: number }, nx: number, nz: number): { yaw: number; deg: number } | null {
-		let offsets = this.stuckTicks > 10
-			? [ 45, -45, 90, -90, 120, -120, 150, -150, 180 ]
-			: this.stuckTicks > 5
-				? [ 25, -25, 50, -50, 75, -75, 90, -90, 120, -120 ]
-				: [ 0, 25, -25, 50, -50, 75, -75, 90, -90 ];
+	private planPath(target: Vec3, range: number): Vec3[] | null {
+		const start = this.bot.entity.position.floored();
+		const startKey = `${ start.x },${ start.y },${ start.z }`;
 
-		// Once a detour side is chosen, try that side's angles first at every magnitude.
-		// Without this, mirror-image candidates alternate winners tick to tick and the bot
-		// zigzags into the thing it's avoiding. Direct (0°) keeps top priority — stickiness
-		// only breaks left/right ties.
-		if (this.preferredSide !== 0) {
-			offsets = [ ...offsets ].sort((a, b) =>
-				Math.abs(a) - Math.abs(b) ||
-				Number(Math.sign(b) === this.preferredSide) - Number(Math.sign(a) === this.preferredSide));
+		// Range 0 goals still need a node to terminate on — accept anything whose center
+		// is within ~a block of the target so sub-block target positions resolve.
+		const acceptDistSq = Math.max(range, 0.9) ** 2;
+		const MAX_EXPANSIONS = 6000;
+
+		const open: PathNode[] = [];
+		const gScore = new Map<string, number>();
+		const heuristic = (x: number, y: number, z: number) =>
+			Math.sqrt((x + 0.5 - target.x) ** 2 + (y - target.y) ** 2 + (z + 0.5 - target.z) ** 2);
+
+		const push = (node: PathNode) => {
+			open.push(node);
+			let i = open.length - 1;
+			while (i > 0) {
+				const p = (i - 1) >> 1;
+				if (open[p]!.f <= open[i]!.f) break;
+				[ open[p], open[i] ] = [ open[i]!, open[p]! ];
+				i = p;
+			}
+		};
+
+		const pop = (): PathNode => {
+			const top = open[0]!;
+			const last = open.pop()!;
+			if (open.length > 0) {
+				open[0] = last;
+				let i = 0;
+				for (;;) {
+					const l = i * 2 + 1;
+					const r = l + 1;
+					let m = i;
+					if (l < open.length && open[l]!.f < open[m]!.f) m = l;
+					if (r < open.length && open[r]!.f < open[m]!.f) m = r;
+					if (m === i) break;
+					[ open[m], open[i] ] = [ open[i]!, open[m]! ];
+					i = m;
+				}
+			}
+			return top;
+		};
+
+		const startNode: PathNode = { x: start.x, y: start.y, z: start.z, g: 0, f: heuristic(start.x, start.y, start.z), parent: null };
+		gScore.set(startKey, 0);
+		push(startNode);
+
+		// Track the node that got closest to the target, for best-effort paths when the
+		// search exhausts without reaching it.
+		let bestNode = startNode;
+		let bestH = startNode.f;
+
+		const CARDINALS: ReadonlyArray<readonly [number, number]> = [ [ 1, 0 ], [ -1, 0 ], [ 0, 1 ], [ 0, -1 ] ];
+		const DIAGONALS: ReadonlyArray<readonly [number, number]> = [ [ 1, 1 ], [ 1, -1 ], [ -1, 1 ], [ -1, -1 ] ];
+
+		let expansions = 0;
+		while (open.length > 0 && expansions < MAX_EXPANSIONS) {
+			const node = pop();
+			expansions++;
+
+			// Terminate only on a spot the bot can actually stand in — 2 blocks of clearance.
+			// Every expanded node already passed that check on the way in, but the start node
+			// never did, and the goal spot deserves the explicit guarantee.
+			const distSq = (node.x + 0.5 - target.x) ** 2 + (node.y - target.y) ** 2 + (node.z + 0.5 - target.z) ** 2;
+			if (distSq <= acceptDistSq && this.isColumnClear(node.x, node.y, node.z)) return this.reconstruct(node);
+
+			const h = heuristic(node.x, node.y, node.z);
+			if (h < bestH) {
+				bestH = h;
+				bestNode = node;
+			}
+
+			const consider = (nx: number, ny: number, nz: number, cost: number) => {
+				const key = `${ nx },${ ny },${ nz }`;
+				const g = node.g + cost;
+				const known = gScore.get(key);
+				if (known !== undefined && known <= g) return;
+				gScore.set(key, g);
+				push({ x: nx, y: ny, z: nz, g, f: g + heuristic(nx, ny, nz), parent: node });
+			};
+
+			for (const [ dx, dz ] of CARDINALS) {
+				const nx = node.x + dx;
+				const nz = node.z + dz;
+
+				if (this.isColumnClear(nx, node.y, nz)) {
+
+					// Flat move, or drop up to 3 blocks to the first solid floor
+					if (this.isStandableFloor(nx, node.y, nz)) {
+						consider(nx, node.y, nz, 1);
+					} else {
+						for (let drop = 1; drop <= 3; drop++) {
+							const ny = node.y - drop;
+							if (!this.isColumnClear(nx, ny, nz)) break;
+							if (this.isStandableFloor(nx, ny, nz)) {
+								consider(nx, ny, nz, 1 + drop * 0.5);
+								break;
+							}
+						}
+					}
+				} else if (
+
+					// Jump up one: headroom above our own head at takeoff, and a standable
+					// landing column that is 3 blocks clear (feet, head, plus the cell the
+					// head sweeps through mid-arc) so the jump doesn't bonk a ceiling.
+					!this.isSolidCell(node.x, node.y + 2, node.z) &&
+					this.isColumnClear(nx, node.y + 1, nz) &&
+					!this.isSolidCell(nx, node.y + 3, nz) &&
+					this.isStandableFloor(nx, node.y + 1, nz)
+				) {
+					consider(nx, node.y + 1, nz, 2);
+				}
+			}
+
+			for (const [ dx, dz ] of DIAGONALS) {
+				const nx = node.x + dx;
+				const nz = node.z + dz;
+
+				// Both orthogonal columns must be clear — the 0.6-wide hitbox clips the
+				// corner block otherwise and the bot wedges on geometry A* said was fine.
+				if (!this.isColumnClear(node.x + dx, node.y, node.z)) continue;
+				if (!this.isColumnClear(node.x, node.y, node.z + dz)) continue;
+				if (!this.isColumnClear(nx, node.y, nz)) continue;
+				if (!this.isStandableFloor(nx, node.y, nz)) continue;
+				consider(nx, node.y, nz, Math.SQRT2);
+			}
 		}
-		const feetY = pos.y;
-		const by = Math.floor(feetY);
 
-		for (const deg of offsets) {
-			const rad = deg * Math.PI / 180;
-			const c = Math.cos(rad);
-			const s = Math.sin(rad);
-			const dirX = nx * c - nz * s;
-			const dirZ = nx * s + nz * c;
-
-			const ax = pos.x + dirX;
-			const az = pos.z + dirZ;
-
-			if (this.isDangerousBlock(ax, feetY, az) ||
-				this.isDangerousBlock(ax, feetY - 1, az)) continue;
-
-			// Check for 2-high solid wall ahead (can't walk through or jump over)
-			if (this.isWallAhead(pos.x, by, pos.z, dirX, dirZ)) continue;
-
-			return { yaw: Math.atan2(-dirX, -dirZ), deg };
+		// Search exhausted. If some node got meaningfully closer than where we stand,
+		// walk there — inching toward a walled-off target beats standing still, and the
+		// no-progress watchdog still bounds the whole attempt.
+		if (bestNode !== startNode && bestH < heuristic(start.x, start.y, start.z) - 1.5) {
+			return this.reconstruct(bestNode);
 		}
-
 		return null;
 	}
+
+	/** Rebuild the waypoint list (block centers) by walking parents back to the start. */
+	private reconstruct(node: PathNode): Vec3[] {
+		const out: Vec3[] = [];
+		let cur: PathNode | null = node;
+		while (cur !== null) {
+			out.push(new Vec3(cur.x + 0.5, cur.y, cur.z + 0.5));
+			cur = cur.parent;
+		}
+		out.reverse();
+
+		// Drop the start node — we're standing on it.
+		if (out.length > 1) out.shift();
+		return out;
+	}
+
+	/** Solid for pathing purposes. Unloaded blocks count as solid — never plan through the unknown. */
+	private isSolidCell(x: number, y: number, z: number): boolean {
+		const block = this.bot.blockAt(new Vec3(x, y, z));
+		if (!block) return true;
+		return block.boundingBox === "block";
+	}
+
+	/** Feet and head cells passable and hazard-free at the given feet position. */
+	private isColumnClear(x: number, y: number, z: number): boolean {
+		if (this.isSolidCell(x, y, z) || this.isSolidCell(x, y + 1, z)) return false;
+		if (this.isDangerousBlock(x, y, z)) return false;
+		return true;
+	}
+
+	/** A floor we can stand on: solid below, and not itself a hazard (open trapdoor, water). */
+	private isStandableFloor(x: number, y: number, z: number): boolean {
+		if (!this.isSolidCell(x, y - 1, z)) return false;
+		if (this.isDangerousBlock(x, y - 1, z)) return false;
+		return true;
+	}
+
+	// ─── Probes shared with jump control ─────────────────────────
 
 	/**
 	 * Check if there is a 2-high solid wall in the given direction.
 	 * Probes multiple distances ahead and offsets perpendicular to the heading
-	 * to account for the player's ~0.6-wide hitbox — otherwise a corner block
-	 * grazes the shoulder while the center ray reads clear, and we get wedged.
-	 * Only flags as blocked when both feet- and head-level cells are solid at
-	 * any probed point (1-high obstacles can be jumped).
+	 * to account for the player's ~0.6-wide hitbox. Only flags as blocked when
+	 * both feet- and head-level cells are solid at any probed point (1-high
+	 * obstacles can be jumped).
 	 */
-	private isWallAhead(posX: number, feetBlockY: number, posZ: number, dirX: number, dirZ: number, extended = false): boolean {
-		const distances = extended || this.stuckTicks > 5 ? [ 0.6, 1.2, 1.8, 2.4 ] : [ 0.8, 1.6 ];
+	private isWallAhead(posX: number, feetBlockY: number, posZ: number, dirX: number, dirZ: number): boolean {
+		const distances = [ 0.8, 1.6 ];
 
 		// Perpendicular unit vector for shoulder offsets
 		const perpX = -dirZ;
@@ -437,9 +593,6 @@ export class PathfindingManager {
 	 * Probe along the current heading for a solid block at feet- or head-level
 	 * within `maxDist` blocks. Used to suppress proactive speed-jumping when
 	 * close to walls/obstacles, where momentum from a jump would overshoot.
-	 * Samples at 0.5-block intervals; single central ray (no shoulder offsets)
-	 * since this is a conservative "approaching something" check, not a
-	 * wedged-into-corner check like isWallAhead.
 	 */
 	private isSolidWithin(pos: { x: number; y: number; z: number }, headingX: number, headingZ: number, maxDist: number): boolean {
 		const by = Math.floor(pos.y);
@@ -485,12 +638,12 @@ export class PathfindingManager {
 		return lowest === Infinity ? null : lowest;
 	}
 
-	/** Check if the block at the given position is a hazard (water, bubble column, open trapdoor). */
+	/** Check if the block at the given position is a hazard (water, bubble column, lava, open trapdoor). */
 	private isDangerousBlock(x: number, y: number, z: number): boolean {
 		const block = this.bot.blockAt(new Vec3(Math.floor(x), Math.floor(y), Math.floor(z)));
 		if (!block) return false;
 		const name = block.name;
-		if (name === "water" || name === "bubble_column") return true;
+		if (name === "water" || name === "bubble_column" || name === "lava" || name === "fire") return true;
 		if (name.endsWith("_trapdoor")) {
 			const open = (block.getProperties() as Record<string, unknown>).open;
 			if (open === true || open === "true") return true;
