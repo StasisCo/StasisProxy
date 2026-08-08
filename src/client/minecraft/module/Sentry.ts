@@ -12,8 +12,20 @@ export default class Sentry extends Module {
 
 	constructor() {
 		super("Sentry");
+	}
+
+	// Listeners must be (re)attached in onReady — the bot instance is recreated on every
+	// reconnect, so constructor-time registration dies with the first connection.
+	public override onReady() {
+		MinecraftClient.bot.off("entitySpawn", this.onEntitySpawn);
+		MinecraftClient.bot.off("entityGone", this.onEntityGone);
 		MinecraftClient.bot.on("entitySpawn", this.onEntitySpawn);
 		MinecraftClient.bot.on("entityGone", this.onEntityGone);
+	}
+
+	public override onDisable() {
+		MinecraftClient.bot.off("entitySpawn", this.onEntitySpawn);
+		MinecraftClient.bot.off("entityGone", this.onEntityGone);
 	}
 
 	private readonly onEntitySpawn = async(entity: Entity) => {
