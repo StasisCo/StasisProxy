@@ -97,6 +97,7 @@ export class StasisManager {
 				// If it is, emit a log and remove it from tracking
 				StasisManager.logger.log(`Pearl ${ chalk.yellow(pearl.entity.id) } broke or despawned`);
 				StasisManager.pearls.delete(entityId);
+				StasisManager.pendingAnnounce.delete(pearl);
 				Pearl.clearSuspended(entityId);
 				pearl.emit("destroyed", pearl.entity.id);
 				pearl.removeAllListeners();
@@ -104,31 +105,109 @@ export class StasisManager {
 			}
 		});
 
-		setInterval(async() => {
-
-			const pearls: Array<z.infer<typeof zIrcEntityOwner>> = [];
-			for (const pearl of StasisManager.pearls.values()) {
-				if (!pearl.entity.uuid) continue;
-				if (!pearl.ownerId) continue;
-				
-				await pearl.resolveOwnerName();
-				if (!pearl.ownerName) continue;
-				
-				pearls.push(zIrcEntityOwner.parse({
-					type: "entity_owner",
-					id: pearl.entity.uuid,
-					owner: {
-						uuid: pearl.ownerId,
-						name: pearl.ownerName
-					}
-				}));
-			}
-
-			Module.get<Presence>("Presence").post(pearls);
-
-		}, 1000);
+		StasisManager.hookIrc();
 
 	};
+
+	// ── Pearl owner propagation over IRC ──
+	//
+	// Owners are shared on demand instead of being blasted every second: a pearl is announced once
+	// when it enters visual range with a resolvable owner, and the full set goes out only when a
+	// peer asks for it via resend_request (or once per IRC connect, to heal peers that connected
+	// while this bot was offline).
+
+	/** Minimum gap between full-set resend answers. Requests inside the gap coalesce into one
+	 *  trailing answer — answers are broadcast to the whole channel, so one covers all requesters. */
+	private static readonly RESEND_ANSWER_INTERVAL_MS = 5_000;
+
+	/** How long newly-visible pearls accumulate before being announced in one batched POST,
+	 *  so the spawn burst on login/chunk-load becomes a single request instead of hundreds. */
+	private static readonly ANNOUNCE_DEBOUNCE_MS = 1_000;
+
+	private static ircHooked = false;
+	private static resendAnswerTimer: NodeJS.Timeout | null = null;
+	private static lastResendAnswerAt = 0;
+	private static readonly pendingAnnounce = new Set<Pearl>();
+	private static announceTimer: NodeJS.Timeout | null = null;
+
+	/**
+	 * Subscribe (once per process — listeners are static, and Presence outlives bot reconnects) to
+	 * the IRC events that prompt us to share pearl owners. Modules load asynchronously, so retry
+	 * until the Presence module is registered.
+	 */
+	private static hookIrc() {
+		if (StasisManager.ircHooked) return;
+
+		let presence: Presence;
+		try {
+			presence = Module.get<Presence>("Presence");
+		} catch {
+			setTimeout(() => StasisManager.hookIrc(), 1_000);
+			return;
+		}
+		StasisManager.ircHooked = true;
+
+		// A peer that can't attribute a pearl asks everyone to re-share; answer with our full set
+		presence.events.on("resend_request", payload => {
+			if (!payload.include.includes("entity_owner")) return;
+			StasisManager.scheduleResendAnswer();
+		});
+
+		// Share the full set once per (re)connect so peers that connected while we were offline
+		// catch up — their own connect-time resend_request went unanswered by us
+		presence.events.on("connected", () => StasisManager.scheduleResendAnswer());
+	}
+
+	/** Schedule a full-set broadcast, coalescing bursts of requests into one answer per interval. */
+	private static scheduleResendAnswer() {
+		if (StasisManager.resendAnswerTimer) return; // a pending answer already covers this request
+		const wait = Math.max(0, StasisManager.lastResendAnswerAt + StasisManager.RESEND_ANSWER_INTERVAL_MS - Date.now());
+		StasisManager.resendAnswerTimer = setTimeout(() => {
+			StasisManager.resendAnswerTimer = null;
+			StasisManager.lastResendAnswerAt = Date.now();
+			void StasisManager.broadcastOwners([ ...StasisManager.pearls.values() ]);
+		}, wait);
+	}
+
+	/** Queue a newly-visible pearl for announcement, batching the login/chunk-load spawn burst. */
+	private static announcePearl(pearl: Pearl) {
+		StasisManager.pendingAnnounce.add(pearl);
+		if (StasisManager.announceTimer) return;
+		StasisManager.announceTimer = setTimeout(() => {
+			StasisManager.announceTimer = null;
+			const batch = [ ...StasisManager.pendingAnnounce ];
+			StasisManager.pendingAnnounce.clear();
+			void StasisManager.broadcastOwners(batch);
+		}, StasisManager.ANNOUNCE_DEBOUNCE_MS);
+	}
+
+	/** POST entity_owner payloads for every given pearl with a resolvable owner, in one batch. */
+	private static async broadcastOwners(pearls: Pearl[]) {
+
+		const payloads: Array<z.infer<typeof zIrcEntityOwner>> = [];
+		for (const pearl of pearls) {
+			if (!pearl.entity.uuid) continue;
+			if (!pearl.ownerId) continue;
+
+			// Mojang lookups can fail; a pearl we can't name is skipped, not fatal to the batch
+			await pearl.resolveOwnerName().catch(() => undefined);
+			if (!pearl.ownerName) continue;
+
+			const parsed = zIrcEntityOwner.safeParse({
+				type: "entity_owner",
+				id: pearl.entity.uuid,
+				owner: {
+					uuid: pearl.ownerId,
+					name: pearl.ownerName
+				}
+			});
+			if (parsed.success) payloads.push(parsed.data);
+		}
+
+		if (payloads.length === 0) return;
+		await Module.get<Presence>("Presence").post(payloads);
+
+	}
 
 	/**
 	 * Handle a pearl entering visual range
@@ -151,6 +230,9 @@ export class StasisManager {
 			}
 
 		}
+
+		// Owner is known — announce it over IRC once (batched), instead of the old 1s full-set blast
+		StasisManager.announcePearl(pearl);
 
 		// .From a stasis
 		await Stasis.from(pearl);

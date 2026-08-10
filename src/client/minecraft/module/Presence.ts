@@ -39,12 +39,14 @@ export default class Presence extends Module<typeof zConfigSchema> {
 
 	/** Public event bus for IRC payloads — subscribe with `Module.get<Presence>("Presence").events.on(...)` */
 	public readonly events = new EventEmitter<{
+		"connected": []
 		"death": [ z.infer<typeof zIrcPayload> & { type: "death" } ]
 		"login": [ z.infer<typeof zIrcPayload> & { type: "login" } ]
 		"logout": [ z.infer<typeof zIrcPayload> & { type: "logout" } ]
 		"message": [ z.infer<typeof zIrcPayload> & { type: "message" } ]
 		"ping": [ z.infer<typeof zIrcPayload> & { type: "ping" } ]
 		"presence": [ z.infer<typeof zIrcPayload> & { type: "presence" } ]
+		"resend_request": [ z.infer<typeof zIrcPayload> & { type: "resend_request" } ]
 	}>();
 
 	private connected = false;
@@ -367,6 +369,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 			}
 			this.resetHeartbeat();
 			this.requestPost();
+			this.events.emit("connected");
 		};
 
 		es.onmessage = ({ data }) => {
