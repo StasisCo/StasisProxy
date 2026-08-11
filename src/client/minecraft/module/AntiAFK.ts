@@ -27,6 +27,10 @@ export default class AntiAFK extends Module<typeof zConfigSchema> {
 	private spinning = false;
 	private interval: ReturnType<typeof setInterval> | null = null;
 
+	/** Radians swept in the current direction, and which way we're sweeping. */
+	private sweepAccum = 0;
+	private sweepDir = -1;
+
 	constructor() {
 		super("AntiAFK");
 	}
@@ -48,7 +52,16 @@ export default class AntiAFK extends Module<typeof zConfigSchema> {
 		const entity = MinecraftClient.bot.entity;
 		if (!entity) return;
 
-		entity.yaw = (entity.yaw - this.config.spinSpeed) % (Math.PI * 2);
+		// Sweep back and forth one full turn at a time instead of spinning endlessly in one
+		// direction: the sent yaw is continuous (it never wraps, matching vanilla), so a
+		// monotonic spin would grow it without bound and float32 precision on the wire value
+		// degrades after enough accumulated revolutions.
+		entity.yaw = (entity.yaw + this.sweepDir * this.config.spinSpeed) % (Math.PI * 2);
+		this.sweepAccum += this.config.spinSpeed;
+		if (this.sweepAccum >= Math.PI * 2) {
+			this.sweepAccum = 0;
+			this.sweepDir = -this.sweepDir;
+		}
 	}
 
 	/** Called every 1 s to check idle timers */

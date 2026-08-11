@@ -28,6 +28,10 @@ const MOVEMENT_PACKETS_CS = new Set([ "position", "position_look", "look", "flyi
  * in {@code rel_entity_move} / {@code entity_teleport}, so dropping these has
  * essentially no visible effect while removing one packet per moving entity
  * per tick.
+ *
+ * The one exception — enforced at the drop site — is the player's OWN entity:
+ * a self entity_velocity is the server applying knockback/push to the player,
+ * the client is required to mirror it, and the anticheat verifies that it did.
  */
 const DROP_S2C = new Set([ "entity_velocity" ]);
 
@@ -74,6 +78,23 @@ export class ServerClient {
 	private lastClientPos: { x: number; y: number; z: number } | null = null;
 
 	/**
+	 * Wire state established by the proxied player's own packets. The server's belief about
+	 * rotation, ground state and sprint/sneak follows whatever the client last sent, so this
+	 * is what the bot must resume from on disconnect — its own trackers are frozen at their
+	 * pre-session values. Yaw/pitch are Notchian degrees, as carried on the wire.
+	 */
+	private clientYaw = 0;
+	private clientPitch = 0;
+	private clientOnGround = false;
+	private clientSprint = false;
+	private clientSneak = false;
+	private lastClientMoveAt = 0;
+
+	/** Latest upstream teleport not yet confirmed by the client, for the detach failsafe. */
+	private pendingTeleportId: number | null = null;
+	private lastServerTeleportAt = 0;
+
+	/**
 	 * Last position reported by the proxied player, or null if no movement
 	 * packet has been observed yet. Read by client commands that need the
 	 * player's authoritative position (e.g. `/stasis save` searching nearby).
@@ -107,6 +128,17 @@ export class ServerClient {
 	 * Safe to call exactly once per instance.
 	 */
 	public attach() {
+
+		// Hand the wire over clean: if the bot was mid-walk with sprint asserted, the client's
+		// vanilla sprint logic (which assumes a fresh, non-sprinting session) would emit a
+		// START_SPRINTING the server already holds — a duplicate status edge — the moment the
+		// player moves. Drop it bot-side before the client takes over.
+		MinecraftClient.physics.dropSprint();
+
+		// The client starts from what the server currently believes.
+		this.clientYaw = MinecraftClient.physics.lastSent.yaw;
+		this.clientPitch = MinecraftClient.physics.lastSent.pitch;
+		this.clientOnGround = MinecraftClient.physics.lastSent.onGround;
 
 		// Sync cached position to what 2b2t actually thinks (lastSent), with
 		// explicit absolute flags. Using bot.entity.position would be wrong —
@@ -237,7 +269,21 @@ export class ServerClient {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw packet data
 		const onServerPacket = (data: any, meta: PacketMeta, buffer: Buffer) => {
 			if (meta.name === "keep_alive" || meta.name === "kick_disconnect") return;
-			if (DROP_S2C.has(meta.name)) return;
+
+			// Back-pressure drops must never eat the player's own knockback. A swallowed self
+			// entity_velocity is an ignored knockback from the anticheat's point of view — one
+			// setback per push, which in entity-dense places means dozens of corrections per
+			// second (a permanent teleport storm) until the client connection gives out.
+			if (DROP_S2C.has(meta.name) && data?.entityId !== this.bot.entity?.id) return;
+
+			// Track live teleports. While a client is attached, mineflayer's instant
+			// teleport_confirm is suppressed (PhysicsManager write interceptor) — the client's
+			// own confirm, bridged below, is the one with correct timing. Remember the id so
+			// detach() can confirm it if the client vanishes before acknowledging.
+			if (meta.name === "position" && typeof data?.teleportId === "number") {
+				this.pendingTeleportId = data.teleportId;
+				this.lastServerTeleportAt = Date.now();
+			}
 
 			try {
 				if (meta.name === "declare_commands") {
@@ -272,15 +318,31 @@ export class ServerClient {
 				return;
 			}
 
+			// The client acknowledged a live teleport — nothing pending for the failsafe.
+			if (meta.name === "teleport_confirm") this.pendingTeleportId = null;
+
 			// Drop movement until the replayed position has been confirmed.
 			if (!movementAllowed && MOVEMENT_PACKETS_CS.has(meta.name)) return;
 
-			// Track the player's authoritative position from movement packets so
-			// detach() can save it as the pathfinding home (bot.entity.position is
-			// frozen while the proxy is connected — see PhysicsManager.tick).
-			if ((meta.name === "position" || meta.name === "position_look")
-				&& typeof data?.x === "number" && typeof data?.y === "number" && typeof data?.z === "number") {
-				this.lastClientPos = { x: data.x, y: data.y, z: data.z };
+			// Track the wire state the player's own packets establish: position (so detach()
+			// can save the pathfinding home and resume the simulation from where the server
+			// actually is — bot.entity.position is frozen while the proxy is connected, see
+			// PhysicsManager.tick), rotation, ground flag and sprint/sneak edges.
+			if (MOVEMENT_PACKETS_CS.has(meta.name)) {
+				if (typeof data?.x === "number" && typeof data?.y === "number" && typeof data?.z === "number") {
+					this.lastClientPos = { x: data.x, y: data.y, z: data.z };
+					this.lastClientMoveAt = Date.now();
+				}
+				if (typeof data?.yaw === "number" && typeof data?.pitch === "number") {
+					this.clientYaw = data.yaw;
+					this.clientPitch = data.pitch;
+				}
+				if (typeof data?.onGround === "boolean") this.clientOnGround = data.onGround;
+			} else if (meta.name === "entity_action" && typeof data?.actionId === "number") {
+				if (data.actionId === 3) this.clientSprint = true;
+				else if (data.actionId === 4) this.clientSprint = false;
+				else if (data.actionId === 0) this.clientSneak = true;
+				else if (data.actionId === 1) this.clientSneak = false;
 			}
 
 			// Intercept commands. tryHandle is async but commands are local
@@ -396,6 +458,37 @@ export class ServerClient {
 		}
 		this.holograms?.detach();
 		this.holograms = null;
+
+		// The client received a teleport but disconnected before confirming it. Mineflayer's
+		// own confirm was suppressed for the session, so acknowledge it now or the server
+		// kicks the bot's next movement packet for moving with a teleport pending.
+		if (this.pendingTeleportId !== null) {
+			try {
+				MinecraftClient.physics.confirmTeleport(this.pendingTeleportId);
+			} catch { /* upstream may already be gone */ }
+			this.pendingTeleportId = null;
+		}
+
+		// Sprint/sneak always follow the client's own packets — the anticheat's view is
+		// packet-derived, and a mismatch never self-heals (every tick mispredicts speed
+		// forever). Synced unconditionally: even a session that only pearled and left must
+		// hand these over.
+		MinecraftClient.physics.syncWireActions(this.clientSprint, this.clientSneak);
+
+		// Resume the bot's simulation position/rotation from the wire state the client
+		// established — its own trackers froze at their pre-session values. Skipped when the
+		// freshest truth is a server teleport (the forcedMove handler already synced from it)
+		// or the client never moved (nothing changed).
+		if (this.lastClientPos && this.lastClientMoveAt > this.lastServerTeleportAt) {
+			MinecraftClient.physics.resumeFromProxy({
+				x: this.lastClientPos.x,
+				y: this.lastClientPos.y,
+				z: this.lastClientPos.z,
+				yaw: this.clientYaw,
+				pitch: this.clientPitch,
+				onGround: this.clientOnGround
+			});
+		}
 
 		// Save the player's last known position as the new home so the bot
 		// returns to where the player logged out. Prefer the tracked client

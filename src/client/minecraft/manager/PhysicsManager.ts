@@ -43,6 +43,14 @@ function fromNotchianPitch(pitch: number): number {
 	return ((-pitch * TO_RAD + PI) % PI_2 + PI_2) % PI_2 - PI;
 }
 
+/** Wrap a degree delta into (-180, 180]. */
+function wrapDegrees(degrees: number): number {
+	let wrapped = degrees % 360;
+	if (wrapped >= 180) wrapped -= 360;
+	if (wrapped < -180) wrapped += 360;
+	return wrapped;
+}
+
 /** Packets that mineflayer's physics loop sends — we suppress them and send our own */
 const MOVEMENT_PACKETS = new Set([ "position", "position_look", "look", "flying" ]);
 
@@ -133,7 +141,7 @@ export class PhysicsManager {
 		this.itemUseTicks = 0;
 	}
 
-	/** Rate-limited yaw/pitch — these are what physics simulates with AND what gets sent */
+	/** Desired yaw/pitch snapshot for this tick — what physics simulates with AND what gets sent */
 	private smoothYaw = 0;
 	private smoothPitch = 0;
 
@@ -152,6 +160,24 @@ export class PhysicsManager {
 	/** Physics ticks since this connection started. */
 	private tickCount = 0;
 
+	/** Tick of the last server-forced position change, for the post-teleport jump gate. */
+	private lastTeleportTick = -Infinity;
+
+	// ─── Diagnostics: outbound packet trace ──────────────────────
+
+	/** Recent outbound movement/action packets, dumped when the server issues a correction. */
+	private readonly trace: string[] = [];
+
+	/** Timestamps of recent server corrections, for the corrections-per-30s counter. */
+	private readonly setbackTimes: number[] = [];
+
+	private lastTraceDumpAt = 0;
+
+	private tracePacket(entry: string) {
+		if (this.trace.length >= 40) this.trace.shift();
+		this.trace.push(`+${ (performance.now() / 1000).toFixed(2) }s ${ entry }`);
+	}
+
 	constructor(public readonly bot: Bot) {
 
 		this.rotation = new RotationManager(this);
@@ -161,6 +187,15 @@ export class PhysicsManager {
 		const origWrite = this.rawWrite;
 		bot._client.write = function(name: string, data: unknown) {
 			if (MOVEMENT_PACKETS.has(name)) return;
+
+			// While a proxy client is attached, IT is the one processing teleports — its own
+			// teleport_confirm is bridged upstream with the correct timing. Mineflayer's handler
+			// still runs and would confirm the same teleport instantly, before the client has
+			// even received it: the server then sees a confirmed teleport followed by movement
+			// packets still at the pre-teleport position (the client's round trip), which reads
+			// as an immediate new violation — a setback/confirm loop that escalates to a kick.
+			if (name === "teleport_confirm" && MinecraftClient.proxy?.connected) return;
+
 			origWrite(name, data);
 		} as typeof bot._client.write;
 
@@ -174,6 +209,26 @@ export class PhysicsManager {
 
 		// Handle server-initiated teleport/position changes.
 		bot.on("forcedMove", () => {
+
+			// Diagnostics: every correction is a prediction the server rejected. Log what we
+			// sent leading up to it so the mismatch is visible instead of guessed at.
+			const nowMs = performance.now();
+			this.setbackTimes.push(nowMs);
+			while (this.setbackTimes.length > 0 && nowMs - (this.setbackTimes[0] ?? nowMs) > 30_000) this.setbackTimes.shift();
+			if (nowMs - this.lastTraceDumpAt > 5_000) {
+				this.lastTraceDumpAt = nowMs;
+				const pos = bot.entity.position;
+				PhysicsManager.logger.warn(
+					`Server correction → ${ pos.x.toFixed(3) } ${ pos.y.toFixed(3) } ${ pos.z.toFixed(3) }`
+					+ ` yaw=${ Math.fround(toNotchianYaw(bot.entity.yaw)).toFixed(2) } pitch=${ Math.fround(toNotchianPitch(bot.entity.pitch)).toFixed(2) }`
+					+ ` (${ this.setbackTimes.length } in 30s)`
+					+ ` | food=${ bot.food } sprintWire=${ this.lastSprint } usingItem=${ this.isUsingItem }`
+					+ ` controls fwd=${ this.controls.forward } jump=${ this.controls.jump } sprint=${ this.controls.sprint }`
+					+ ` proxied=${ !!MinecraftClient.proxy?.connected }`
+				);
+				if (this.trace.length > 0) PhysicsManager.logger.warn(`Last outbound packets:\n${ this.trace.join("\n") }`);
+			}
+
 			this.smoothYaw = bot.entity.yaw;
 			this.smoothPitch = bot.entity.pitch;
 
@@ -196,16 +251,15 @@ export class PhysicsManager {
 			this.lastSent.pitch = Math.fround(toNotchianPitch(bot.entity.pitch));
 			this.lastSent.onGround = bot.entity.onGround;
 			this.lastSent.time = performance.now();
+			this.lastTeleportTick = this.tickCount;
 
 			// When a proxy client is connected, they handle movement themselves — don't
 			// send a bot position_look that would conflict with the client's own packets.
-			if (MinecraftClient.proxy?.connected) {
-
-				// Still resync sprint/sneak in case the server reset action state
-				this.lastSprint = !this.controls.sprint;
-				this.lastSneak = !this.controls.sneak;
-				return;
-			}
+			// Sprint/sneak trackers are left alone too: the client owns the wire, its
+			// entity_action packets are tracked by ServerClient, and detach() syncs the
+			// trackers from that. Flipping them here poisoned the handover whenever the
+			// session ended right after a teleport (e.g. a pearl) with no movement after.
+			if (MinecraftClient.proxy?.connected) return;
 
 			this.rawWrite("position_look", {
 				x: bot.entity.position.x,
@@ -227,17 +281,24 @@ export class PhysicsManager {
 				bot.entity.velocity.x += packet.playerMotionX;
 				bot.entity.velocity.y += packet.playerMotionY!;
 				bot.entity.velocity.z += packet.playerMotionZ!;
+				this.tracePacket(`RECV explosion knockback ${ packet.playerMotionX.toFixed(3) } ${ packet.playerMotionY!.toFixed(3) } ${ packet.playerMotionZ!.toFixed(3) }`);
 			}
 		});
 
-		// Handle knockback from damage (entity_velocity targeting our entity).
-		// The server calls setSprinting(false) when an entity takes damage, creating
-		// a desync: our physics simulates at sprint speed while the server expects walk
-		// speed. Force-resync sprint/sneak so the server knows our intended action state.
+		// Knockback/push applied to our player entity. Mineflayer already mirrors it into
+		// bot.entity.velocity (entities.js), which is all a vanilla client does.
+		//
+		// This handler used to force a sprint/sneak "resync" here on the theory that the
+		// server resets sprint when an entity takes damage — but that reset applies to the
+		// ATTACKER (vanilla's attack sprint reset), not the victim, so the re-sent edge was
+		// a duplicate status transition. Worse, self-velocity isn't rare: standing in an
+		// entity-dense area the server pushes the player dozens of times per second, and the
+		// flip turned each one into a spurious sprint/sneak edge on the wire — churning the
+		// anticheat's packet-derived sprint state against our simulation every single tick,
+		// which is a permanent speed misprediction. Trace-only now.
 		bot._client.on("entity_velocity", (packet: { entityId: number }) => {
 			if (packet.entityId !== bot.entity?.id) return;
-			this.lastSprint = !this.controls.sprint;
-			this.lastSneak = !this.controls.sneak;
+			this.tracePacket("RECV entity_velocity (self)");
 		});
 
 		// Item-use state, straight from the server. The living-entity flags byte is broadcast to
@@ -359,13 +420,16 @@ export class PhysicsManager {
 		this.smoothYaw = this.bot.entity.yaw;
 		this.smoothPitch = this.bot.entity.pitch;
 
+		// The wire yaw is the wrapped local yaw re-expressed on the server's revolution — see
+		// toWireYaw. Computed before simulation so the sim runs with the exact value sent.
+		const wireYaw = this.toWireYaw(toNotchianYaw(this.smoothYaw));
+		const wirePitch = Math.fround(toNotchianPitch(this.smoothPitch));
+
 		// Quantize to float32 (via Notchian degree conversion) and convert back.
 		// This ensures our physics simulation uses the EXACT same yaw/pitch the server will receive,
 		// eliminating float64→float32 drift that causes position mismatches with Grim.
-		const notchYaw = Math.fround(toNotchianYaw(this.smoothYaw));
-		const notchPitch = Math.fround(toNotchianPitch(this.smoothPitch));
-		this.bot.entity.yaw = fromNotchianYaw(notchYaw);
-		this.bot.entity.pitch = fromNotchianPitch(notchPitch);
+		this.bot.entity.yaw = fromNotchianYaw(wireYaw);
+		this.bot.entity.pitch = fromNotchianPitch(wirePitch);
 
 		// Create a controls snapshot for physics simulation.
 		// When using an item (eating/drinking), the server applies 0.2x movement input
@@ -382,6 +446,19 @@ export class PhysicsManager {
 				left: this.controls.left ? USE_ITEM_SPEED : false,
 				right: this.controls.right ? USE_ITEM_SPEED : false
 			};
+		} else if (this.controls.sprint && !this.sprintAllowed) {
+
+			// The wire never asserted sprint (syncActionPackets gates on the same condition),
+			// so the simulation must not run at sprint speed either.
+			physControls = { ...this.controls, sprint: false };
+		}
+
+		// Grim resimulates the tick after a teleport ack from a freshly-reset state; jumping in
+		// that exact tick reliably mispredicts and triggers the next setback. With the pathfinder
+		// holding jump against an obstacle that becomes a permanent setback loop. Hackware gates
+		// jump input the same way (ClientInputMixin, justTeleported(1)).
+		if (this.tickCount - this.lastTeleportTick <= 1 && physControls.jump) {
+			physControls = { ...physControls, jump: false };
 		}
 
 		// Create player state from the bot, simulate one tick, and apply the result back
@@ -398,7 +475,7 @@ export class PhysicsManager {
 
 		// Only send position updates when no player is controlling via proxy
 		if (!MinecraftClient.proxy?.connected) {
-			this.updatePosition(performance.now());
+			this.updatePosition(performance.now(), wireYaw, wirePitch);
 		}
 	}
 
@@ -419,14 +496,19 @@ export class PhysicsManager {
 					actionId: 4, // sprint_stop
 					jumpBoost: 0
 				});
+				this.tracePacket("ACTION stopSprint (item use)");
 			}
-		} else if (this.controls.sprint !== this.lastSprint) {
-			this.lastSprint = this.controls.sprint;
-			this.bot._client.write("entity_action", {
-				entityId: this.bot.entity.id,
-				actionId: this.controls.sprint ? 3 : 4,
-				jumpBoost: 0
-			});
+		} else {
+			const wantSprint = this.controls.sprint && this.sprintAllowed;
+			if (wantSprint !== this.lastSprint) {
+				this.lastSprint = wantSprint;
+				this.bot._client.write("entity_action", {
+					entityId: this.bot.entity.id,
+					actionId: wantSprint ? 3 : 4,
+					jumpBoost: 0
+				});
+				this.tracePacket(`ACTION ${ wantSprint ? "startSprint" : "stopSprint" }`);
+			}
 		}
 
 		if (this.controls.sneak !== this.lastSneak) {
@@ -436,23 +518,21 @@ export class PhysicsManager {
 				actionId: this.controls.sneak ? 0 : 1,
 				jumpBoost: 0
 			});
+			this.tracePacket(`ACTION ${ this.controls.sneak ? "startSneak" : "stopSneak" }`);
 		}
 	}
 
 	/**
 	 * Send position/look updates matching mineflayer's updatePosition logic:
-	 * - Rate-limit yaw/pitch changes to match vanilla turn speed
-	 * - Use Math.fround() for 32-bit float precision
 	 * - Only send the packet type needed (position, look, or both)
+	 * - `yaw`/`pitch` are the float32-quantized wire angles computed in {@link tick} — the same
+	 *   values the physics simulation ran with, with yaw already on the server's revolution
 	 *
 	 * Uses this.rawWrite to bypass the movement-packet suppression filter.
 	 */
-	private updatePosition(now: number) {
+	private updatePosition(now: number, yaw: number, pitch: number) {
 		if (!Number.isFinite(this.bot.entity.position.x)) return;
 
-		// Yaw/pitch are already rate-limited and quantized before simulation — send them directly
-		const yaw = Math.fround(toNotchianYaw(this.smoothYaw));
-		const pitch = Math.fround(toNotchianPitch(this.smoothPitch));
 		const position = this.bot.entity.position;
 		const onGround = this.bot.entity.onGround;
 
@@ -475,6 +555,7 @@ export class PhysicsManager {
 				x: position.x, y: position.y, z: position.z,
 				yaw, pitch, onGround
 			});
+			this.tracePacket(`POSLOOK ${ position.x.toFixed(3) } ${ position.y.toFixed(3) } ${ position.z.toFixed(3) } y=${ yaw.toFixed(2) } p=${ pitch.toFixed(2) } g=${ onGround }`);
 		} else if (positionUpdated) {
 			this.lastSent.x = position.x;
 			this.lastSent.y = position.y;
@@ -484,16 +565,41 @@ export class PhysicsManager {
 			this.rawWrite("position", {
 				x: position.x, y: position.y, z: position.z, onGround
 			});
+			this.tracePacket(`POS ${ position.x.toFixed(3) } ${ position.y.toFixed(3) } ${ position.z.toFixed(3) } g=${ onGround }`);
 		} else if (lookUpdated) {
 			this.lastSent.yaw = yaw;
 			this.lastSent.pitch = pitch;
 			this.lastSent.onGround = onGround;
 			this.rawWrite("look", { yaw, pitch, onGround });
+			this.tracePacket(`LOOK y=${ yaw.toFixed(2) } p=${ pitch.toFixed(2) } g=${ onGround }`);
 		} else if (onGround !== this.lastSent.onGround) {
 			this.rawWrite("flying", { onGround });
+			this.tracePacket(`FLY g=${ onGround }`);
 		}
 
 		this.lastSent.onGround = onGround;
+	}
+
+	/**
+	 * Express an outgoing yaw on the same revolution as the last yaw the server saw.
+	 *
+	 * A vanilla client's sent yaw is continuous — it accumulates across full turns and never
+	 * wraps. Every local yaw source here is wrapped (`atan2` steering, the float32 round-trip's
+	 * normalization, AntiAFK's spin), so crossing the ±180° boundary would otherwise put a raw
+	 * ~360° delta in a single packet — a jump no real client can produce, and exactly the pattern
+	 * Grim's `AimModulo360` keys on. Mineflayer's updatePosition avoided this with its accumulated
+	 * `lastSentYaw`; removing the rotation rate-limit dropped that accumulation, so re-anchor at
+	 * the wire instead, the same way {@link RotationManager} anchors silent looks.
+	 *
+	 * Same-revolution values pass through verbatim so a steady rotation stays bit-identical
+	 * tick to tick. The anchor resets whenever the server overwrites our rotation (teleports),
+	 * matching vanilla.
+	 */
+	private toWireYaw(rawDegrees: number): number {
+		const raw = Math.fround(rawDegrees);
+		const anchor = this.lastSent.yaw;
+		if (Math.abs(raw - anchor) <= 180) return raw;
+		return Math.fround(anchor + wrapDegrees(raw - anchor));
 	}
 
 	/**
@@ -515,8 +621,62 @@ export class PhysicsManager {
 			pitch,
 			onGround: this.lastSent.onGround
 		});
+		this.tracePacket(`SILENT y=${ yaw.toFixed(2) } p=${ pitch.toFixed(2) } (dup ${ this.lastSent.x.toFixed(3) } ${ this.lastSent.y.toFixed(3) } ${ this.lastSent.z.toFixed(3) } g=${ this.lastSent.onGround })`);
 		this.lastSent.yaw = yaw;
 		this.lastSent.pitch = pitch;
+	}
+
+	/**
+	 * Adopt the wire state a proxied client established, so the resumed simulation starts
+	 * from what the server actually believes instead of the stale pre-session snapshot.
+	 *
+	 * `yaw`/`pitch` are Notchian degrees as seen on the wire. Sprint/sneak are handed over
+	 * separately via {@link syncWireActions}, which must happen even when this is skipped.
+	 */
+	public resumeFromProxy(state: {
+		x: number; y: number; z: number;
+		yaw: number; pitch: number;
+		onGround: boolean;
+	}) {
+		const entity = this.bot.entity;
+		if (entity) {
+			entity.position.set(state.x, state.y, state.z);
+			entity.velocity.set(0, 0, 0);
+			entity.yaw = fromNotchianYaw(Math.fround(state.yaw));
+			entity.pitch = fromNotchianPitch(Math.fround(state.pitch));
+			entity.onGround = state.onGround;
+			this.smoothYaw = entity.yaw;
+			this.smoothPitch = entity.pitch;
+		}
+
+		this.lastSent.x = state.x;
+		this.lastSent.y = state.y;
+		this.lastSent.z = state.z;
+		this.lastSent.yaw = Math.fround(state.yaw);
+		this.lastSent.pitch = Math.fround(state.pitch);
+		this.lastSent.onGround = state.onGround;
+		this.lastSent.time = performance.now();
+	}
+
+	/**
+	 * Adopt the sprint/sneak wire state a proxied client's `entity_action` packets established.
+	 *
+	 * The anticheat's sprint state is packet-derived, so the client's last transition is the
+	 * truth regardless of anything the server did internally — and a mismatch never self-heals:
+	 * no packet ever corrects it, so the simulation mispredicts speed every tick forever.
+	 */
+	public syncWireActions(sprint: boolean, sneak: boolean) {
+		this.lastSprint = sprint;
+		this.lastSneak = sneak;
+	}
+
+	/**
+	 * Confirm a teleport the proxied client received but never acknowledged (it disconnected
+	 * first). Mineflayer's own confirm is suppressed while a client is attached, so without
+	 * this the server would be left waiting and kick on the bot's next movement packet.
+	 */
+	public confirmTeleport(teleportId: number) {
+		this.rawWrite("teleport_confirm", { teleportId });
 	}
 
 	// ─── Sprint wire state ───────────────────────────────────────
@@ -524,6 +684,18 @@ export class PhysicsManager {
 	/** Whether the server currently believes we are sprinting. */
 	public get sprintingOnWire(): boolean {
 		return this.lastSprint;
+	}
+
+	/**
+	 * Vanilla's client-side sprint gate: a real client refuses to start or continue sprinting
+	 * at 6 food or below, and the anticheat emulates the client — sprint packets and sprint
+	 * speed while hungry are both non-vanilla. Without this gate the bot sprints illegally the
+	 * moment food runs low and mispredicts every tick until it eats, which presents as a
+	 * permanent rubberband that starts "after a few minutes" of walking.
+	 */
+	private get sprintAllowed(): boolean {
+		const food = this.bot.food;
+		return typeof food === "number" ? food > 6 : true;
 	}
 
 	/**
@@ -543,6 +715,7 @@ export class PhysicsManager {
 			actionId: 4, // stop_sprinting
 			jumpBoost: 0
 		});
+		this.tracePacket("ACTION stopSprint (drop)");
 		return true;
 	}
 
@@ -550,6 +723,7 @@ export class PhysicsManager {
 	public restoreSprint(): boolean {
 		if (this.lastSprint) return false;
 		if (!this.controls.sprint) return false;
+		if (!this.sprintAllowed) return false;
 
 		// The server drops sprint for the duration of an item use anyway; re-asserting it here
 		// would be a transition it immediately undoes.
@@ -561,6 +735,7 @@ export class PhysicsManager {
 			actionId: 3, // start_sprinting
 			jumpBoost: 0
 		});
+		this.tracePacket("ACTION startSprint (restore)");
 		return true;
 	}
 
