@@ -14,6 +14,7 @@ export default function(program: Command) {
 			// Locate the player in render distance
 			const target = MinecraftClient.bot.players[player.username];
 			if (!target?.entity) return;
+			if (!await ChatCommandManager.isWhitelisted(target)) return;
 
 			// Set the home position to the center of the players current block
 			const floored = target.entity.position.floored() as Vec3;

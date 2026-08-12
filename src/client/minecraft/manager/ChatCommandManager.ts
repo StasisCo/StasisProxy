@@ -4,6 +4,8 @@ import { readdir } from "fs/promises";
 import type { Player } from "mineflayer";
 import { join } from "path";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { prisma } from "~/prisma";
+import { normalizeUUID } from "~/utils";
 
 interface CommandContext {
 	player: Player;
@@ -20,6 +22,19 @@ export class ChatCommandManager {
 		const ctx = this.store.getStore();
 		if (!ctx) throw new Error("Command context accessed outside of a command handler");
 		return ctx;
+	}
+
+	/**
+	 * Whether the sender may run owner-level commands. Same access rule as connecting to the
+	 * proxy: whitelisted in the client table, or the bot's own account.
+	 */
+	public static async isWhitelisted(player: Player): Promise<boolean> {
+		const senderId = normalizeUUID(player.uuid);
+		const botId = MinecraftClient.bot._client.session?.selectedProfile.id;
+		if (botId !== undefined && senderId === normalizeUUID(botId)) return true;
+
+		const record = await prisma.client.findUnique({ where: { id: senderId }});
+		return record?.whitelisted === true;
 	}
 
 	public static async handle(username: string, input: string, method: "whisper" | "chat" | "irc" = "whisper") {
