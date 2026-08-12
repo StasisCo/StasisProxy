@@ -94,6 +94,9 @@ export class ServerClient {
 	private pendingTeleportId: number | null = null;
 	private lastServerTeleportAt = 0;
 
+	/** Latest anticheat transaction ping not yet answered by the client, for the detach failsafe. */
+	private pendingPingId: number | null = null;
+
 	/**
 	 * Last position reported by the proxied player, or null if no movement
 	 * packet has been observed yet. Read by client commands that need the
@@ -285,6 +288,13 @@ export class ServerClient {
 				this.lastServerTeleportAt = Date.now();
 			}
 
+			// Anticheat transaction pings: mineflayer's auto-pong is suppressed while we're
+			// attached (the client's pong is the single, correctly-timed response), so remember
+			// the id in case the client disconnects before answering.
+			if (meta.name === "ping" && typeof data?.id === "number") {
+				this.pendingPingId = data.id;
+			}
+
 			try {
 				if (meta.name === "declare_commands") {
 
@@ -320,6 +330,9 @@ export class ServerClient {
 
 			// The client acknowledged a live teleport — nothing pending for the failsafe.
 			if (meta.name === "teleport_confirm") this.pendingTeleportId = null;
+
+			// The client answered the latest transaction ping.
+			if (meta.name === "pong" && data?.id === this.pendingPingId) this.pendingPingId = null;
 
 			// Drop movement until the replayed position has been confirmed.
 			if (!movementAllowed && MOVEMENT_PACKETS_CS.has(meta.name)) return;
@@ -467,6 +480,15 @@ export class ServerClient {
 				MinecraftClient.physics.confirmTeleport(this.pendingTeleportId);
 			} catch { /* upstream may already be gone */ }
 			this.pendingTeleportId = null;
+		}
+
+		// Same failsafe for an unanswered transaction ping — mineflayer's auto-pong was
+		// suppressed for the session, so close the hole in the anticheat's transaction chain.
+		if (this.pendingPingId !== null) {
+			try {
+				MinecraftClient.physics.answerPing(this.pendingPingId);
+			} catch { /* upstream may already be gone */ }
+			this.pendingPingId = null;
 		}
 
 		// Sprint/sneak always follow the client's own packets — the anticheat's view is

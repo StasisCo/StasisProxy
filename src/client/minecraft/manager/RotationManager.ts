@@ -15,6 +15,14 @@ const SILENT_JITTER = 0.04;
 /** Don't bother sending when the server is already within this many degrees of the target. */
 const SILENT_SKIP_TOLERANCE = 0.1;
 
+/**
+ * Vanilla standing eye height. NOT `entity.height` — mineflayer sets that to 1.8 (the hitbox),
+ * but the server raycasts our rotations from 1.62. Aiming from the wrong origin bends every
+ * computed angle, which on a thin target like a closed trapdoor is the difference between the
+ * server's reconstruction hitting the shape and the interaction being silently cancelled.
+ */
+export const EYE_HEIGHT = 1.62;
+
 function toNotchianYaw(yaw: number): number {
 	return TO_DEG * (PI - yaw);
 }
@@ -94,7 +102,7 @@ export class RotationManager {
 	 */
 	public anglesTo(target: Vec3Like): LookAngles {
 		const entity = this.physics.bot.entity;
-		const eye = entity.position.offset(0, entity.height, 0);
+		const eye = entity.position.offset(0, EYE_HEIGHT, 0);
 		const dx = target.x - eye.x;
 		const dy = target.y - eye.y;
 		const dz = target.z - eye.z;

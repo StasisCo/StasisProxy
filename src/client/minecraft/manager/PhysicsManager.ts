@@ -163,20 +163,8 @@ export class PhysicsManager {
 	/** Tick of the last server-forced position change, for the post-teleport jump gate. */
 	private lastTeleportTick = -Infinity;
 
-	// ─── Diagnostics: outbound packet trace ──────────────────────
-
-	/** Recent outbound movement/action packets, dumped when the server issues a correction. */
-	private readonly trace: string[] = [];
-
-	/** Timestamps of recent server corrections, for the corrections-per-30s counter. */
-	private readonly setbackTimes: number[] = [];
-
-	private lastTraceDumpAt = 0;
-
-	private tracePacket(entry: string) {
-		if (this.trace.length >= 40) this.trace.shift();
-		this.trace.push(`+${ (performance.now() / 1000).toFixed(2) }s ${ entry }`);
-	}
+	/** Last self knockback received, restored across a correction if not yet simulated. */
+	private pendingKnockback: { x: number; y: number; z: number; time: number } | null = null;
 
 	constructor(public readonly bot: Bot) {
 
@@ -196,6 +184,13 @@ export class PhysicsManager {
 			// as an immediate new violation — a setback/confirm loop that escalates to a kick.
 			if (name === "teleport_confirm" && MinecraftClient.proxy?.connected) return;
 
+			// Same story for play pings: the anticheat brackets its checks with `ping`
+			// transactions and requires exactly one ordered `pong` each. Mineflayer auto-pongs
+			// every ping (game.js) while the bridged client pongs too — double responses drift
+			// the anticheat's transaction bookkeeping until every movement check misfires,
+			// which froze proxied players in a setback storm after about a minute.
+			if (name === "pong" && MinecraftClient.proxy?.connected) return;
+
 			origWrite(name, data);
 		} as typeof bot._client.write;
 
@@ -209,28 +204,16 @@ export class PhysicsManager {
 
 		// Handle server-initiated teleport/position changes.
 		bot.on("forcedMove", () => {
-
-			// Diagnostics: every correction is a prediction the server rejected. Log what we
-			// sent leading up to it so the mismatch is visible instead of guessed at.
-			const nowMs = performance.now();
-			this.setbackTimes.push(nowMs);
-			while (this.setbackTimes.length > 0 && nowMs - (this.setbackTimes[0] ?? nowMs) > 30_000) this.setbackTimes.shift();
-			if (nowMs - this.lastTraceDumpAt > 5_000) {
-				this.lastTraceDumpAt = nowMs;
-				const pos = bot.entity.position;
-				PhysicsManager.logger.warn(
-					`Server correction → ${ pos.x.toFixed(3) } ${ pos.y.toFixed(3) } ${ pos.z.toFixed(3) }`
-					+ ` yaw=${ Math.fround(toNotchianYaw(bot.entity.yaw)).toFixed(2) } pitch=${ Math.fround(toNotchianPitch(bot.entity.pitch)).toFixed(2) }`
-					+ ` (${ this.setbackTimes.length } in 30s)`
-					+ ` | food=${ bot.food } sprintWire=${ this.lastSprint } usingItem=${ this.isUsingItem }`
-					+ ` controls fwd=${ this.controls.forward } jump=${ this.controls.jump } sprint=${ this.controls.sprint }`
-					+ ` proxied=${ !!MinecraftClient.proxy?.connected }`
-				);
-				if (this.trace.length > 0) PhysicsManager.logger.warn(`Last outbound packets:\n${ this.trace.join("\n") }`);
-			}
-
 			this.smoothYaw = bot.entity.yaw;
 			this.smoothPitch = bot.entity.pitch;
+
+			// Mineflayer's teleport handling just zeroed our velocity. If a knockback arrived
+			// in this same window and hasn't been through a simulation step yet, restore it:
+			// dropping it means the next tick moves without the push the server already applied
+			// on its side, which mispredicts again and sustains the correction loop.
+			if (this.pendingKnockback && performance.now() - this.pendingKnockback.time < 150) {
+				bot.entity.velocity.set(this.pendingKnockback.x, this.pendingKnockback.y, this.pendingKnockback.z);
+			}
 
 			// Mineflayer unconditionally sets onGround=false on position corrections
 			// (physics.js L418). With velocity zeroed, the physics engine needs 2 ticks
@@ -270,9 +253,13 @@ export class PhysicsManager {
 				onGround: bot.entity.onGround
 			});
 
-			// Force resync sprint/sneak state — the server may reset action state on teleport
-			this.lastSprint = !this.controls.sprint;
-			this.lastSneak = !this.controls.sneak;
+			// Deliberately NO sprint/sneak resync here. Teleports don't reset action state on
+			// the server or in the anticheat's packet-derived model — only respawns do (handled
+			// on the respawn event). The old tracker flip here re-sent startSprint/stopSneak
+			// after EVERY correction, and since a duplicate status transition is itself a
+			// violation, one correction became a self-sustaining loop: correction → duplicate
+			// edges → flag+setback → correction, at exactly one correction per tick, forever.
+			// That loop WAS the "bot can't walk, constant rubberband" failure mode.
 		});
 
 		// Handle knockback from explosions
@@ -281,7 +268,6 @@ export class PhysicsManager {
 				bot.entity.velocity.x += packet.playerMotionX;
 				bot.entity.velocity.y += packet.playerMotionY!;
 				bot.entity.velocity.z += packet.playerMotionZ!;
-				this.tracePacket(`RECV explosion knockback ${ packet.playerMotionX.toFixed(3) } ${ packet.playerMotionY!.toFixed(3) } ${ packet.playerMotionZ!.toFixed(3) }`);
 			}
 		});
 
@@ -296,9 +282,19 @@ export class PhysicsManager {
 		// flip turned each one into a spurious sprint/sneak edge on the wire — churning the
 		// anticheat's packet-derived sprint state against our simulation every single tick,
 		// which is a permanent speed misprediction. Trace-only now.
-		bot._client.on("entity_velocity", (packet: { entityId: number }) => {
+		bot._client.on("entity_velocity", (packet: { entityId: number; velocity?: { x: number; y: number; z: number }; velocityX?: number; velocityY?: number; velocityZ?: number }) => {
 			if (packet.entityId !== bot.entity?.id) return;
-			this.tracePacket("RECV entity_velocity (self)");
+
+			// Wire units are 1/8000 block per tick; this protocol version nests them.
+			const vx = (packet.velocity?.x ?? packet.velocityX ?? 0) / 8000;
+			const vy = (packet.velocity?.y ?? packet.velocityY ?? 0) / 8000;
+			const vz = (packet.velocity?.z ?? packet.velocityZ ?? 0) / 8000;
+
+			// Remember it: if a correction lands before the next simulation step, mineflayer's
+			// teleport handling zeroes entity velocity and would erase this knockback — but the
+			// server expects it applied (its position runs ahead of ours in the push direction
+			// when we drop these). forcedMove restores it while fresh.
+			this.pendingKnockback = { x: vx, y: vy, z: vz, time: performance.now() };
 		});
 
 		// Item-use state, straight from the server. The living-entity flags byte is broadcast to
@@ -333,10 +329,34 @@ export class PhysicsManager {
 			this.usingItemLocal = false;
 		});
 
-		// Respawning clears any in-flight use on both sides.
+		// Mineflayer's attribute handler reads `prop.key`, but this protocol version names the
+		// field `prop.name` — so every attribute collapses under the single key `undefined` and
+		// prismarine-physics never sees the server's movement-speed attribute or its modifiers
+		// (Speed II from the base beacons, the sprint modifier). The physics then simulates at
+		// unmodified base speed: legal (slower than the server's max is always accepted) but
+		// wrong, and blind to any slowing modifier the server might apply. Re-file them under
+		// their real names; this listener runs after mineflayer's, so the fixed keys win.
+		bot._client.on("entity_update_attributes", (packet: { entityId: number; properties?: { name?: string; key?: string; value: number; modifiers: unknown[] }[] }) => {
+			if (!bot.entity || packet.entityId !== bot.entity.id || !packet.properties) return;
+			const entity = bot.entity as unknown as { attributes?: Record<string, { value: number; modifiers: unknown[] }> };
+			entity.attributes ??= {};
+			delete entity.attributes.undefined;
+			for (const prop of packet.properties) {
+				const key = prop.name ?? prop.key;
+				if (key === undefined) continue;
+				entity.attributes[key] = { value: prop.value, modifiers: prop.modifiers };
+			}
+		});
+
+		// Respawning clears any in-flight use on both sides. It is also the one event that
+		// genuinely resets action state: the server spawns a fresh player entity with sprint
+		// and sneak off, and the anticheat's packet-state model resets with it. Mirroring that
+		// here means the next tick emits a legitimate single start edge if we intend to sprint.
 		bot.on("respawn", () => {
 			this.serverUsingItem = false;
 			this.usingItemLocal = false;
+			this.lastSprint = false;
+			this.lastSneak = false;
 		});
 
 		// Defer engine creation + tick loop until the bot is in-game with version and world ready
@@ -461,6 +481,10 @@ export class PhysicsManager {
 			physControls = { ...physControls, jump: false };
 		}
 
+		// Entity crowding pushes — must happen before simulation so the claimed movement
+		// reflects them. See applyEntityPushes for why this is load-bearing.
+		this.applyEntityPushes();
+
 		// Create player state from the bot, simulate one tick, and apply the result back
 		const state = new PlayerState(this.bot, physControls);
 
@@ -472,6 +496,9 @@ export class PhysicsManager {
 		}
 
 		state.apply(this.bot);
+
+		// The pending knockback (if any) has now been through a simulation step — consumed.
+		this.pendingKnockback = null;
 
 		// Only send position updates when no player is controlling via proxy
 		if (!MinecraftClient.proxy?.connected) {
@@ -496,7 +523,6 @@ export class PhysicsManager {
 					actionId: 4, // sprint_stop
 					jumpBoost: 0
 				});
-				this.tracePacket("ACTION stopSprint (item use)");
 			}
 		} else {
 			const wantSprint = this.controls.sprint && this.sprintAllowed;
@@ -507,7 +533,6 @@ export class PhysicsManager {
 					actionId: wantSprint ? 3 : 4,
 					jumpBoost: 0
 				});
-				this.tracePacket(`ACTION ${ wantSprint ? "startSprint" : "stopSprint" }`);
 			}
 		}
 
@@ -518,7 +543,6 @@ export class PhysicsManager {
 				actionId: this.controls.sneak ? 0 : 1,
 				jumpBoost: 0
 			});
-			this.tracePacket(`ACTION ${ this.controls.sneak ? "startSneak" : "stopSneak" }`);
 		}
 	}
 
@@ -555,7 +579,6 @@ export class PhysicsManager {
 				x: position.x, y: position.y, z: position.z,
 				yaw, pitch, onGround
 			});
-			this.tracePacket(`POSLOOK ${ position.x.toFixed(3) } ${ position.y.toFixed(3) } ${ position.z.toFixed(3) } y=${ yaw.toFixed(2) } p=${ pitch.toFixed(2) } g=${ onGround }`);
 		} else if (positionUpdated) {
 			this.lastSent.x = position.x;
 			this.lastSent.y = position.y;
@@ -565,19 +588,74 @@ export class PhysicsManager {
 			this.rawWrite("position", {
 				x: position.x, y: position.y, z: position.z, onGround
 			});
-			this.tracePacket(`POS ${ position.x.toFixed(3) } ${ position.y.toFixed(3) } ${ position.z.toFixed(3) } g=${ onGround }`);
 		} else if (lookUpdated) {
 			this.lastSent.yaw = yaw;
 			this.lastSent.pitch = pitch;
 			this.lastSent.onGround = onGround;
 			this.rawWrite("look", { yaw, pitch, onGround });
-			this.tracePacket(`LOOK y=${ yaw.toFixed(2) } p=${ pitch.toFixed(2) } g=${ onGround }`);
 		} else if (onGround !== this.lastSent.onGround) {
 			this.rawWrite("flying", { onGround });
-			this.tracePacket(`FLY g=${ onGround }`);
 		}
 
 		this.lastSent.onGround = onGround;
+	}
+
+	/**
+	 * Vanilla's entity crowding pushes (`LivingEntity.pushEntities` / `Entity.push`), ported.
+	 *
+	 * The server pushes a player standing inside other entities' hitboxes every tick, and the
+	 * anticheat simulates those pushes from its own entity tracker — so a client that doesn't
+	 * apply them mispredicts every tick it spends in a crowd. Worse, the resulting corrections
+	 * zero our velocity (vanilla teleport semantics), wiping the server's knockback packets
+	 * before the sim can use them: without locally regenerating the push from entity overlap
+	 * each tick, one crowd contact becomes a correction storm that pins the bot in place.
+	 *
+	 * Pushable set per vanilla: living entities and players (not armor stands, not shulkers,
+	 * which override isPushable to false), plus boats and minecarts.
+	 */
+	private applyEntityPushes() {
+		const self = this.bot.entity;
+		if (!self) return;
+
+		// Player AABB: 0.6 × 1.8, unexpanded — vanilla selects intersecting entities only.
+		const selfHalf = 0.3;
+		const selfHeight = 1.8;
+		const pos = self.position;
+
+		for (const entity of Object.values(this.bot.entities)) {
+
+			// isValid is only ever assigned on destroy (entities.js sets it false) — a live
+			// entity may not have the property at all, so test for the explicit false.
+			if (entity === self || entity.isValid === false) continue;
+
+			const pushable =
+				entity.type === "player" ||
+				(entity.type === "mob" && entity.name !== "armor_stand" && entity.name !== "shulker") ||
+				(entity.name !== undefined && (entity.name.includes("boat") || entity.name.includes("minecart")));
+			if (!pushable) continue;
+
+			const half = (entity.width ?? 0.6) / 2;
+			const height = entity.height ?? 1.8;
+			const intersects =
+				entity.position.x + half > pos.x - selfHalf && entity.position.x - half < pos.x + selfHalf &&
+				entity.position.z + half > pos.z - selfHalf && entity.position.z - half < pos.z + selfHalf &&
+				entity.position.y + height > pos.y && entity.position.y < pos.y + selfHeight;
+			if (!intersects) continue;
+
+			// Entity.push: normalize the XZ offset by sqrt(absMax), cap the 1/d falloff at 1,
+			// scale by 0.05, and push ourselves away. (The reciprocal push on the other entity
+			// is the server's business.)
+			let dx = entity.position.x - pos.x;
+			let dz = entity.position.z - pos.z;
+			let d = Math.max(Math.abs(dx), Math.abs(dz));
+			if (d < 0.01) continue;
+			d = Math.sqrt(d);
+			dx /= d;
+			dz /= d;
+			const falloff = Math.min(1, 1 / d);
+			self.velocity.x -= dx * falloff * 0.05;
+			self.velocity.z -= dz * falloff * 0.05;
+		}
 	}
 
 	/**
@@ -621,7 +699,6 @@ export class PhysicsManager {
 			pitch,
 			onGround: this.lastSent.onGround
 		});
-		this.tracePacket(`SILENT y=${ yaw.toFixed(2) } p=${ pitch.toFixed(2) } (dup ${ this.lastSent.x.toFixed(3) } ${ this.lastSent.y.toFixed(3) } ${ this.lastSent.z.toFixed(3) } g=${ this.lastSent.onGround })`);
 		this.lastSent.yaw = yaw;
 		this.lastSent.pitch = pitch;
 	}
@@ -679,6 +756,15 @@ export class PhysicsManager {
 		this.rawWrite("teleport_confirm", { teleportId });
 	}
 
+	/**
+	 * Answer a play `ping` the proxied client received but never answered (it disconnected
+	 * first). Mineflayer's auto-pong is suppressed while a client is attached, so without this
+	 * the anticheat's transaction chain would be left with a hole at handover.
+	 */
+	public answerPing(id: number) {
+		this.rawWrite("pong", { id });
+	}
+
 	// ─── Sprint wire state ───────────────────────────────────────
 
 	/** Whether the server currently believes we are sprinting. */
@@ -715,7 +801,6 @@ export class PhysicsManager {
 			actionId: 4, // stop_sprinting
 			jumpBoost: 0
 		});
-		this.tracePacket("ACTION stopSprint (drop)");
 		return true;
 	}
 
@@ -735,7 +820,6 @@ export class PhysicsManager {
 			actionId: 3, // start_sprinting
 			jumpBoost: 0
 		});
-		this.tracePacket("ACTION startSprint (restore)");
 		return true;
 	}
 

@@ -6,6 +6,7 @@ import { Vec3 } from "vec3";
 import z from "zod";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { Face, faceToward, type FaceIndex } from "~/client/minecraft/manager/InteractionManager";
+import { EYE_HEIGHT } from "~/client/minecraft/manager/RotationManager";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { prisma } from "~/prisma";
 import { type Stasis as StasisData } from "../../generated/prisma/client";
@@ -257,10 +258,12 @@ export class Stasis extends StasisColumn<{
 
 	/**
 	 * Maximum eye-to-hit distance we will attempt an interaction from. Vanilla allows 4.5 blocks
-	 * and the server re-checks it; staying inside 4.0 leaves room for the position the server has
-	 * for us to be a tick behind ours.
+	 * and the server re-checks it; 0.1 of headroom covers the server's view of our position being
+	 * a tick behind while we drift at arrival speeds. The old 4.0 was tighter than vanilla and
+	 * self-rejected legitimate clicks: a trapdoor sunk below floor level sits 4.1–4.4 from the
+	 * eye even with the feet inside the 3.0 goal range.
 	 */
-	private static readonly INTERACT_REACH = 4.0;
+	private static readonly INTERACT_REACH = 4.4;
 
 	/**
 	 * Work out where to click the trigger block from where the bot is standing.
@@ -369,7 +372,7 @@ export class Stasis extends StasisColumn<{
 		if (this.state.open === false) return Promise.resolve(true);
 
 		const entity = MinecraftClient.bot.entity;
-		const eye = new Vec3(entity.position.x, entity.position.y + entity.height, entity.position.z);
+		const eye = new Vec3(entity.position.x, entity.position.y + EYE_HEIGHT, entity.position.z);
 		const { face, hit, cursor } = this.resolveClick(pos, eye);
 
 		// Out of reach — retrying from here would just burn interaction budget against a server

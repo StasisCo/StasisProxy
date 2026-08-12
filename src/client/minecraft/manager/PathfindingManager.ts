@@ -1,5 +1,7 @@
+import chalk from "chalk";
 import type { Bot } from "mineflayer";
 import { Vec3 } from "vec3";
+import { Logger } from "~/class/Logger";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { Goal } from "../../../class/Goal";
 
@@ -14,6 +16,8 @@ interface PathNode {
 }
 
 export class PathfindingManager {
+
+	private static readonly logger = new Logger(chalk.hex("#38bdf8")("PATH"));
 
 	private queue: Goal[] = [];
 	private active: Goal | null = null;
@@ -248,6 +252,12 @@ export class PathfindingManager {
 			Math.hypot(pos.x - currentWp.x, pos.z - currentWp.z) > 4.0;
 
 		if (this.replanCooldown === 0 && (this.path === null || currentWp === null || this.stuckTicks > 12 || driftedOffPath)) {
+
+			// A wedge the world model can't explain (nothing solid ahead, yet no movement) is
+			// an invisible-to-us obstruction — learn it before planning so the new route
+			// actually avoids it instead of recomputing the same straight line.
+			if (this.stuckTicks > 12) this.markStallObstacles();
+
 			this.path = this.planPath(targetPos, this.active.range);
 			this.pathIndex = 0;
 			this.stuckTicks = 0;
@@ -536,8 +546,57 @@ export class PathfindingManager {
 		return out;
 	}
 
+	/**
+	 * Cells that read as clear in our world copy but that movement provably cannot pass —
+	 * learned from walk stalls, expiring after a while. The server is 1.21.x behind
+	 * ViaVersion and we parse the downgraded 1.20.1 chunks, so a 1.21-only block whose
+	 * substitute has different collision is an invisible wall to us: the world says air,
+	 * the server says solid, and every sim step into it gets rolled back. Marking the
+	 * stall cells solid lets the planner route around what it cannot see.
+	 */
+	private readonly stallObstacles = new Map<string, number>();
+
+	/** Mark the cells ahead of a stalled walk as temporarily solid, so replans avoid them. */
+	private markStallObstacles() {
+		const entity = this.bot.entity;
+		if (!entity) return;
+		const pos = entity.position;
+		const feetY = Math.floor(pos.y);
+		const headingX = -Math.sin(entity.yaw);
+		const headingZ = -Math.cos(entity.yaw);
+		const perpX = -headingZ;
+		const perpZ = headingX;
+
+		const now = Date.now();
+		for (const [ key, expiry ] of this.stallObstacles) {
+			if (expiry <= now) this.stallObstacles.delete(key);
+		}
+
+		const marked: string[] = [];
+		for (const dist of [ 0.6, 1.1 ]) {
+			for (const shoulder of [ 0, 0.3, -0.3 ]) {
+				const bx = Math.floor(pos.x + headingX * dist + perpX * shoulder);
+				const bz = Math.floor(pos.z + headingZ * dist + perpZ * shoulder);
+				if (bx === Math.floor(pos.x) && bz === Math.floor(pos.z)) continue;
+				for (const dy of [ 0, 1 ]) {
+					const key = `${ bx },${ feetY + dy },${ bz }`;
+					if (!this.stallObstacles.has(key)) {
+						marked.push(`${ key }(${ this.bot.blockAt(new Vec3(bx, feetY + dy, bz))?.name ?? "?" })`);
+					}
+					this.stallObstacles.set(key, now + 30_000);
+				}
+			}
+		}
+		if (marked.length > 0) {
+			PathfindingManager.logger.warn(`Walk stalled — marking unpassable cells for 30s: ${ marked.join(" ") }`);
+		}
+	}
+
 	/** Solid for pathing purposes. Unloaded blocks count as solid — never plan through the unknown. */
 	private isSolidCell(x: number, y: number, z: number): boolean {
+		const expiry = this.stallObstacles.get(`${ x },${ y },${ z }`);
+		if (expiry !== undefined && expiry > Date.now()) return true;
+
 		const block = this.bot.blockAt(new Vec3(x, y, z));
 		if (!block) return true;
 		return block.boundingBox === "block";
