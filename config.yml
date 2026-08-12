@@ -96,7 +96,7 @@ modules:
       list:
         - hostile_mobs
       # Whether to swap to the sword silently (without changing the client's current hotbar slot)
-      silentSwap: true
+      silentSwap: false
   Presence:
     # Whether this module is active
     enabled: true
