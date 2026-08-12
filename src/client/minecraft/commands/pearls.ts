@@ -16,21 +16,23 @@ export default function(program: Command) {
 
 				case "chat":
 				case "irc": {
-						
+
 					// If the chat message comes in thru a public source, verify the location argument before proceeding
 					if (!location || !STASIS_LOCATION_NAME.split(",").includes(location)) break;
-						
+
 				}
-				
+
+				// A direct message is addressed to the bot on purpose, like a whisper
+				case "dm":
 				case "whisper": {
-					
+
 					// Get the sender of the command and their pearls, sorting by distance to the bot
 					const sender = MinecraftClient.bot.players[player.username];
 					if (!sender) return;
 
 					// Find all stasis chambers for this player, sorted by distance to the bot
 					const pearls = await Stasis.fetch(sender.uuid);
-					MinecraftClient.chat.whisper(sender, `You have ${ pearls.length } / ${ STASIS_USER_MAX } pearls.`);
+					ChatCommandManager.reply(`You have ${ pearls.length } / ${ STASIS_USER_MAX } pearls.`);
 
 				}
 

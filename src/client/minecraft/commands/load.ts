@@ -16,14 +16,16 @@ export default function(program: Command) {
 
 				case "chat":
 				case "irc": {
-						
+
 					// If the chat message comes in thru a public source, verify the location argument before proceeding
 					if (!location || !STASIS_LOCATION_NAME.split(",").includes(location)) break;
-						
+
 				}
-				
+
+				// A direct message is addressed to the bot on purpose, like a whisper
+				case "dm":
 				case "whisper": {
-					
+
 					// Get the sender of the command and their pearls, sorting by distance to the bot
 					const sender = MinecraftClient.bot.players[player.username];
 					if (!sender) return;
@@ -33,7 +35,7 @@ export default function(program: Command) {
 					if (pearls === -1) throw new Error("You have no pearls registered!");
 
 					// If they have pearls, but are at the limit, inform them and exit
-					MinecraftClient.chat.whisper(sender, `Loading your pearl, you have ${ pearls } / ${ STASIS_USER_MAX } pearls remaining.`);
+					ChatCommandManager.reply(`Loading your pearl, you have ${ pearls } / ${ STASIS_USER_MAX } pearls remaining.`);
 					break;
 
 				}

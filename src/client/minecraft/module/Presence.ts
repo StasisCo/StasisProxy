@@ -9,8 +9,24 @@ import { Logger } from "~/class/Logger";
 import { ChatCommandManager } from "~/client/minecraft/manager/ChatCommandManager";
 import { ChatManager, chatCommandsConfig } from "~/client/minecraft/manager/ChatManager";
 import { name, version } from "../../../../package.json";
+import { normalizeUUID } from "~/utils";
 import { MinecraftClient } from "../MinecraftClient";
 import { Module } from "../Module";
+
+/**
+ * The `meta` SSE event that precedes every delivered payload, naming the
+ * authoritative sender. Chat and direct messages carry no sender of their own —
+ * this is the only place the speaker's identity comes from.
+ */
+const zIrcMeta = z.object({
+	userAgent: z.string().nullish(),
+	authoritativeSender: z.object({
+		id: z.string(),
+		username: z.string()
+	}).nullish()
+});
+
+export type IrcMeta = z.infer<typeof zIrcMeta>;
 
 const zConfigSchema = z.object({
 	maxRate: z
@@ -37,16 +53,22 @@ export default class Presence extends Module<typeof zConfigSchema> {
 
 	private static readonly logger = new Logger(chalk.hex("#55FFFF")("IRC"));
 
-	/** Public event bus for IRC payloads — subscribe with `Module.get<Presence>("Presence").events.on(...)` */
+	/**
+	 * Public event bus for IRC payloads — subscribe with
+	 * `Module.get<Presence>("Presence").events.on(...)`. Payload events carry
+	 * the `meta` frame that preceded the payload as their second argument; it
+	 * names the authoritative sender, which the payloads themselves no longer do.
+	 */
 	public readonly events = new EventEmitter<{
 		"connected": []
-		"death": [ z.infer<typeof zIrcPayload> & { type: "death" } ]
-		"login": [ z.infer<typeof zIrcPayload> & { type: "login" } ]
-		"logout": [ z.infer<typeof zIrcPayload> & { type: "logout" } ]
-		"message": [ z.infer<typeof zIrcPayload> & { type: "message" } ]
-		"ping": [ z.infer<typeof zIrcPayload> & { type: "ping" } ]
-		"presence": [ z.infer<typeof zIrcPayload> & { type: "presence" } ]
-		"resend_request": [ z.infer<typeof zIrcPayload> & { type: "resend_request" } ]
+		"chat": [ z.infer<typeof zIrcPayload> & { type: "chat" }, IrcMeta | null ]
+		"death": [ z.infer<typeof zIrcPayload> & { type: "death" }, IrcMeta | null ]
+		"login": [ z.infer<typeof zIrcPayload> & { type: "login" }, IrcMeta | null ]
+		"logout": [ z.infer<typeof zIrcPayload> & { type: "logout" }, IrcMeta | null ]
+		"message": [ z.infer<typeof zIrcPayload> & { type: "message" }, IrcMeta | null ]
+		"ping": [ z.infer<typeof zIrcPayload> & { type: "ping" }, IrcMeta | null ]
+		"presence": [ z.infer<typeof zIrcPayload> & { type: "presence" }, IrcMeta | null ]
+		"resend_request": [ z.infer<typeof zIrcPayload> & { type: "resend_request" }, IrcMeta | null ]
 	}>();
 
 	private connected = false;
@@ -68,17 +90,47 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		oxygen: 300
 	};
 
-	// Bound reference so we can remove it on subsequent onReady calls
-	private onIrcMessage = async(payload: z.infer<typeof zIrcPayload> & { type: "message" }) => {
+	/** The meta frame's sender, unless it is the bot's own echo (its chat replies
+	 *  come back on the stream, and handling them would loop). */
+	private senderOf(meta: IrcMeta | null): { id: string, username: string } | null {
+		const sender = meta?.authoritativeSender;
+		if (!sender) return null;
+		const botId = MinecraftClient.bot.player?.uuid;
+		if (botId && normalizeUUID(sender.id) === normalizeUUID(botId)) return null;
+		return sender;
+	}
 
+	// Bound references so we can remove them on subsequent onReady calls
+
+	private onIrcChat = async(payload: z.infer<typeof zIrcPayload> & { type: "chat" }, meta: IrcMeta | null) => {
+
+		const sender = this.senderOf(meta);
 		const message = new ChatManager.parser(<string>payload.message);
-		Presence.logger.log(`${ chalk.gray("[") }${ payload.player.name }${ chalk.gray("]") }`, message.toAnsi());
+		Presence.logger.log(`${ chalk.gray("[") }${ sender?.username ?? "?" }${ chalk.gray("]") }`, message.toAnsi());
+		if (!sender) return;
 
 		// Ignore messages that don't start with the command prefix
 		if (!message.toString().toLowerCase().startsWith(chatCommandsConfig.prefix.toLowerCase())) return;
 
 		const command = message.toString().slice(chatCommandsConfig.prefix.length).trim();
-		await ChatCommandManager.handle(payload.player.name, command, "irc");
+		await ChatCommandManager.handle(sender.username, command, "irc");
+
+	};
+
+	private onIrcDirectMessage = async(payload: z.infer<typeof zIrcPayload> & { type: "message" }, meta: IrcMeta | null) => {
+
+		const sender = this.senderOf(meta);
+		const message = new ChatManager.parser(<string>payload.message);
+		Presence.logger.log(`${ chalk.gray("[") }${ sender?.username ?? "?" }${ chalk.gray(" → me]") }`, message.toAnsi());
+		if (!sender) return;
+
+		// A DM is addressed to the bot by construction, so the prefix is
+		// optional — but tolerated, so "!pearls" and "pearls" both work.
+		const text = message.toString().trim();
+		const command = text.toLowerCase().startsWith(chatCommandsConfig.prefix.toLowerCase())
+			? text.slice(chatCommandsConfig.prefix.length).trim()
+			: text;
+		await ChatCommandManager.handle(sender.username, command, "dm");
 
 	};
 
@@ -99,8 +151,10 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		this.intervalTimer = setInterval(() => this.requestPost(), this.config.maxInterval * 1000);
 
 		// Wire up IRC chat command handling (remove first to avoid duplicates on rebind)
-		this.events.off("message", this.onIrcMessage);
-		this.events.on("message", this.onIrcMessage);
+		this.events.off("chat", this.onIrcChat);
+		this.events.on("chat", this.onIrcChat);
+		this.events.off("message", this.onIrcDirectMessage);
+		this.events.on("message", this.onIrcDirectMessage);
 
 		this.tryConnect();
 
@@ -218,10 +272,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		return zIrcPresence.parse({
 			type: "presence",
 			attributes: this.attributes,
-			player: {
-				name: MinecraftClient.bot.username,
-				uuid: MinecraftClient.bot.player.uuid
-			},
+			player: MinecraftClient.bot.player.uuid,
 			inventory: Array.from(inventory.entries()).map(([ slot, item ]) => ({ slot, item }))
 		});
 	}
@@ -372,8 +423,26 @@ export default class Presence extends Module<typeof zConfigSchema> {
 			this.events.emit("connected");
 		};
 
+		// Every payload is preceded by a named `meta` event carrying the
+		// authoritative sender. SSE guarantees ordering, so holding the last
+		// meta until the next unnamed message pairs the two; the pending value
+		// is cleared on consumption so a meta can never attach to more than
+		// one payload.
+		let pendingMeta: IrcMeta | null = null;
+		es.addEventListener("meta", ({ data }) => {
+			this.resetHeartbeat();
+			pendingMeta = null;
+			if (!data || typeof data !== "string") return;
+			try {
+				const parsed = zIrcMeta.safeParse(JSON.parse(data));
+				if (parsed.success) pendingMeta = parsed.data;
+			} catch {}
+		});
+
 		es.onmessage = ({ data }) => {
 			this.resetHeartbeat();
+			const meta = pendingMeta;
+			pendingMeta = null;
 			if (!data || typeof data !== "string") return;
 
 			let json: unknown;
@@ -387,7 +456,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 			if (!parsed.success) return;
 
 			const payload = parsed.data;
-			this.events.emit(payload.type, payload as never);
+			this.events.emit(payload.type, payload as never, meta as never);
 		};
 
 		es.onerror = event => {
@@ -441,6 +510,15 @@ export default class Presence extends Module<typeof zConfigSchema> {
 	 */
 	public async postPresence(body: z.infer<typeof zIrcPresence>) {
 		await this.post(body);
+	}
+
+	/**
+	 * POST a broadcast chat line. The sender is implied by the credentials —
+	 * chat payloads carry no player.
+	 * @param message The line to say, as a plain string
+	 */
+	public async postChat(message: string) {
+		await this.post({ type: "chat", message });
 	}
 
 	/** Request a presence post — rate-limited to config.maxRate per second */

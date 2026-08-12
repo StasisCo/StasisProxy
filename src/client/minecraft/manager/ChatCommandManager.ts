@@ -4,12 +4,14 @@ import { readdir } from "fs/promises";
 import type { Player } from "mineflayer";
 import { join } from "path";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { Module } from "~/client/minecraft/Module";
+import type Presence from "~/client/minecraft/module/Presence";
 import { prisma } from "~/prisma";
 import { normalizeUUID } from "~/utils";
 
 interface CommandContext {
 	player: Player;
-	method: "whisper" | "chat" | "irc";
+	method: "whisper" | "chat" | "irc" | "dm";
 }
 
 export class ChatCommandManager {
@@ -37,7 +39,18 @@ export class ChatCommandManager {
 		return record?.whitelisted === true;
 	}
 
-	public static async handle(username: string, input: string, method: "whisper" | "chat" | "irc" = "whisper") {
+	/**
+	 * Send the current command's sender a response, over whatever channel suits
+	 * how they asked: IRC direct messages are answered with IRC chat, everything
+	 * else with an in-game whisper.
+	 */
+	public static reply(text: string) {
+		const { player, method } = this.context;
+		if (method === "dm") void Module.get<Presence>("Presence").postChat(text);
+		else MinecraftClient.chat.whisper(player, text);
+	}
+
+	public static async handle(username: string, input: string, method: CommandContext["method"] = "whisper") {
 		const player = MinecraftClient.bot.players[username];
 		if (!player) return;
 
@@ -56,7 +69,7 @@ export class ChatCommandManager {
 
 				// Commander throws on unknown commands / validation errors
 				if (error instanceof Error) {
-					MinecraftClient.chat.whisper(player, error.message);
+					this.reply(error.message);
 				}
 			}
 		});
