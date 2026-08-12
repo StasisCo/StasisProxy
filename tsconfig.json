@@ -28,10 +28,6 @@
       "node"
     ],
     "paths": {
-      "@hackware/*": [
-        "./node_modules/@hackware/*",
-        "./src/generated/@hackware/*"
-      ],
       "~/*": [
         "./src/*"
       ]

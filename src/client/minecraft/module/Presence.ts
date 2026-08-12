@@ -1,5 +1,5 @@
-import { zIrcPresence } from "@hackware/types/schema/irc/payload/zIrcPresence";
-import { zIrcPayload } from "@hackware/types/schema/irc/zIrcPayload";
+import { zIrcPresence } from "~/schema/irc/payload/zIrcPresence";
+import { zIrcPayload } from "~/schema/irc/zIrcPayload";
 import chalk from "chalk";
 import EventEmitter from "events";
 import { EventSource } from "eventsource";
@@ -545,7 +545,17 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		this.pending = setTimeout(() => {
 			this.pending = null;
 			this.lastPost = Date.now();
-			if (MinecraftClient.bot.player) this.postPresence(this.presence);
+
+			// The presence getter validates the payload it builds (zIrcPresence.parse)
+			// and this callback runs outside any request context — an uncaught throw
+			// here takes down the whole process, which is how a schema/code version
+			// skew once crash-looped every bot. A presence we can't build is a skipped
+			// tick, not a fatal error; the next trigger retries.
+			try {
+				if (MinecraftClient.bot.player) void this.postPresence(this.presence);
+			} catch (error) {
+				Presence.logger.error("Failed to build presence payload, skipping this post:", error);
+			}
 		}, delay);
 	}
 

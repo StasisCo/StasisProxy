@@ -1,4 +1,4 @@
-import { zIrcEntityOwner } from "@hackware/types/schema/irc/payload/zIrcEntityOwner";
+import { zIrcEntityOwner } from "~/schema/irc/payload/zIrcEntityOwner";
 import { Embed } from "@vermaysha/discord-webhook";
 import chalk from "chalk";
 import { type Bot } from "mineflayer";

@@ -8,7 +8,6 @@
 		"dev": "bun . --skip-migrations",
 		"lint": "eslint . --fix",
 		"generate": "cross-env DATABASE_URL=\"postgresql://\" prisma generate",
-		"copy-types": "mkdir -p src/generated/@hackware/types && cp -RL node_modules/@hackware/types/schema src/generated/@hackware/types",
 		"build": "docker build -t stasis-proxy ."
 	},
 	"devDependencies": {

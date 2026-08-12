@@ -1,4 +1,4 @@
-import { zMojangUserResponse } from "@hackware/types/schema/mojang/zMojangUserResponse";
+import { zMojangUserResponse } from "~/schema/mojang/zMojangUserResponse";
 import EventEmitter from "events";
 import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
