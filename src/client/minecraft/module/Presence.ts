@@ -14,16 +14,15 @@ import { MinecraftClient } from "../MinecraftClient";
 import { Module } from "../Module";
 
 /**
- * The `meta` SSE event that precedes every delivered payload, naming the
- * authoritative sender. Chat and direct messages carry no sender of their own —
- * this is the only place the speaker's identity comes from.
+ * The `meta` SSE event that precedes every delivered payload. `sender` is the
+ * authenticated sender's uuid — chat, direct messages and presence carry no
+ * sender of their own, so this is the only place the speaker's identity comes
+ * from. Display names are ours to resolve: every sender on the channel is on
+ * this same multiplayer server, so the tab list has them.
  */
 const zIrcMeta = z.object({
 	userAgent: z.string().nullish(),
-	authoritativeSender: z.object({
-		id: z.string(),
-		username: z.string()
-	}).nullish()
+	sender: z.uuid().nullish()
 });
 
 export type IrcMeta = z.infer<typeof zIrcMeta>;
@@ -90,14 +89,24 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		oxygen: 300
 	};
 
-	/** The meta frame's sender, unless it is the bot's own echo (its chat replies
-	 *  come back on the stream, and handling them would loop). */
-	private senderOf(meta: IrcMeta | null): { id: string, username: string } | null {
-		const sender = meta?.authoritativeSender;
-		if (!sender) return null;
+	/**
+	 * The meta frame's sender resolved against the tab list, unless it is the
+	 * bot's own echo (its chat replies come back on the stream, and handling
+	 * them would loop). `username` is null for a sender the tab list doesn't
+	 * know — identity still stands, but command handling needs the name.
+	 */
+	private senderOf(meta: IrcMeta | null): { id: string, username: string | null } | null {
+		const uuid = meta?.sender;
+		if (!uuid) return null;
 		const botId = MinecraftClient.bot.player?.uuid;
-		if (botId && normalizeUUID(sender.id) === normalizeUUID(botId)) return null;
-		return sender;
+		if (botId && normalizeUUID(uuid) === normalizeUUID(botId)) return null;
+
+		for (const player of Object.values(MinecraftClient.bot.players)) {
+			if (player?.uuid && normalizeUUID(player.uuid) === normalizeUUID(uuid)) {
+				return { id: uuid, username: player.username };
+			}
+		}
+		return { id: uuid, username: null };
 	}
 
 	// Bound references so we can remove them on subsequent onReady calls
@@ -107,7 +116,10 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		const sender = this.senderOf(meta);
 		const message = new ChatManager.parser(<string>payload.message);
 		Presence.logger.log(`${ chalk.gray("[") }${ sender?.username ?? "?" }${ chalk.gray("]") }`, message.toAnsi());
-		if (!sender) return;
+
+		// Commands need a resolvable player — a sender the tab list doesn't know
+		// couldn't pass the bot.players lookup downstream anyway.
+		if (!sender?.username) return;
 
 		// Ignore messages that don't start with the command prefix
 		if (!message.toString().toLowerCase().startsWith(chatCommandsConfig.prefix.toLowerCase())) return;
@@ -122,7 +134,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 		const sender = this.senderOf(meta);
 		const message = new ChatManager.parser(<string>payload.message);
 		Presence.logger.log(`${ chalk.gray("[") }${ sender?.username ?? "?" }${ chalk.gray(" → me]") }`, message.toAnsi());
-		if (!sender) return;
+		if (!sender?.username) return;
 
 		// A DM is addressed to the bot by construction, so the prefix is
 		// optional — but tolerated, so "!pearls" and "pearls" both work.
@@ -269,10 +281,11 @@ export default class Presence extends Module<typeof zConfigSchema> {
 			if (item) inventory.set(slot - 36, Presence.translateItem(item));
 		}
 
+		// No player — a presence snapshot is the sender's own, attributed by the
+		// server from the credentials.
 		return zIrcPresence.parse({
 			type: "presence",
 			attributes: this.attributes,
-			player: MinecraftClient.bot.player.uuid,
 			inventory: Array.from(inventory.entries()).map(([ slot, item ]) => ({ slot, item }))
 		});
 	}
