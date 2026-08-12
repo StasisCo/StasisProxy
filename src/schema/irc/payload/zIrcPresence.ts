@@ -3,7 +3,7 @@ import { zInventorySlot } from "../../zInventorySlot";
 
 /**
  * A presence snapshot describes the SENDER, so like zIrcChat it carries no
- * player at all — identity rides in the meta frame's `sender` uuid, and
+ * player at all — identity rides in the meta frame's `uuid`, and
  * delivery coalescing keys on that.
  */
 export const zIrcPresence = z.object({

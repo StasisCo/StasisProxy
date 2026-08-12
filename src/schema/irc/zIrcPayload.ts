@@ -25,7 +25,4 @@ export const zIrcPayload = z.discriminatedUnion("type", [
 	zIrcResendRequest
 ]);
 
-export const zIrcPayloadPOST = z.union([
-	zIrcPayload,
-	z.array(zIrcPayload)
-]);
+export type IrcPayload = z.infer<typeof zIrcPayload>;

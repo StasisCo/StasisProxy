@@ -14,15 +14,17 @@ import { MinecraftClient } from "../MinecraftClient";
 import { Module } from "../Module";
 
 /**
- * The `meta` SSE event that precedes every delivered payload. `sender` is the
+ * The `meta` SSE event that precedes every delivered payload. `uuid` is the
  * authenticated sender's uuid — chat, direct messages and presence carry no
  * sender of their own, so this is the only place the speaker's identity comes
- * from. Display names are ours to resolve: every sender on the channel is on
- * this same multiplayer server, so the tab list has them.
+ * from — `agent` their user agent, and `channel` the readable multiplayer
+ * server the message was delivered on. Display names are ours to resolve:
+ * every sender on the channel is on this same server, so the tab list has them.
  */
 const zIrcMeta = z.object({
-	userAgent: z.string().nullish(),
-	sender: z.uuid().nullish()
+	uuid: z.uuid().nullish(),
+	agent: z.string().nullish(),
+	channel: z.string().nullish()
 });
 
 export type IrcMeta = z.infer<typeof zIrcMeta>;
@@ -96,7 +98,7 @@ export default class Presence extends Module<typeof zConfigSchema> {
 	 * know — identity still stands, but command handling needs the name.
 	 */
 	private senderOf(meta: IrcMeta | null): { id: string, username: string | null } | null {
-		const uuid = meta?.sender;
+		const uuid = meta?.uuid;
 		if (!uuid) return null;
 		const botId = MinecraftClient.bot.player?.uuid;
 		if (botId && normalizeUUID(uuid) === normalizeUUID(botId)) return null;
