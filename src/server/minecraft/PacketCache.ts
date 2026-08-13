@@ -59,15 +59,18 @@ const PACKET_KEYS: Record<string, true | ((data: any) => string)> = {
 	"action_bar": true,
 
 	// ── Keyed by entity ID ──
+	// Deliberately NOT cached, despite being entity-keyed: `entity_velocity` (the bridge drops
+	// it for everything but the player's own entity, so replaying it is pure waste) and
+	// `entity_head_rotation` (cosmetic initial head pose; live updates arrive within a tick of
+	// attach). Both arrive hundreds of times per second at entity-dense locations — caching
+	// them was measurable buffer-copy and map churn on constrained hosts.
 	"spawn_entity": d => `${ d.entityId }`,
 	"named_entity_spawn": d => `${ d.entityId }`,
 	"spawn_entity_experience_orb": d => `${ d.entityId }`,
 	"entity_metadata": d => `${ d.entityId }`,
 	"entity_equipment": d => `${ d.entityId }`,
 	"entity_update_attributes": d => `${ d.entityId }`,
-	"entity_head_rotation": d => `${ d.entityId }`,
 	"entity_teleport": d => `${ d.entityId }`,
-	"entity_velocity": d => `${ d.entityId }`,
 	"set_passengers": d => `${ d.entityId }`,
 	"entity_effect": d => `${ d.entityId }:${ d.effectId }`,
 
@@ -107,7 +110,6 @@ const ENTITY_PACKET_NAMES = [
 	"entity_metadata",
 	"entity_equipment",
 	"entity_update_attributes",
-	"entity_head_rotation",
 	"entity_teleport",
 	"set_passengers"
 ] as const;

@@ -119,28 +119,30 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 		// interrupt the use_item action and cancel the eat.
 		if (Module.get<AutoEat>("AutoEat").isEating) return;
 
-		const [ entity ] = Object.values(MinecraftClient.bot.entities)
-			.filter(e => e.id !== MinecraftClient.bot.entity.id)
-			.filter(e => e.position.distanceSquared(MinecraftClient.bot.entity.position) <= this.config.reachRange ** 2)
-			.sort((a, b) => a.position.distanceSquared(MinecraftClient.bot.entity.position) - b.position.distanceSquared(MinecraftClient.bot.entity.position))
-			.filter(entity => {
-				for (const filter of this.config.list) {
+		// Single non-allocating pass: nearest in-reach entity matching the target list. The
+		// old filter/sort chain allocated several intermediate arrays over every tracked
+		// entity each tick — meaningful GC pressure at entity-dense locations.
+		const bot = MinecraftClient.bot;
+		const registry = mcData(bot.version).entitiesByName;
+		const reachSq = this.config.reachRange ** 2;
+		const filters = this.config.list.map(f => f.toLowerCase().replace(/\s/g, "_"));
 
-					if (!entity.name) continue;
+		let entity: Entity | undefined;
+		let bestDistSq = Infinity;
+		for (const id in bot.entities) {
+			const candidate = bot.entities[id];
+			if (candidate === undefined || candidate.id === bot.entity.id || !candidate.name) continue;
 
-					if (entity.name.toLowerCase().replace(/\s/g, "_") === filter.toLowerCase().replace(/\s/g, "_")) return true;
+			const distSq = candidate.position.distanceSquared(bot.entity.position);
+			if (distSq > reachSq || distSq >= bestDistSq) continue;
 
-					const e = mcData(MinecraftClient.bot.version).entitiesByName[entity.name];
-					if (!e) continue;
+			const name = candidate.name.toLowerCase().replace(/\s/g, "_");
+			const category = registry[candidate.name]?.category?.toLowerCase().replace(/\s/g, "_");
+			if (!filters.some(filter => filter === name || (category !== undefined && filter === category))) continue;
 
-					if (e.category && filter.toLowerCase().replace(/\s/g, "_") === e.category.toLowerCase().replace(/\s/g, "_")) return true;
-
-				}
-
-				return false;
-			});
-
-		// Filter
+			entity = candidate;
+			bestDistSq = distSq;
+		}
 
 		if (!entity) return;
 

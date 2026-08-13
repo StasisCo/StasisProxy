@@ -49,7 +49,13 @@ export class MinecraftClient {
 		port: parseInt(z.string().optional().parse(process.env.MC_HOST)?.split(":")[1] ?? "25565"),
 		profilesFolder: z.string().optional().parse(process.env.MC_PROFILE),
 		username: zMojangUsername.parse(process.env.MC_USERNAME),
-		version: z.string().refine(val => /\d+\.\d+(\.\d+)?/.test(val), "Invalid Minecraft version format").optional().parse(process.env.MC_VERSION)
+		version: z.string().refine(val => /\d+\.\d+(\.\d+)?/.test(val), "Invalid Minecraft version format").optional().parse(process.env.MC_VERSION),
+
+		// Requested view distance in chunks. The dominant CPU cost on constrained hosts is
+		// packet parsing, and it scales with what the server sends — a smaller view distance
+		// culls chunk, block-update and far-entity traffic at the source. Per-bot via env:
+		// set low (e.g. 4) for bots stationed at entity-dense farms on small containers.
+		viewDistance: process.env.MC_VIEW_DISTANCE ? z.coerce.number().int().min(2).max(32).parse(process.env.MC_VIEW_DISTANCE) : "far"
 	};
 
 	/** Resolved server host after connection; used for namespacing Redis channels and database records by server */

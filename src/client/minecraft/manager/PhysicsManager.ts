@@ -157,6 +157,9 @@ export class PhysicsManager {
 
 	private interval: NodeJS.Timeout | null = null;
 
+	/** Tick-health watchdog timer — cleared in {@link stop} so dead instances go quiet and collect. */
+	private watchdog: NodeJS.Timeout | null = null;
+
 	/** Physics ticks since this connection started. */
 	private tickCount = 0;
 
@@ -165,6 +168,18 @@ export class PhysicsManager {
 
 	/** Last self knockback received, restored across a correction if not yet simulated. */
 	private pendingKnockback: { x: number; y: number; z: number; time: number } | null = null;
+
+	// ─── Tick-health watchdog ────────────────────────────────────
+	// Silent while healthy. When the 20 TPS loop is being starved (event loop saturated by
+	// packet handling at entity-dense locations), reports once per 10 s with per-packet-name
+	// listener timings so the time sink is named instead of guessed at.
+
+	/** Cumulative listener time per emitted event name in the current watch window. */
+	private readonly listenerTime = new Map<string, number>();
+
+	private windowTicks = 0;
+	private maxTickGap = 0;
+	private lastTickAt = 0;
 
 	constructor(public readonly bot: Bot) {
 
@@ -193,6 +208,46 @@ export class PhysicsManager {
 
 			origWrite(name, data);
 		} as typeof bot._client.write;
+
+		// Time every packet-event listener chain. Wrapping emit costs two clock reads per
+		// event — negligible — and attributes event-loop saturation to the packet names whose
+		// handlers actually consume it when the tick watchdog reports.
+		const origEmit = bot._client.emit.bind(bot._client);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- emit signature is variadic
+		(bot._client as any).emit = (event: string | symbol, ...args: unknown[]) => {
+			const start = performance.now();
+			const result = origEmit(event as never, ...args as never[]);
+			const elapsed = performance.now() - start;
+			if (elapsed > 0) {
+				const key = String(event);
+				this.listenerTime.set(key, (this.listenerTime.get(key) ?? 0) + elapsed);
+			}
+			return result;
+		};
+
+		// Report only when degraded: fewer than 170 of the expected 200 ticks in 10 s.
+		this.watchdog = setInterval(() => {
+			const ticks = this.windowTicks;
+			const maxGap = this.maxTickGap;
+			this.windowTicks = 0;
+			this.maxTickGap = 0;
+
+			const top = [ ...this.listenerTime.entries() ]
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 6)
+				.map(([ name, ms ]) => `${ name }=${ ms.toFixed(0) }ms`)
+				.join(" ");
+			const totalListenerMs = [ ...this.listenerTime.values() ].reduce((a, b) => a + b, 0);
+			this.listenerTime.clear();
+
+			if (!this.interval || ticks >= 170) return;
+			PhysicsManager.logger.warn(
+				`Tick loop degraded: ${ ticks }/200 ticks in 10s, max gap ${ maxGap.toFixed(0) }ms.`
+				+ ` Listener time ${ totalListenerMs.toFixed(0) }ms/10s — top: ${ top || "none" }`
+				+ (totalListenerMs < 3_000 ? " (listeners cheap — remainder is packet parsing/serialization)" : "")
+			);
+		}, 10_000);
+		this.watchdog.unref?.();
 
 		// Disable mineflayer's physics simulation permanently.
 		// Use defineProperty so nothing can set it back to true (mineflayer's position handler does).
@@ -401,6 +456,12 @@ export class PhysicsManager {
 
 		this.tickCount++;
 		this.rotation.onTick();
+
+		// Tick-health accounting for the watchdog.
+		const tickNow = performance.now();
+		this.windowTicks++;
+		if (this.lastTickAt > 0) this.maxTickGap = Math.max(this.maxTickGap, tickNow - this.lastTickAt);
+		this.lastTickAt = tickNow;
 
 		// When a player is controlling the bot via proxy, their client handles
 		// physics and sends movement packets directly to the server. Our simulation
@@ -622,7 +683,11 @@ export class PhysicsManager {
 		const selfHeight = 1.8;
 		const pos = self.position;
 
-		for (const entity of Object.values(this.bot.entities)) {
+		// for..in over the live map — Object.values would allocate a fresh array of every
+		// tracked entity 20 times a second, which is real GC pressure at 1500 entities.
+		for (const id in this.bot.entities) {
+			const entity = this.bot.entities[id];
+			if (entity === undefined) continue;
 
 			// isValid is only ever assigned on destroy (entities.js sets it false) — a live
 			// entity may not have the property at all, so test for the explicit false.
@@ -862,15 +927,44 @@ export class PhysicsManager {
 		}
 	}
 
+	/** The moment the next simulation tick is due, for fixed-timestep catch-up. */
+	private nextTickAt = 0;
+
+	/**
+	 * Fixed-timestep tick driver. Under event-loop pressure (packet parsing at entity-dense
+	 * locations) the interval fires late; running only one tick per fire would silently lose
+	 * the missed ticks and slow the whole bot proportionally. Instead, repay small slips by
+	 * running the owed ticks in a short burst — exactly what a vanilla client's catch-up loop
+	 * does, and anticheat-legal because the long-run rate never exceeds 20 TPS.
+	 */
+	private runScheduledTicks() {
+		const now = performance.now();
+		if (this.nextTickAt === 0) this.nextTickAt = now;
+
+		// A stall longer than a few ticks (GC pause, IO hitch) is debt not worth bursting
+		// through — drop it and resume at real time. Small slips are repaid below.
+		if (now - this.nextTickAt > PHYSICS_INTERVAL_MS * 4) this.nextTickAt = now;
+
+		while (now >= this.nextTickAt) {
+			this.nextTickAt += PHYSICS_INTERVAL_MS;
+			this.tick();
+		}
+	}
+
 	private start() {
 		if (this.interval) return;
-		this.interval = setInterval(() => this.tick(), 50);
+		this.nextTickAt = 0;
+		this.interval = setInterval(() => this.runScheduledTicks(), PHYSICS_INTERVAL_MS);
 	}
 
 	public stop() {
 		if (this.interval) {
 			clearInterval(this.interval);
 			this.interval = null;
+		}
+		if (this.watchdog) {
+			clearInterval(this.watchdog);
+			this.watchdog = null;
 		}
 	}
 

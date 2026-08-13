@@ -185,8 +185,10 @@ export class PathfindingManager {
 	private async update() {
 		if (!this.bot.entity) return;
 
-		// Solid-entity cells move every tick — refresh before any walkability decisions.
-		this.refreshEntityObstacles();
+		// Refresh solid-entity cells on a 10-tick cadence — shulkers, boats and minecarts
+		// barely move within half a second, and rebuilding the set every tick at 1500
+		// entities is needless allocation churn on constrained hosts.
+		if (this.obstacleRefreshCounter++ % 10 === 0) this.refreshEntityObstacles();
 
 		// Always look straight ahead — prevent pitch getting stuck (e.g. after Stasis.interact() looks at a block below)
 		this.bot.entity.pitch = 0;
@@ -604,10 +606,13 @@ export class PathfindingManager {
 	 */
 	private readonly entityObstacles = new Set<string>();
 
+	private obstacleRefreshCounter = 0;
+
 	private refreshEntityObstacles() {
 		this.entityObstacles.clear();
-		for (const entity of Object.values(this.bot.entities)) {
-			if (entity.isValid === false) continue;
+		for (const id in this.bot.entities) {
+			const entity = this.bot.entities[id];
+			if (entity === undefined || entity.isValid === false) continue;
 			const name = entity.name ?? "";
 			if (name !== "shulker" && !name.endsWith("boat") && !name.includes("minecart")) continue;
 
