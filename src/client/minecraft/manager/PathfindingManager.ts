@@ -185,6 +185,9 @@ export class PathfindingManager {
 	private async update() {
 		if (!this.bot.entity) return;
 
+		// Solid-entity cells move every tick — refresh before any walkability decisions.
+		this.refreshEntityObstacles();
+
 		// Always look straight ahead — prevent pitch getting stuck (e.g. after Stasis.interact() looks at a block below)
 		this.bot.entity.pitch = 0;
 
@@ -592,9 +595,42 @@ export class PathfindingManager {
 		}
 	}
 
+	/**
+	 * Cells occupied by entities the server collides players against like blocks — shulkers,
+	 * boats and minecarts (vanilla `canBeCollidedWith`). The anticheat includes their hitboxes
+	 * in its movement simulation but prismarine-physics has no entity collision at all, so a
+	 * step planned through one is a guaranteed rollback. At entity-dense farms (hundreds of
+	 * shulkers) that turned every walk into a one-step-per-seconds stutter. Rebuilt each tick.
+	 */
+	private readonly entityObstacles = new Set<string>();
+
+	private refreshEntityObstacles() {
+		this.entityObstacles.clear();
+		for (const entity of Object.values(this.bot.entities)) {
+			if (entity.isValid === false) continue;
+			const name = entity.name ?? "";
+			if (name !== "shulker" && !name.endsWith("boat") && !name.includes("minecart")) continue;
+
+			const half = (entity.width ?? 1) / 2;
+			const y = Math.floor(entity.position.y);
+			const minX = Math.floor(entity.position.x - half);
+			const maxX = Math.floor(entity.position.x + half);
+			const minZ = Math.floor(entity.position.z - half);
+			const maxZ = Math.floor(entity.position.z + half);
+			for (let x = minX; x <= maxX; x++) {
+				for (let z = minZ; z <= maxZ; z++) {
+					this.entityObstacles.add(`${ x },${ y },${ z }`);
+				}
+			}
+		}
+	}
+
 	/** Solid for pathing purposes. Unloaded blocks count as solid — never plan through the unknown. */
 	private isSolidCell(x: number, y: number, z: number): boolean {
-		const expiry = this.stallObstacles.get(`${ x },${ y },${ z }`);
+		const key = `${ x },${ y },${ z }`;
+		if (this.entityObstacles.has(key)) return true;
+
+		const expiry = this.stallObstacles.get(key);
 		if (expiry !== undefined && expiry > Date.now()) return true;
 
 		const block = this.bot.blockAt(new Vec3(x, y, z));

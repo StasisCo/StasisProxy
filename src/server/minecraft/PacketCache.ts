@@ -121,6 +121,25 @@ const ENTITY_PACKET_NAMES = [
 export const RESERIALIZE_PACKETS = new Set([ "entity_equipment" ]);
 
 /**
+ * Packet names whose parsed `data` is read or mutated after caching — position rewriting
+ * ({@link PacketCache.updatePosition}), command decoration, view-position rewrites, replay
+ * re-serialization ({@link RESERIALIZE_PACKETS}) and the replayed teleport id. Only these are
+ * deep-copied on arrival: everything else replays via the raw buffer and its parsed object is
+ * never touched again. This matters — `structuredClone` on every keyed packet meant thousands
+ * of clones per second at entity-dense locations, enough to starve the 50 ms physics tick and
+ * reduce the bot to a stutter-walk.
+ */
+const KEEP_PARSED_DATA = new Set([
+	"position",
+	"declare_commands",
+	"update_view_position",
+	"game_state_change",
+	"login",
+	"respawn",
+	...RESERIALIZE_PACKETS
+]);
+
+/**
  * Records a rolling snapshot of the upstream server's world state by caching
  * one entry per "key" per packet name. When a proxy client connects, the cache
  * is replayed in original arrival order so the client sees a consistent world
@@ -246,8 +265,14 @@ export class PacketCache {
 		// internal pool whose memory can be reused after the event handler.
 		// Copy the raw buffer too — used for writeRaw replay to avoid
 		// re-serialization issues (structuredClone converts Buffers to Uint8Array,
-		// corrupting chunk data).
-		inner.set(key, { seq: this.seq++, name, data: structuredClone(data), buffer: Buffer.from(buffer) });
+		// corrupting chunk data). The parsed data is only cloned for the few packet
+		// names that are read or mutated after caching — see KEEP_PARSED_DATA.
+		inner.set(key, {
+			seq: this.seq++,
+			name,
+			data: KEEP_PARSED_DATA.has(name) ? structuredClone(data) : null,
+			buffer: Buffer.from(buffer)
+		});
 	}
 
 	private deleteKey(name: string, key: string) {
