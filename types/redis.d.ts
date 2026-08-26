@@ -20,6 +20,8 @@ declare namespace Redis {
 
 		[key: `stasisproxy:queue:${ string }:eta`]: { factor: number, pow: number };
 
+		[key: `stasisproxy:bot:online:${ string }`]: { host: string };
+
 		[key: `stasisproxy:mcacache:${ string }`]: z.infer<typeof zMojangUser>;
 
 	}

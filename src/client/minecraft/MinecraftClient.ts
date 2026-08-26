@@ -30,6 +30,10 @@ const RECONNECT_DELAYS_MS = [ 0, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 60_
 /** How long shutdown cleanup gets before the process is terminated regardless. */
 const SHUTDOWN_GRACE_MS = 3_000;
 
+/** How often the bot renews its cluster-wide presence key, and how long that key outlives the last renewal. */
+const PRESENCE_INTERVAL_MS = 10_000;
+const PRESENCE_TTL_S = "30";
+
 export class MinecraftClient {
 
 	/** User agent string to identify the client version */
@@ -90,6 +94,31 @@ export class MinecraftClient {
 
 	/** Whether a shutdown is already in progress, so a second interrupt can bypass cleanup. */
 	private static exiting = false;
+
+	/** The presence key currently held in Redis, so it can be deleted promptly on disconnect rather than waiting for the TTL. */
+	private static presenceKey?: `stasisproxy:bot:online:${ string }`;
+
+	/**
+	 * Advertise this bot as online cluster-wide. Any container can win the Discord interaction
+	 * claim — including one that is queueing or reconnecting — so "is bot X online, and on which
+	 * server" must be answerable without consulting the local connection's tab list. While logged
+	 * in past the queue, the bot's UUID maps to its server host in Redis; the key expires on its
+	 * own if the process dies without cleanup.
+	 */
+	private static async presenceTick() {
+		const id = this.session?.selectedProfile.id;
+		if (!id || !this.host || !this.bot?.player || this.queue?.isQueued !== false) return this.clearPresence();
+		this.presenceKey = `stasisproxy:bot:online:${ normalizeUUID(id) }`;
+		await redis.set(this.presenceKey, { host: this.host }, "EX", PRESENCE_TTL_S).catch(() => undefined);
+	}
+
+	/** Remove this bot's presence key, if one is held. */
+	private static async clearPresence() {
+		const key = this.presenceKey;
+		if (!key) return;
+		this.presenceKey = undefined;
+		await redis.del(key).catch(() => undefined);
+	}
 
 	/**
 	 * Gracefully disconnects the bot and exits the process with the specified exit code
@@ -166,6 +195,9 @@ export class MinecraftClient {
 		this.queue = new QueueManager(this.bot);
 		this.stasis = new StasisManager(this.bot);
 
+		// Advertise presence as soon as the queue is cleared instead of waiting out the heartbeat interval
+		this.queue.once("leave-queue", () => void this.presenceTick());
+
 		// Rebind the console's event listeners to the new bot
 		this.console?.rebind(this.bot);
 
@@ -199,6 +231,7 @@ export class MinecraftClient {
 		this.bot.on("end", async() => {
 			try {
 				this.proxy.close();
+				await this.clearPresence();
 
 				// Release management of all tracked stasis so other bots can pick them up
 				for (const stasis of Stasis.instances.values()) await stasis.releaseManagement();
@@ -300,6 +333,8 @@ export class MinecraftClient {
 	static {
 		process.once("SIGTERM", () => this.exit(0));
 		process.once("SIGINT", () => this.exit(0));
+
+		setInterval(() => void this.presenceTick(), PRESENCE_INTERVAL_MS);
 
 		void ChatCommandManager.init();
 		void ClientCommands.init();

@@ -1,6 +1,5 @@
 import { randomBytes } from "crypto";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, Events, SlashCommandBuilder, StringSelectMenuBuilder, type ButtonInteraction, type CacheType } from "discord.js";
-import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import type { Player } from "~/generated/prisma/client";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
@@ -95,14 +94,28 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 	});
 
-	// Get all pearls for this account that are managed by any bot in range
-	const all = await prisma.stasis.findMany({ where: { ownerId: account.id, managers: { some: {}}}, select: { id: true, owner: true, managers: { include: { player: { select: { id: true, username: true }}}}}})
-		.then(pearls => pearls.filter(pearl => pearl.managers.some(manager => Object.values(MinecraftClient.bot.players).some(player => player.uuid === manager.id))))
-		.catch(() => []);
+	// Get all pearls for this account that have at least one managing bot
+	const pearls = await prisma.stasis.findMany({ where: { ownerId: account.id, managers: { some: {}}}, select: { id: true, owner: true, managers: { include: { player: { select: { id: true, username: true }}}}}})
+		.catch(err => {
+			DiscordClient.logger.error("Failed to fetch stasis for /load:", err);
+			return [];
+		});
 
-	// Get the unique bots that have pearls for this account
+	// Resolve which manager bots are online, and on which server, from their cluster-wide presence
+	// heartbeats. This container's own tab list can't answer that — an arbitrary container wins the
+	// interaction claim, including one that is queueing or reconnecting and sees no peers at all.
+	const online = new Map<string, string>();
+	await Promise.all(Array.from(new Set(pearls.flatMap(pearl => pearl.managers.map(manager => manager.id))), async managerId => {
+		const presence = await redis.get(`stasisproxy:bot:online:${ managerId }`);
+		if (presence) online.set(managerId, presence.host);
+	}));
+
+	// Keep only pearls with an online manager
+	const all = pearls.filter(pearl => pearl.managers.some(manager => online.has(manager.id)));
+
+	// Get the unique online bots that have pearls for this account
 	const bots = new Map();
-	for (const pearl of all) for (const manager of pearl.managers) bots.set(manager.id, manager.player);
+	for (const pearl of all) for (const manager of pearl.managers) if (online.has(manager.id)) bots.set(manager.id, manager.player);
 
 	// If no pearls are found, inform the user and exit
 	if (all.length === 0) {
@@ -113,9 +126,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 		return;
 	}
 
-	// Group pearls by bot
+	// Group pearls by online bot
 	const byBot = new Map<string, Set<typeof all[number]>>();
-	for (const pearl of all) for (const manager of pearl.managers) byBot.getOrInsert(manager.id, new Set()).add(pearl);
+	for (const pearl of all) for (const manager of pearl.managers) if (online.has(manager.id)) byBot.getOrInsert(manager.id, new Set()).add(pearl);
 
 	// Get the bot to request to load. If there is only one bot, select it automatically, otherwise ask the user to select a bot from a dropdown menu
 	const bot = await new Promise<Player>(resolve => {
@@ -218,6 +231,17 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 	const embed = new EmbedBuilder();
 	embed.setAuthor({ name: bot.username, iconURL: `https://mc-heads.net/head/${ bot.id }` });
 
+	// Re-check the bot's presence at press time — it may have gone offline since the pearls were
+	// listed, and its heartbeat carries the server host the load request must be routed to.
+	const presence = await redis.get(`stasisproxy:bot:online:${ bot.id }`);
+	if (!presence) {
+		embed.setColor(0xf43f5e);
+		embed.setTitle("Bot Offline");
+		embed.setDescription(`**${ bot.username }** is no longer online, please try again later...`);
+		await interaction.editReply({ embeds: [ embed ], components: []});
+		return;
+	}
+
 	embed.setColor(0xeab308);
 	embed.setTitle("Traveling to Stasis");
 	embed.setDescription(`**${ bot.username }** is traveling to your stasis, please wait...`);
@@ -266,8 +290,9 @@ async function loadAndLifeCycle(interaction: ButtonInteraction<CacheType>, bot: 
 
 	});
 
-	// Now emit the load request — the subscription above is already active
-	await redis.emit(`stasisproxy:cluster:${ MinecraftClient.host }`, {
+	// Now emit the load request — the subscription above is already active. Route to the manager
+	// bot's own server channel, not this container's, which may not even be connected.
+	await redis.emit(`stasisproxy:cluster:${ presence.host }`, {
 		type: "request-load",
 		playerUuid: account.id,
 		destinationUuid: bot.id,

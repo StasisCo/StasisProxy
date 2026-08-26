@@ -3,14 +3,9 @@ import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { redis } from "~/redis";
 import { HttpServer } from "~/server/http/HttpServer";
 import { resolvePlayer } from "~/server/http/resolver/player";
+import { normalizeUUID } from "~/utils";
 
 HttpServer.GET("/api/stasis/:botId/load", async function(req, res) {
-
-	// Make sure we have a host set before accepting load requests
-	if (!MinecraftClient.host) return res.status(503).json({
-		success: false,
-		error: "Server host is not defined."
-	});
 
 	// Resolve the player from the request, returning early if there's an error response
 	const player = await resolvePlayer(req);
@@ -23,8 +18,17 @@ HttpServer.GET("/api/stasis/:botId/load", async function(req, res) {
 		error: "Invalid bot ID format."
 	});
 
+	// Route to the destination bot's own server channel from its presence heartbeat — this
+	// container may be on a different server, or not connected at all
+	const presence = await redis.get(`stasisproxy:bot:online:${ normalizeUUID(destinationUuid) }`);
+	const host = presence?.host ?? MinecraftClient.host;
+	if (!host) return res.status(503).json({
+		success: false,
+		error: "Destination bot is not online."
+	});
+
 	// Request correct peer to load the player
-	await redis.emit(`stasisproxy:cluster:${ MinecraftClient.host }`, {
+	await redis.emit(`stasisproxy:cluster:${ host }`, {
 		type: "request-load",
 		destinationUuid,
 		playerUuid: player.id
