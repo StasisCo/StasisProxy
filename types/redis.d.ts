@@ -8,7 +8,7 @@ declare namespace Redis {
 
 		"stasisproxy:discord:register": true;
         
-		[key: `stasisproxy:discord:interaction:${ string }`]: true;
+		[key: `stasisproxy:discord:interaction:${ string }`]: string | true;
         
 		[key: `stasisproxy:discord:ignlink:${ string }:message`]: { type: "interaction-original", applicationId: string, token: string };
 

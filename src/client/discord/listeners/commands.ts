@@ -2,6 +2,7 @@ import { ChatInputCommandInteraction, Events, REST, Routes, SlashCommandBuilder 
 import { readdir } from "fs/promises";
 import { join } from "path";
 import { DiscordClient } from "~/client/discord/DiscordClient";
+import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { redis } from "~/redis";
 
 type Command = {
@@ -48,9 +49,11 @@ DiscordClient.client.on(Events.InteractionCreate, async function(interaction) {
 	const cmd = commands.get(interaction.commandName);
 	if (!cmd) return;
 
-	// Claim ownership of this interaction. TTL is short — the interaction
-	// token only lives 15 minutes anyway and we just need to deduplicate.
-	const claim = await redis.set(`stasisproxy:discord:interaction:${ interaction.id }`, true, "EX", "60", "NX");
+	// Claim ownership of this interaction. The claim value names the winning container and its
+	// code version, so a bad answer can be traced to the container that produced it (old builds
+	// wrote `true` here — an anonymous claim means an outdated container won). TTL matches the
+	// 15-minute interaction token lifetime to leave a forensic window.
+	const claim = await redis.set(`stasisproxy:discord:interaction:${ interaction.id }`, MinecraftClient.userAgent + ":" + (MinecraftClient.options.username ?? "unknown"), "EX", "900", "NX");
 	if (claim !== "OK") return;
 
 	try {
