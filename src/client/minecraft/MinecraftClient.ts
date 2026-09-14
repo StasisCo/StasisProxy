@@ -18,6 +18,7 @@ import { ClientCommands } from "~/server/minecraft/ClientCommands";
 import { Server } from "~/server/minecraft/Server";
 import { normalizeUUID } from "~/utils";
 import { name, version } from "../../../package.json";
+import { InboundWorker } from "./manager/InboundWorker";
 import { InteractionManager } from "./manager/InteractionManager";
 import { PhysicsManager } from "./manager/PhysicsManager";
 import { QueueManager } from "./manager/QueueManager";
@@ -72,6 +73,7 @@ export class MinecraftClient {
 	public static bot: Bot;
 
 	public static proxy: Server;
+	public static inbound: InboundWorker;
 	public static chat: ChatManager;
 	public static interaction: InteractionManager;
 	public static pathfinding: PathfindingManager;
@@ -181,11 +183,13 @@ export class MinecraftClient {
 
 		// Tear down previous connection's resources
 		this.physics?.stop();
+		this.inbound?.stop();
 		this.chat?.close();
 		this.proxy?.close();
 
 		// Create fresh bot and managers
 		this.bot = createBot(this.options);
+		this.inbound = new InboundWorker(this.bot);
 		this.proxy = new Server(this.bot);
 		this.chat = new ChatManager(this.bot);
 		this.pathfinding = new PathfindingManager(this.bot);

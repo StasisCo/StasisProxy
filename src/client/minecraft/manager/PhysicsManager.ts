@@ -4,6 +4,7 @@ import type { Bot } from "mineflayer";
 import { Physics, PlayerState, type Controls } from "prismarine-physics";
 import { Logger } from "~/class/Logger";
 import { MinecraftClient } from "../MinecraftClient";
+import { InboundWorker } from "./InboundWorker";
 import { RotationManager } from "./RotationManager";
 
 const PI = Math.PI;
@@ -240,11 +241,17 @@ export class PhysicsManager {
 			const totalListenerMs = [ ...this.listenerTime.values() ].reduce((a, b) => a + b, 0);
 			this.listenerTime.clear();
 
+			// Sample the inbound worker every window so its counters stay per-window even
+			// when healthy; only the degraded case reports.
+			const inbound = InboundWorker.current?.stats();
+
 			if (!this.interval || ticks >= 170) return;
 			PhysicsManager.logger.warn(
 				`Tick loop degraded: ${ ticks }/200 ticks in 10s, max gap ${ maxGap.toFixed(0) }ms.`
 				+ ` Listener time ${ totalListenerMs.toFixed(0) }ms/10s — top: ${ top || "none" }`
-				+ (totalListenerMs < 3_000 ? " (listeners cheap — remainder is packet parsing/serialization)" : "")
+				+ (inbound
+					? ` | inbound worker: ${ inbound.packets } packets in ${ inbound.batches } batches, main ${ inbound.mainMs.toFixed(0) }ms, parse offloaded ${ inbound.workerMs.toFixed(0) }ms`
+					: (totalListenerMs < 3_000 ? " (listeners cheap — remainder is packet parsing/serialization)" : ""))
 			);
 		}, 10_000);
 		this.watchdog.unref?.();
