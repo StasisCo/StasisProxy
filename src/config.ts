@@ -1,18 +1,19 @@
 /**
- * The maximum amount of pearls a player can have across every site that shares this bot's location name
- * For example, if this is set to 4, a player holding 4 pearls between the sites named "farms" can't set another at any of them
- * Set this to -1 to disable pearl limiting
- * @default 3
- */
-export const STASIS_USER_MAX = parseInt(process.env.STASIS_USER_MAX || "3");
-
-/**
  * The maximum amount of pearls a player can have at this bot's site
  * For example, if this is set to 2, the bot will only hold 2 pearls for a player
  * Set this to -1 to disable the per-site limit
- * @default STASIS_USER_MAX
+ * @default 3
  */
-export const STASIS_SITE_MAX = process.env.STASIS_SITE_MAX ? parseInt(process.env.STASIS_SITE_MAX) : STASIS_USER_MAX;
+export const STASIS_SITE_MAX = parseInt(process.env.STASIS_SITE_MAX || "3");
+
+/**
+ * The maximum amount of pearls a player can have across every site that shares this bot's location name
+ * For example, if this is set to 3, a player holding 3 pearls between the sites named "farms" can't set another at any of them
+ * Left unset (or set to -1), the only limit is each site's own STASIS_SITE_MAX, which makes a
+ * player's total the sum of them: two sites with a limit of 2 each hold 4 between them
+ * @default the sum of every site's STASIS_SITE_MAX
+ */
+export const STASIS_USER_MAX = parseInt(process.env.STASIS_USER_MAX || "-1");
 
 /**
  * The names of the location this bot's site belongs to, which players pass to chat commands
