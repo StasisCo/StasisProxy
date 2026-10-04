@@ -3,6 +3,7 @@ declare namespace Redis {
 	type MessageOf<K extends ValidChannel> = Subscriptions[K];
 	type ValidChannel = keyof Subscriptions & string;
 	type ValueOf<K extends string> = K extends keyof Schema ? Schema[K] : never;
+	type FieldOf<K extends string> = K extends keyof Hashes ? Hashes[K] : never;
 
 	interface Schema {
 
@@ -18,11 +19,20 @@ declare namespace Redis {
 
 		[key: `stasisproxy:stasis:pearl:${ number }:owner`]: string;
 
+		[key: `stasisproxy:stasis:claim:${ string }`]: string;
+
 		[key: `stasisproxy:queue:${ string }:eta`]: { factor: number, pow: number };
 
 		[key: `stasisproxy:bot:online:${ string }`]: { host: string };
 
 		[key: `stasisproxy:mcacache:${ string }`]: z.infer<typeof zMojangUser>;
+
+	}
+
+	/** Redis hashes, by the type of each field's value */
+	interface Hashes {
+
+		[key: `stasisproxy:stasis:pool:${ string }`]: { locations: string[], max: number, seen: number };
 
 	}
 
@@ -48,6 +58,20 @@ declare namespace Redis {
 			playerUuid: string,
 			destinationUuid: string,
 			statusKey?: `stasisproxy:stasis:status:${ string }`,
+			direct?: boolean,
+		}
+		| {
+			type: "stasis-query",
+			id: string,
+			from: string,
+			playerUuid: string,
+			locations: string[],
+		}
+		| {
+			type: "stasis-reply",
+			id: string,
+			from: string,
+			stasis: Array<{ id: string, distance: number | null }> | null,
 		}
 
 }

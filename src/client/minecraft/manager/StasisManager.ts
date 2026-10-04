@@ -8,10 +8,10 @@ import { Goal } from "~/class/Goal";
 import { Logger } from "~/class/Logger";
 import { DiscordClient } from "~/client/discord/DiscordClient";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { ClusterManager } from "~/client/minecraft/manager/ClusterManager";
 import { Pearl } from "~/client/minecraft/Pearl";
 import { Stasis } from "~/client/minecraft/Stasis";
 import { StasisColumn } from "~/client/minecraft/StasisColumn";
-import { STASIS_USER_MAX } from "~/config";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
 import type { zStasisStatus } from "~/schema/zStasisStatus";
@@ -286,16 +286,19 @@ export class StasisManager {
 			const stasis = await column.save(owner);
 			if (!stasis) return;
 
-			// Get all stasis chambers for this player
-			const all = await Stasis.fetch(owner.uuid);
+			// Every bot in range saves the chamber, but only one of them holds it to the limit and answers the player
+			if (!await ClusterManager.claim("register", stasis.id)) return;
+
+			// Count this player's pearls across every bot at this location
+			const { total, limit } = await ClusterManager.survey(owner.uuid);
 
 			// If they have too many, break and remove excess pearls until at the limit
-			if (all.length > STASIS_USER_MAX && STASIS_USER_MAX >= 0) {
-				const excess = all.slice(STASIS_USER_MAX);
-				MinecraftClient.chat.whisper(owner, `You already have ${ all.length - 1 } / ${ STASIS_USER_MAX } pearls, ${ excess.length } will be removed.`);
-				StasisManager.logger.warn(`Player ${ chalk.cyan(owner.uuid) } has too many stasis chambers (${ chalk.yellow(all.length) } / ${ chalk.yellow(STASIS_USER_MAX) }), removing ${ chalk.yellow(excess.length) } excess`);
+			if (total > limit && limit >= 0) {
+				const excess = total - limit;
+				MinecraftClient.chat.whisper(owner, `You already have ${ total - 1 } / ${ limit } pearls, ${ excess } will be removed.`);
+				StasisManager.logger.warn(`Player ${ chalk.cyan(owner.uuid) } has too many stasis chambers (${ chalk.yellow(total) } / ${ chalk.yellow(limit) }), removing ${ chalk.yellow(excess) } excess`);
 
-				for (const extra of excess) await StasisManager.enqueue(extra.ownerId);
+				for (let i = 0; i < excess; i++) await StasisManager.enqueue(owner.uuid);
 				return;
 			}
 
@@ -306,9 +309,9 @@ export class StasisManager {
 				.addField({ name: "UUID", value: `${ owner.uuid }` })
 				.addField({ name: "Dimension", value: `${ MinecraftClient.bot.game.dimension }`, inline: true })
 				.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
-				.addField({ name: "Pearls", value: `${ all.length } / ${ STASIS_USER_MAX }` }));
+				.addField({ name: "Pearls", value: `${ total } / ${ limit }` }));
 
-			MinecraftClient.chat.whisper(owner, `Pearl registered! You have ${ all.length } / ${ STASIS_USER_MAX } pearls.`);
+			MinecraftClient.chat.whisper(owner, `Pearl registered! You have ${ total } / ${ limit } pearls.`);
 			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.uuid) }`);
 
 		});

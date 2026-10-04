@@ -1,9 +1,9 @@
 import { Embed } from "@vermaysha/discord-webhook";
 import type { Entity } from "prismarine-entity";
 import { DiscordClient } from "~/client/discord/DiscordClient";
+import { ClusterManager } from "~/client/minecraft/manager/ClusterManager";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { Stasis } from "~/client/minecraft/Stasis";
-import { STASIS_USER_MAX } from "~/config";
 import { prisma } from "~/prisma";
 import { MinecraftClient } from "../MinecraftClient";
 import { Module } from "../Module";
@@ -73,8 +73,8 @@ export default class Sentry extends Module {
 				const owner = await prisma.player.findUnique({ where: { id: stasis.ownerId }});
 				if (!owner) return;
 
-				// Fetch remaining stasis chambers for the owner of the pearl
-				const remaining = await Stasis.fetch(owner.id);
+				// Count the owner's remaining pearls across every bot at this location
+				const { total, limit } = await ClusterManager.survey(owner.id);
 
 				if (didIntentionallyPull) {
 					await DiscordClient.webhook(new Embed()
@@ -84,7 +84,7 @@ export default class Sentry extends Module {
 						.addField({ name: "UUID", value: `${ owner.id }` })
 						.addField({ name: "Dimension", value: `${ MinecraftClient.bot.game.dimension }`, inline: true })
 						.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
-						.addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
+						.addField({ name: "Pearls", value: `${ total } / ${ limit }` }));
 					return;
 				}
 
@@ -95,7 +95,7 @@ export default class Sentry extends Module {
 					.addField({ name: "UUID", value: `${ entity.uuid }` })
 					.addField({ name: "Dimension", value: `${ MinecraftClient.bot.game.dimension }`, inline: true })
 					.addField({ name: "XYZ", value: `||\`${ entity.position.floored().x }\` \`${ entity.position.floored().y }\` \`${ entity.position.floored().z }\`||`, inline: true })
-					.addField({ name: "Pearls", value: `${ remaining.length } / ${ STASIS_USER_MAX }` }));
+					.addField({ name: "Pearls", value: `${ total } / ${ limit }` }));
 
 				break;
 
@@ -107,11 +107,14 @@ export default class Sentry extends Module {
 				const player = Object.values(MinecraftClient.bot.players).find(p => p.entity && p.entity.id === entity.id);
 				if (!player) return;
 
-				const stasis = await Stasis.fetch(player.uuid);
-				if (stasis.length >= STASIS_USER_MAX) return;
+				// Every bot that watched them leave would send the same reminder
+				if (!await ClusterManager.claim("reminder", player.uuid)) return;
 
-				if (stasis.length === 0) return MinecraftClient.chat.whisper(player, `You left without setting any pearls! You can set up to ${ STASIS_USER_MAX } pearls and use !load to be teleported back.`);
-				return MinecraftClient.chat.whisper(player, `You forgot to set a pearl! You only have ${ stasis.length } / ${ STASIS_USER_MAX } pearls registered.`);
+				const { total, limit } = await ClusterManager.survey(player.uuid);
+				if (total >= limit) return;
+
+				if (total === 0) return MinecraftClient.chat.whisper(player, `You left without setting any pearls! You can set up to ${ limit } pearls and use !load to be teleported back.`);
+				return MinecraftClient.chat.whisper(player, `You forgot to set a pearl! You only have ${ total } / ${ limit } pearls registered.`);
 
 			}
 

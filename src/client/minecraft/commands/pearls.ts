@@ -1,8 +1,8 @@
 import type { Command } from "commander";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
-import { Stasis } from "~/client/minecraft/Stasis";
 import { ChatCommandManager } from "~/client/minecraft/manager/ChatCommandManager";
-import { STASIS_LOCATION_NAME, STASIS_USER_MAX } from "~/config";
+import { ClusterManager } from "~/client/minecraft/manager/ClusterManager";
+import { STASIS_LOCATION_NAMES } from "~/config";
 
 export default function(program: Command) {
 	program
@@ -10,7 +10,7 @@ export default function(program: Command) {
 		.description("Counts the number of pearls you have registered at a location")
 		.argument("[location]", "Location to list pearls for")
 		.action(async(location?: string) => {
-			
+
 			const { player, method } = ChatCommandManager.context;
 			switch (method) {
 
@@ -18,7 +18,10 @@ export default function(program: Command) {
 				case "irc": {
 
 					// If the chat message comes in thru a public source, verify the location argument before proceeding
-					if (!location || !STASIS_LOCATION_NAME.split(",").includes(location)) break;
+					if (!location || !STASIS_LOCATION_NAMES.includes(location.toLowerCase())) break;
+
+					// Every bot at this location heard the same message, so only one of them gets to answer it
+					if (!await ClusterManager.claim("pearls", location.toLowerCase(), player.uuid)) break;
 
 				}
 
@@ -26,13 +29,13 @@ export default function(program: Command) {
 				case "dm":
 				case "whisper": {
 
-					// Get the sender of the command and their pearls, sorting by distance to the bot
+					// Get the sender of the command
 					const sender = MinecraftClient.bot.players[player.username];
 					if (!sender) return;
 
-					// Find all stasis chambers for this player, sorted by distance to the bot
-					const pearls = await Stasis.fetch(sender.uuid);
-					ChatCommandManager.reply(`You have ${ pearls.length } / ${ STASIS_USER_MAX } pearls.`);
+					// Count their pearls across every bot at this location
+					const { total, limit } = await ClusterManager.survey(sender.uuid);
+					ChatCommandManager.reply(`You have ${ total } / ${ limit } pearls.`);
 
 				}
 
