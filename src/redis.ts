@@ -38,7 +38,7 @@ const kvClient = new RedisClient(redisUrl, options);
 const psClient = new RedisClient(redisUrl, options);
 
 // Expose the unified Redis interface with JSON parsing/stringifying and subscription tracking
-export const redis = { ...kvClient, emit, get, off, on, set, del, hset, hgetall, hdel, logger };
+export const redis = { ...kvClient, emit, get, off, on, set, del, logger };
 
 // Handle connection events for both clients
 kvClient.onconnect = () => logger.log("Redis connected in", chalk.yellow(prettyMilliseconds(Date.now() - now)));
@@ -135,36 +135,4 @@ async function emit<T extends Redis.ValidChannel>(channel: T, data: Redis.Messag
  */
 async function del(...keys: Array<keyof Redis.Schema>) {
 	return kvClient.del(...keys);
-}
-
-/**
- * Set a field of a Redis hash, stringifying the value as JSON
- * @param key The hash to write to
- * @param field The field to set
- * @param value The value to set
- * @returns The number of fields that were added
- */
-async function hset<T extends keyof Redis.Hashes>(key: T, field: string, value: Redis.FieldOf<T>) {
-	return kvClient.hset(key, { [field]: stringify(value) });
-}
-
-/**
- * Get every field of a Redis hash, parsing each value as JSON
- * @param key The hash to read
- * @returns The parsed fields, empty if the hash does not exist
- */
-async function hgetall<T extends keyof Redis.Hashes>(key: T) {
-	const fields: Record<string, Redis.FieldOf<T>> = {};
-	for (const [ field, value ] of Object.entries(await kvClient.hgetall(key) ?? {})) fields[field] = JSON.parse(value);
-	return fields;
-}
-
-/**
- * Delete one or more fields from a Redis hash.
- * @param key The hash to delete from
- * @param fields The fields to delete
- * @returns The number of fields that were deleted
- */
-async function hdel(key: keyof Redis.Hashes, field: string, ...fields: string[]) {
-	return kvClient.hdel(key, field, ...fields);
 }

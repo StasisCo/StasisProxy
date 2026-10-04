@@ -2,7 +2,7 @@ import type { Command } from "commander";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { ChatCommandManager } from "~/client/minecraft/manager/ChatCommandManager";
 import { ClusterManager } from "~/client/minecraft/manager/ClusterManager";
-import { STASIS_LOCATION_NAMES } from "~/config";
+import { STASIS_LOCATION_NAMES, STASIS_SITE_MAX } from "~/config";
 
 export default function(program: Command) {
 	program
@@ -20,9 +20,6 @@ export default function(program: Command) {
 					// If the chat message comes in thru a public source, verify the location argument before proceeding
 					if (!location || !STASIS_LOCATION_NAMES.includes(location.toLowerCase())) break;
 
-					// Every bot at this location heard the same message, so only one of them gets to answer it
-					if (!await ClusterManager.claim("pearls", location.toLowerCase(), player.uuid)) break;
-
 				}
 
 				// A direct message is addressed to the bot on purpose, like a whisper
@@ -33,9 +30,9 @@ export default function(program: Command) {
 					const sender = MinecraftClient.bot.players[player.username];
 					if (!sender) return;
 
-					// Count their pearls across every bot at this location
-					const { total, limit } = await ClusterManager.survey(sender.uuid);
-					ChatCommandManager.reply(`You have ${ total } / ${ limit } pearls.`);
+					// Count their pearls at this site, and across every site that shares its name
+					const { local, total } = await ClusterManager.survey(sender.uuid);
+					ChatCommandManager.reply(`You have ${ local } / ${ STASIS_SITE_MAX } pearls${ ClusterManager.totalSuffix(local, total) }.`);
 
 				}
 

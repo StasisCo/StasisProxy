@@ -18,10 +18,15 @@ export default function(program: Command) {
 				case "irc": {
 
 					// If the chat message comes in thru a public source, verify the location argument before proceeding
-					if (!location || !STASIS_LOCATION_NAMES.includes(location.toLowerCase())) break;
+					const name = location?.toLowerCase();
+					if (!name || !STASIS_LOCATION_NAMES.includes(name)) break;
 
-					// Every bot at this location heard the same message, so only one of them gets to answer it
-					if (!await ClusterManager.claim("load", location.toLowerCase(), player.uuid)) break;
+					// Every site with this name heard the same message, so only one of them gets to act on it
+					if (!await ClusterManager.claim("load", name, player.uuid)) break;
+
+					// Have whichever of those sites is nearest to one of their pearls load it
+					if (!await ClusterManager.load(player.uuid, name)) throw new Error("You have no pearls registered!");
+					break;
 
 				}
 
@@ -33,11 +38,11 @@ export default function(program: Command) {
 					const sender = MinecraftClient.bot.players[player.username];
 					if (!sender) return;
 
-					// Have whichever bot at this location is nearest to one of their pearls load it
-					const loaded = await ClusterManager.load(sender.uuid);
-					if (!loaded) throw new Error("You have no pearls registered!");
+					// They asked this bot, so the pearl is loaded at this site
+					const message = await ClusterManager.pull(sender.uuid);
+					if (!message) throw new Error("You have no pearls registered!");
 
-					ChatCommandManager.reply(`Loading your pearl, you have ${ loaded.remaining } / ${ loaded.limit } pearls remaining.`);
+					ChatCommandManager.reply(message);
 					break;
 
 				}

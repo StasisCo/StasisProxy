@@ -3,32 +3,34 @@ import { Vec3 } from "vec3";
 
 /**
  * ClusterManager with Redis, the Minecraft connection and the database replaced by in-memory
- * stand-ins. This bot is at the origin serving "farms,farm,fmtp" with a limit of 2; its peers
- * are scripted — publishing a stasis-query delivers each peer's answer the way the cluster
- * channel would.
+ * stand-ins. This bot's site is at the origin, named "farms,farm,fmtp", holding up to 2 pearls
+ * per player; its peers are scripted — publishing a stasis-query delivers each peer's answer
+ * the way the cluster channel would.
  */
 const SELF = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PEER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const PLAYER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const CHANNEL = "stasisproxy:cluster:test.invalid";
-const POOL = "stasisproxy:stasis:pool:test.invalid";
-const STATUS = "stasisproxy:stasis:status:test";
 
 process.env.STASIS_LOCATION_NAME = "farms,farm,fmtp";
-process.env.STASIS_USER_MAX = "2";
+process.env.STASIS_USER_MAX = "4";
+process.env.STASIS_SITE_MAX = "2";
 
 type View = Array<{ id: string, distance: number | null }>;
 
-/** Peers on the cluster channel: a view, null for a bot at another location, or "silent" for one that never answers */
+/** Peers on the cluster channel: a view, null for a site with another name, or "silent" for a bot that never answers */
 let peers: Array<{ id: string, stasis: View | null | "silent" }> = [];
 
 /** The chambers this bot can see for the player */
 let mine: Array<{ id: string, isArmed: () => boolean, block: { position: Vec3 } }> = [];
 
 const published: Array<{ channel: string, message: Record<string, unknown> | string }> = [];
-const hashes = new Map<string, Record<string, unknown>>();
 const keys = new Map<string, unknown>();
-const enqueue = mock(async(_player: string, _statusKey?: string) => 0);
+const player = { uuid: PLAYER, username: "Steve" };
+const whisper = mock((_player: typeof player, _message: string) => {});
+
+/** Like the real one: the pearls left at this site once one is loaded, or -1 if there is none to load */
+const enqueue = mock(async(_player: string) => mine.some(chamber => chamber.isArmed()) ? mine.length - 1 : -1);
 
 const redis = {
 	async emit(channel: string, message: Record<string, unknown> | string) {
@@ -45,15 +47,6 @@ const redis = {
 		if (options.includes("NX") && keys.has(key)) return null;
 		keys.set(key, value);
 		return "OK";
-	},
-	async hset(key: string, field: string, value: unknown) {
-		hashes.set(key, { ...hashes.get(key), [field]: value });
-	},
-	async hgetall(key: string) {
-		return hashes.get(key) ?? {};
-	},
-	async hdel(key: string, field: string) {
-		delete hashes.get(key)?.[field];
 	}
 };
 
@@ -65,7 +58,8 @@ mock.module("~/client/minecraft/MinecraftClient", () => ({
 		session: { selectedProfile: { id: SELF.replace(/-/g, "") }},
 		host: "test.invalid",
 		queue: { isQueued: false },
-		bot: { entity: { position: new Vec3(0, 64, 0) }}
+		chat: { whisper },
+		bot: { entity: { position: new Vec3(0, 64, 0) }, players: { Steve: player }}
 	}
 }));
 
@@ -74,58 +68,45 @@ const { ClusterManager } = await import("./ClusterManager");
 /** A chamber this bot can see, `distance` blocks away */
 const chamber = (id: string, distance: number, armed = true) => ({ id, isArmed: () => armed, block: { position: new Vec3(distance, 64, 0) }});
 
-/** A peer's record in the pool */
-const member = (max: number, locations = [ "farms" ], seen = Date.now()) => ({ locations, max, seen });
-
-const requests = () => published.map(p => p.message).filter(m => typeof m !== "string" && m.type === "request-load");
+const sent = (type: string) => published.map(p => p.message).filter(m => typeof m !== "string" && m.type === type);
 
 beforeEach(() => {
 	peers = [];
 	mine = [];
 	published.length = 0;
-	hashes.clear();
 	keys.clear();
 	enqueue.mockClear();
-	enqueue.mockImplementation(async() => 0);
+	whisper.mockClear();
 });
 
 describe("survey", () => {
 
-	test("counts a chamber two bots can see once, against the sum of their limits", async() => {
-		hashes.set(POOL, { [PEER]: member(3) });
+	test("counts this site's pearls, and a chamber two bots can see once in the total", async() => {
 		mine = [ chamber("S1", 30), chamber("S2", 50) ];
 		peers = [ { id: PEER, stasis: [ { id: "S2", distance: 50 }, { id: "S3", distance: 4 } ]} ];
 
-		expect(await ClusterManager.survey(PLAYER)).toEqual({ total: 3, limit: 5, nearest: { botId: PEER, distance: 4 }});
+		expect(await ClusterManager.survey(PLAYER)).toEqual({ local: 2, total: 3, nearest: { botId: PEER, distance: 4 }});
 	});
 
 	test("counts a pearl nobody can pull, but never picks it", async() => {
 		mine = [ chamber("S1", 3, false) ];
 		peers = [ { id: PEER, stasis: [ { id: "S2", distance: null } ]} ];
 
-		expect(await ClusterManager.survey(PLAYER)).toEqual({ total: 2, limit: 2, nearest: null });
+		expect(await ClusterManager.survey(PLAYER)).toEqual({ local: 1, total: 2, nearest: null });
 	});
 
-	test("leaves out bots at other locations", async() => {
-		hashes.set(POOL, { [PEER]: member(5, [ "space" ]) });
+	test("leaves out sites with another name", async() => {
 		mine = [ chamber("S1", 30) ];
 		peers = [ { id: PEER, stasis: null } ];
 
-		expect(await ClusterManager.survey(PLAYER)).toEqual({ total: 1, limit: 2, nearest: { botId: SELF, distance: 30 }});
+		expect(await ClusterManager.survey(PLAYER)).toEqual({ local: 1, total: 1, nearest: { botId: SELF, distance: 30 }});
 	});
 
-	test("keeps the limit of a member that is down, until it has been gone for a day", async() => {
-		hashes.set(POOL, { [PEER]: member(3, [ "farm" ], Date.now() - 60 * 60 * 1000) });
-		expect((await ClusterManager.survey(PLAYER)).limit).toBe(5);
+	test("asks about every name of this site unless told which", async() => {
+		await ClusterManager.survey(PLAYER);
+		await ClusterManager.survey(PLAYER, [ "fmtp" ]);
 
-		hashes.set(POOL, { [PEER]: member(3, [ "farm" ], Date.now() - 25 * 60 * 60 * 1000) });
-		expect((await ClusterManager.survey(PLAYER)).limit).toBe(2);
-		expect(hashes.get(POOL)).toEqual({});
-	});
-
-	test("is unlimited when any member is", async() => {
-		hashes.set(POOL, { [PEER]: member(-1) });
-		expect((await ClusterManager.survey(PLAYER)).limit).toBe(-1);
+		expect(sent("stasis-query").map(query => (query as { locations: string[] }).locations)).toEqual([ [ "farms", "farm", "fmtp" ], [ "fmtp" ] ]);
 	});
 
 	test("decides without a peer that never answers", async() => {
@@ -133,37 +114,70 @@ describe("survey", () => {
 		peers = [ { id: PEER, stasis: "silent" } ];
 
 		const started = performance.now();
-		expect(await ClusterManager.survey(PLAYER)).toEqual({ total: 1, limit: 2, nearest: { botId: SELF, distance: 30 }});
+		expect(await ClusterManager.survey(PLAYER)).toEqual({ local: 1, total: 1, nearest: { botId: SELF, distance: 30 }});
 		expect(performance.now() - started).toBeGreaterThan(1_000);
+	});
+
+});
+
+describe("pull", () => {
+
+	test("loads at this site and reports what is left here", async() => {
+		mine = [ chamber("S1", 30), chamber("S2", 50) ];
+
+		expect(await ClusterManager.pull(PLAYER)).toBe("Loading your pearl, you have 1 / 2 pearls remaining.");
+		expect(enqueue).toHaveBeenCalledWith(PLAYER);
+	});
+
+	test("loads at this site even when another is nearer, and mentions the pearls held there", async() => {
+		mine = [ chamber("S1", 30) ];
+		peers = [ { id: PEER, stasis: [ { id: "S3", distance: 4 }, { id: "S4", distance: 9 } ]} ];
+
+		expect(await ClusterManager.pull(PLAYER)).toBe("Loading your pearl, you have 0 / 2 pearls remaining (2 total).");
+		expect(enqueue).toHaveBeenCalledWith(PLAYER);
+		expect(sent("request-load")).toEqual([]);
+	});
+
+	test("has nothing to load when the player's pearls are all at other sites", async() => {
+		peers = [ { id: PEER, stasis: [ { id: "S3", distance: 4 } ]} ];
+
+		expect(await ClusterManager.pull(PLAYER)).toBeNull();
+		expect(sent("request-load")).toEqual([]);
 	});
 
 });
 
 describe("load", () => {
 
-	test("hands the pull to the peer that is nearest to a pearl", async() => {
-		hashes.set(POOL, { [PEER]: member(3) });
+	test("routes the request to the site nearest to a pearl, which answers the player itself", async() => {
 		mine = [ chamber("S1", 30) ];
 		peers = [ { id: PEER, stasis: [ { id: "S3", distance: 4 } ]} ];
 
-		expect(await ClusterManager.load(PLAYER, STATUS)).toEqual({ remaining: 1, limit: 5 });
-		expect(requests()).toEqual([ { type: "request-load", playerUuid: PLAYER, destinationUuid: PEER, statusKey: STATUS, direct: true } ]);
+		expect(await ClusterManager.load(PLAYER, "farms")).toBe(true);
+		expect(sent("request-load")).toEqual([ { type: "request-load", playerUuid: PLAYER, destinationUuid: PEER, notify: true } ]);
 		expect(enqueue).not.toHaveBeenCalled();
+		expect(whisper).not.toHaveBeenCalled();
 	});
 
-	test("pulls itself when it is the nearest", async() => {
+	test("loads here and whispers the player when this site is the nearest", async() => {
 		mine = [ chamber("S1", 30) ];
 		peers = [ { id: PEER, stasis: [ { id: "S3", distance: 80 } ]} ];
 
-		expect(await ClusterManager.load(PLAYER, STATUS)).toEqual({ remaining: 1, limit: 2 });
-		expect(enqueue).toHaveBeenCalledWith(PLAYER, STATUS);
-		expect(requests()).toEqual([]);
+		expect(await ClusterManager.load(PLAYER, "farms")).toBe(true);
+		expect(enqueue).toHaveBeenCalledWith(PLAYER);
+		expect(whisper).toHaveBeenCalledWith(player, "Loading your pearl, you have 0 / 2 pearls remaining (1 total).");
+		expect(sent("request-load")).toEqual([]);
 	});
 
-	test("fails the request when there is no pearl to pull", async() => {
-		expect(await ClusterManager.load(PLAYER, STATUS)).toBeNull();
+	test("only asks sites with the name the player gave", async() => {
+		await ClusterManager.load(PLAYER, "farm");
+		expect(sent("stasis-query")[0]).toMatchObject({ locations: [ "farm" ]});
+	});
+
+	test("reports when no site has a pearl to load", async() => {
+		expect(await ClusterManager.load(PLAYER, "farms")).toBe(false);
 		expect(enqueue).not.toHaveBeenCalled();
-		expect(published.at(-1)).toEqual({ channel: STATUS, message: "failed" });
+		expect(whisper).not.toHaveBeenCalled();
 	});
 
 });
@@ -172,14 +186,14 @@ describe("answer", () => {
 
 	const query = (locations: string[], from = PEER) => ({ type: "stasis-query" as const, id: "q1", from, playerUuid: PLAYER, locations });
 
-	test("tells a peer at the same location what it can see", async() => {
+	test("tells a site with the same name what it can see", async() => {
 		mine = [ chamber("S1", 30), chamber("S2", 7, false) ];
 		await ClusterManager.answer(query([ "testing", "farm" ]), SELF, CHANNEL);
 
 		expect(published).toEqual([ { channel: CHANNEL, message: { type: "stasis-reply", id: "q1", from: SELF, stasis: [ { id: "S1", distance: 30 }, { id: "S2", distance: null } ]}} ]);
 	});
 
-	test("answers a peer at another location with nothing, so it is not kept waiting", async() => {
+	test("answers a site with another name with nothing, so it is not kept waiting", async() => {
 		mine = [ chamber("S1", 30) ];
 		await ClusterManager.answer(query([ "space" ]), SELF, CHANNEL);
 
@@ -200,7 +214,8 @@ test("claim lets one bot handle an event", async() => {
 	expect([ ...keys.keys() ]).toContain(`stasisproxy:stasis:claim:test.invalid:load:farms:${ PLAYER }`);
 });
 
-test("checkIn records this bot's locations and limit", async() => {
-	await ClusterManager.checkIn();
-	expect(hashes.get(POOL)).toEqual({ [SELF]: { locations: [ "farms", "farm", "fmtp" ], max: 2, seen: expect.any(Number) }});
+test("totalSuffix only speaks up when other sites hold pearls", () => {
+	expect(ClusterManager.totalSuffix(2, 2)).toBe("");
+	expect(ClusterManager.totalSuffix(0, 0)).toBe("");
+	expect(ClusterManager.totalSuffix(1, 3)).toBe(" (3 total)");
 });

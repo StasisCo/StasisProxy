@@ -12,6 +12,7 @@ import { ClusterManager } from "~/client/minecraft/manager/ClusterManager";
 import { Pearl } from "~/client/minecraft/Pearl";
 import { Stasis } from "~/client/minecraft/Stasis";
 import { StasisColumn } from "~/client/minecraft/StasisColumn";
+import { STASIS_SITE_MAX, STASIS_USER_MAX } from "~/config";
 import { prisma } from "~/prisma";
 import { redis } from "~/redis";
 import type { zStasisStatus } from "~/schema/zStasisStatus";
@@ -289,18 +290,24 @@ export class StasisManager {
 			// Every bot in range saves the chamber, but only one of them holds it to the limit and answers the player
 			if (!await ClusterManager.claim("register", stasis.id)) return;
 
-			// Count this player's pearls across every bot at this location
-			const { total, limit } = await ClusterManager.survey(owner.uuid);
+			// Count this player's pearls at this site, and across every site that shares its name
+			const { local, total } = await ClusterManager.survey(owner.uuid);
 
-			// If they have too many, break and remove excess pearls until at the limit
-			if (total > limit && limit >= 0) {
-				const excess = total - limit;
-				MinecraftClient.chat.whisper(owner, `You already have ${ total - 1 } / ${ limit } pearls, ${ excess } will be removed.`);
-				StasisManager.logger.warn(`Player ${ chalk.cyan(owner.uuid) } has too many stasis chambers (${ chalk.yellow(total) } / ${ chalk.yellow(limit) }), removing ${ chalk.yellow(excess) } excess`);
+			// If they have too many, here or across sites, break and remove excess pearls until at the limit
+			const overSite = STASIS_SITE_MAX >= 0 ? local - STASIS_SITE_MAX : 0;
+			const overAll = STASIS_USER_MAX >= 0 ? total - STASIS_USER_MAX : 0;
+			const excess = Math.max(overSite, overAll);
+			if (excess > 0) {
+				MinecraftClient.chat.whisper(owner, overSite >= overAll
+					? `You already have ${ local - 1 } / ${ STASIS_SITE_MAX } pearls${ ClusterManager.totalSuffix(local - 1, total - 1) }, ${ excess } will be removed.`
+					: `You already have ${ total - 1 } / ${ STASIS_USER_MAX } pearls across all sites, ${ excess } will be removed.`);
+				StasisManager.logger.warn(`Player ${ chalk.cyan(owner.uuid) } has too many stasis chambers (${ chalk.yellow(local) } / ${ chalk.yellow(STASIS_SITE_MAX) } here, ${ chalk.yellow(total) } / ${ chalk.yellow(STASIS_USER_MAX) } total), removing ${ chalk.yellow(excess) } excess`);
 
 				for (let i = 0; i < excess; i++) await StasisManager.enqueue(owner.uuid);
 				return;
 			}
+
+			const suffix = ClusterManager.totalSuffix(local, total);
 
 			await DiscordClient.webhook(new Embed()
 				.setTitle(`${ owner.username } Set Stasis`)
@@ -309,9 +316,9 @@ export class StasisManager {
 				.addField({ name: "UUID", value: `${ owner.uuid }` })
 				.addField({ name: "Dimension", value: `${ MinecraftClient.bot.game.dimension }`, inline: true })
 				.addField({ name: "XYZ", value: `||\`${ stasis.block.position.floored().x }\` \`${ stasis.block.position.floored().y }\` \`${ stasis.block.position.floored().z }\`||`, inline: true })
-				.addField({ name: "Pearls", value: `${ total } / ${ limit }` }));
+				.addField({ name: "Pearls", value: `${ local } / ${ STASIS_SITE_MAX }${ suffix }` }));
 
-			MinecraftClient.chat.whisper(owner, `Pearl registered! You have ${ total } / ${ limit } pearls.`);
+			MinecraftClient.chat.whisper(owner, `Pearl registered! You have ${ local } / ${ STASIS_SITE_MAX } pearls${ suffix }.`);
 			StasisManager.logger.log(`Saved stasis chamber ${ chalk.yellow(stasis.id) } for player ${ chalk.cyan(owner.uuid) }`);
 
 		});

@@ -3,7 +3,6 @@ declare namespace Redis {
 	type MessageOf<K extends ValidChannel> = Subscriptions[K];
 	type ValidChannel = keyof Subscriptions & string;
 	type ValueOf<K extends string> = K extends keyof Schema ? Schema[K] : never;
-	type FieldOf<K extends string> = K extends keyof Hashes ? Hashes[K] : never;
 
 	interface Schema {
 
@@ -29,13 +28,6 @@ declare namespace Redis {
 
 	}
 
-	/** Redis hashes, by the type of each field's value */
-	interface Hashes {
-
-		[key: `stasisproxy:stasis:pool:${ string }`]: { locations: string[], max: number, seen: number };
-
-	}
-
 	interface Subscriptions {
 
 		[key: `stasisproxy:cluster:${ string }`]: ClusterMessage;
@@ -58,7 +50,7 @@ declare namespace Redis {
 			playerUuid: string,
 			destinationUuid: string,
 			statusKey?: `stasisproxy:stasis:status:${ string }`,
-			direct?: boolean,
+			notify?: boolean,
 		}
 		| {
 			type: "stasis-query",

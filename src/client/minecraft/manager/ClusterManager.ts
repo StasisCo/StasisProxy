@@ -4,7 +4,7 @@ import { Logger } from "~/class/Logger";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { Stasis } from "~/client/minecraft/Stasis";
-import { STASIS_LOCATION_NAMES, STASIS_USER_MAX } from "~/config";
+import { STASIS_LOCATION_NAMES, STASIS_SITE_MAX } from "~/config";
 import { redis } from "~/redis";
 import { normalizeUUID } from "~/utils";
 
@@ -16,10 +16,10 @@ type View = NonNullable<Reply["stasis"]>;
 
 interface PendingQuery {
 
-	/** What each peer serving this location has answered so far, by bot UUID */
+	/** What each site with a matching name has answered so far, by bot UUID */
 	views: Map<string, View>;
 
-	/** How many peers have answered, whether or not they serve this location */
+	/** How many peers have answered, whether or not their site has a matching name */
 	answered: number;
 
 	/** How many peers received the question */
@@ -32,11 +32,11 @@ interface PendingQuery {
 
 interface Survey {
 
-	/** How many pearls the player has across the pool. A chamber several bots can see counts once. */
-	total: number;
+	/** How many pearls the player has at this bot's site */
+	local: number;
 
-	/** How many pearls the pool will hold for the player, or -1 if unlimited */
-	limit: number;
+	/** How many pearls the player has across every site that was asked. A chamber several bots can see counts once. */
+	total: number;
 
 	/** The bot that is closest to a pearl it could pull, or null if nobody can pull one */
 	nearest: { botId: string, distance: number } | null;
@@ -44,15 +44,14 @@ interface Survey {
 }
 
 /**
- * Bots on the same server that share a location name serve that location as one pool.
+ * Each bot looks after one site, and sites on the same server can share a location name.
  *
- * A player's pearls are counted across the pool, against the sum of every member's own
- * STASIS_USER_MAX, and a load is carried out by whichever member is nearest to one of the
- * player's pearls. Names are aliases of one location, so sharing any one of them is enough.
+ * A request addressed to one bot — a whisper, a Discord or HTTP load — is served at that bot's
+ * site. One that names a location in public chat reaches every site with that name, and is
+ * routed to whichever of them is nearest to one of the player's pearls.
  *
- * Nothing about the pool is configured: members find each other over the cluster channel each
- * time a question needs answering, and leave a record of their limit in Redis so the pool does
- * not shrink while one of them is restarting.
+ * Limits are each bot's own config. The only thing sites ask each other is which pearls they
+ * can see, to route a load and to count a player's pearls across sites.
  */
 export class ClusterManager {
 
@@ -61,17 +60,10 @@ export class ClusterManager {
 	/** How long to wait for peers to say what they can see before deciding without them */
 	private static readonly QUERY_TIMEOUT_MS = 1_500;
 
-	/** How long a claim keeps the rest of the pool from handling the same event */
+	/** How long a claim keeps the other bots from handling the same event */
 	private static readonly CLAIM_TTL_S = "5";
 
-	/**
-	 * How long a bot that has stopped checking in still counts towards the pool's pearl limit.
-	 * Pearls over the limit get pulled, so a bot that is only restarting must not take its share
-	 * of the limit away with it.
-	 */
-	private static readonly MEMBER_MEMORY_MS = 24 * 60 * 60 * 1_000;
-
-	/** Questions this bot has asked the pool and is still collecting answers to, by query id */
+	/** Questions this bot has asked its peers and is still collecting answers to, by query id */
 	private static readonly queries = new Map<string, PendingQuery>();
 
 	/** This bot's place on the cluster, or null while it is not connected to a server */
@@ -82,24 +74,13 @@ export class ClusterManager {
 		return {
 			id: normalizeUUID(id),
 			host,
-			channel: `stasisproxy:cluster:${ host }`,
-			pool: `stasisproxy:stasis:pool:${ host }`
+			channel: `stasisproxy:cluster:${ host }`
 		} as const;
 	}
 
 	/**
-	 * Record this bot's location names and pearl limit for its peers. Runs on the presence
-	 * heartbeat, including while queueing — a bot waiting to get back in is still part of its pool.
-	 */
-	public static async checkIn() {
-		const self = this.self;
-		if (!self) return;
-		await redis.hset(self.pool, self.id, { locations: STASIS_LOCATION_NAMES, max: STASIS_USER_MAX, seen: Date.now() }).catch(() => undefined);
-	}
-
-	/**
-	 * Take an event for this bot. Bots sharing a location hear the same chat and watch the same
-	 * pearls, so each of them gets the event — the first to claim it handles it.
+	 * Take an event for this bot. Bots that hear the same chat or watch the same pearls each get
+	 * the event — the first to claim it handles it.
 	 * @param event What identifies the event, the same on every bot that witnessed it
 	 * @returns Whether this bot should handle the event
 	 */
@@ -107,21 +88,33 @@ export class ClusterManager {
 		const self = this.self;
 		if (!self) return true;
 
-		// Without Redis there is no pool to coordinate with, so act alone
+		// Without Redis there are no peers to coordinate with, so act alone
 		return await redis.set(`stasisproxy:stasis:claim:${ self.host }:${ event.join(":") }`, self.id, "EX", this.CLAIM_TTL_S, "NX")
 			.then(result => result === "OK")
 			.catch(() => true);
 	}
 
 	/**
-	 * Count a player's pearls across the pool, and find the bot that could pull one soonest.
-	 * @param playerUuid The UUID of the player who owns the pearls
+	 * What to append to a site's pearl count when the player has more pearls at other sites.
+	 * @param local The count at this site
+	 * @param total The count across every site
+	 * @returns " (N total)", or nothing when every pearl is at this site
 	 */
-	public static async survey(playerUuid: string): Promise<Survey> {
-		const self = this.self;
-		if (!self) return { total: 0, limit: STASIS_USER_MAX, nearest: null };
+	public static totalSuffix(local: number, total: number) {
+		return total > local ? ` (${ total } total)` : "";
+	}
 
-		const [ limit, mine, theirs ] = await Promise.all([ this.limit(self), this.view(playerUuid), this.ask(self, playerUuid) ]);
+	/**
+	 * Count a player's pearls at this site and across the sites that share a name with it, and
+	 * find the bot that could pull one soonest.
+	 * @param playerUuid The UUID of the player who owns the pearls
+	 * @param names The location names to ask about; any site with one of them is counted
+	 */
+	public static async survey(playerUuid: string, names = STASIS_LOCATION_NAMES): Promise<Survey> {
+		const self = this.self;
+		if (!self) return { local: 0, total: 0, nearest: null };
+
+		const [ mine, theirs ] = await Promise.all([ this.view(playerUuid), this.ask(self, playerUuid, names) ]);
 
 		const chambers = new Set<string>();
 		let nearest: Survey["nearest"] = null;
@@ -132,30 +125,51 @@ export class ClusterManager {
 			}
 		}
 
-		return { total: chambers.size, limit, nearest };
+		return { local: mine.length, total: chambers.size, nearest };
 	}
 
 	/**
-	 * Load a player's pearl with whichever bot in the pool is nearest to one.
+	 * Load a player's pearl at this site.
 	 * @param playerUuid The UUID of the player who owns the pearl
-	 * @param statusKey An optional Redis channel to publish status updates to
-	 * @returns The player's remaining pearls and their limit, or null if there was no pearl to load
+	 * @returns What to tell the player, or null if this site has no pearl of theirs to load
 	 */
-	public static async load(playerUuid: string, statusKey?: `stasisproxy:stasis:status:${ string }`) {
+	public static async pull(playerUuid: string) {
+
+		// The other sites are only asked for the sake of the reply, so the bot sets off without waiting on them
+		const [ remaining, { total } ] = await Promise.all([ StasisManager.enqueue(playerUuid), this.survey(playerUuid) ]);
+		if (remaining === -1) return null;
+
+		return `Loading your pearl, you have ${ remaining } / ${ STASIS_SITE_MAX } pearls remaining${ this.totalSuffix(remaining, total - 1) }.`;
+	}
+
+	/**
+	 * Load a player's pearl at this site for a request that was routed here, and whisper them
+	 * the outcome — the bot that heard the request is not the one answering it.
+	 * @param playerUuid The UUID of the player who owns the pearl
+	 * @returns Whether this site had a pearl to load
+	 */
+	public static async serve(playerUuid: string) {
+		const message = await this.pull(playerUuid);
+		const player = Object.values(MinecraftClient.bot.players).find(player => player.uuid === playerUuid);
+		if (message && player) MinecraftClient.chat.whisper(player, message);
+		return message !== null;
+	}
+
+	/**
+	 * Load a player's pearl at whichever site with the given name is nearest to one.
+	 * @param playerUuid The UUID of the player who owns the pearl
+	 * @param name The location name the player asked for
+	 * @returns Whether any site had a pearl to load
+	 */
+	public static async load(playerUuid: string, name: string) {
 		const self = this.self;
-		const { total, limit, nearest } = await this.survey(playerUuid);
+		const { nearest } = await this.survey(playerUuid, [ name ]);
+		if (!self || !nearest) return false;
+		if (nearest.botId === self.id) return await this.serve(playerUuid);
 
-		if (self && nearest && nearest.botId !== self.id) {
-			this.logger.log(`Routing load for player ${ chalk.cyan(playerUuid) } to peer ${ chalk.cyan(nearest.botId) }`, chalk.dim(`closest=${ nearest.distance.toFixed(1) }m`));
-			await redis.emit(self.channel, { type: "request-load", playerUuid, destinationUuid: nearest.botId, statusKey, direct: true });
-			return { remaining: total - 1, limit };
-		}
-
-		if (nearest && await StasisManager.enqueue(playerUuid, statusKey) !== -1) return { remaining: total - 1, limit };
-
-		// Nobody is travelling, so anything waiting on a status would otherwise wait forever
-		if (statusKey) await redis.emit(statusKey, "failed");
-		return null;
+		this.logger.log(`Routing load for player ${ chalk.cyan(playerUuid) } to peer ${ chalk.cyan(nearest.botId) }`, chalk.dim(`closest=${ nearest.distance.toFixed(1) }m`));
+		await redis.emit(self.channel, { type: "request-load", playerUuid, destinationUuid: nearest.botId, notify: true });
+		return true;
 	}
 
 	/**
@@ -167,8 +181,8 @@ export class ClusterManager {
 	 */
 	public static async answer(query: Query, id: string, channel: `stasisproxy:cluster:${ string }`) {
 		if (query.from === id) return;
-		const serves = query.locations.some(name => STASIS_LOCATION_NAMES.includes(name));
-		await redis.emit(channel, { type: "stasis-reply", id: query.id, from: id, stasis: serves ? await this.view(query.playerUuid) : null });
+		const named = query.locations.some(name => STASIS_LOCATION_NAMES.includes(name));
+		await redis.emit(channel, { type: "stasis-reply", id: query.id, from: id, stasis: named ? await this.view(query.playerUuid) : null });
 	}
 
 	/**
@@ -202,7 +216,7 @@ export class ClusterManager {
 	}
 
 	/** Ask every other bot on the server what it can see for a player. Resolves once they have all answered. */
-	private static ask(self: NonNullable<typeof ClusterManager.self>, playerUuid: string) {
+	private static ask(self: NonNullable<typeof ClusterManager.self>, playerUuid: string, names: string[]) {
 		return new Promise<Map<string, View>>(resolve => {
 			const id = randomBytes(8).toString("hex");
 			const views = new Map<string, View>();
@@ -220,34 +234,13 @@ export class ClusterManager {
 			this.queries.set(id, query);
 
 			// Publishing reports how many bots received the question, this one included
-			redis.emit(self.channel, { type: "stasis-query", id, from: self.id, playerUuid, locations: STASIS_LOCATION_NAMES })
+			redis.emit(self.channel, { type: "stasis-query", id, from: self.id, playerUuid, locations: names })
 				.then(receivers => {
 					query.expected = receivers - 1;
 					if (query.answered >= query.expected) finish();
 				})
 				.catch(finish);
 		});
-	}
-
-	/** The pool's pearl limit: this bot's own, plus that of every peer that shares a location name with it. */
-	private static async limit(self: NonNullable<typeof ClusterManager.self>) {
-		const members: Record<string, Redis.FieldOf<typeof self.pool>> = await redis.hgetall(self.pool).catch(() => ({}));
-		const limits = [ STASIS_USER_MAX ];
-
-		for (const [ id, member ] of Object.entries(members)) {
-			if (id === self.id) continue;
-
-			if (Date.now() - member.seen > this.MEMBER_MEMORY_MS) {
-				void redis.hdel(self.pool, id).catch(() => undefined);
-				continue;
-			}
-
-			if (member.locations.some(name => STASIS_LOCATION_NAMES.includes(name))) limits.push(member.max);
-		}
-
-		// One unlimited member makes the whole pool unlimited
-		if (limits.some(max => max < 0)) return -1;
-		return limits.reduce((sum, max) => sum + max, 0);
 	}
 
 }

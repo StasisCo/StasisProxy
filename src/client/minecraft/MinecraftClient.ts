@@ -109,10 +109,6 @@ export class MinecraftClient {
 	 * own if the process dies without cleanup.
 	 */
 	private static async presenceTick() {
-
-		// Ahead of the online check below: a bot that is queueing is still a member of its pool
-		void ClusterManager.checkIn();
-
 		const id = this.session?.selectedProfile.id;
 		if (!id || !this.host || !this.bot?.player || this.queue?.isQueued !== false) return this.clearPresence();
 		this.presenceKey = `stasisproxy:bot:online:${ normalizeUUID(id) }`;
@@ -317,10 +313,10 @@ export class MinecraftClient {
 							if (data.destinationUuid !== id) return;
 							redis.logger.log(`Received peer request for player ${ chalk.cyan(data.playerUuid) }`);
 
-							// A peer that already surveyed the pool chose this bot to pull. Any other request is
-							// for this bot's location, which whichever bot is nearest to a pearl serves.
-							if (data.direct) await StasisManager.enqueue(data.playerUuid, data.statusKey);
-							else await ClusterManager.load(data.playerUuid, data.statusKey);
+							// A request a peer routed here from public chat has nobody waiting on a status,
+							// the player is told by whisper instead
+							if (data.notify) await ClusterManager.serve(data.playerUuid);
+							else await StasisManager.enqueue(data.playerUuid, data.statusKey);
 							break;
 
 						case "stasis-query":
