@@ -13,7 +13,7 @@ export const STASIS_SITE_MAX = parseInt(process.env.STASIS_SITE_MAX || "3");
  * player's total the sum of them: two sites with a limit of 2 each hold 4 between them
  * @default the sum of every site's STASIS_SITE_MAX
  */
-export const STASIS_USER_MAX = parseInt(process.env.STASIS_USER_MAX || "-1");
+export const STASIS_USER_MAX = parseInt(process.env.STASIS_SITE_MAX || "-1");
 
 /**
  * The names of the location this bot's site belongs to, which players pass to chat commands
