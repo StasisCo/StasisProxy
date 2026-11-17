@@ -13,5 +13,13 @@ import { zPlayer } from "../../zPlayer";
 export const zIrcEntityOwner = z.object({
 	type: z.literal("entity_owner"),
 	owner: zPlayer,
-	id: z.string()
+	id: z.string(),
+
+	// When anyone the sender knows of last saw the entity, in epoch ms. Several
+	// peers answer the same resend_request, some with older records than others,
+	// and the receiver keeps the newest. Optional, since older clients and stasis
+	// proxies send none, and a bad value is dropped rather than failing the POST:
+	// a NaN reaches the parse as null (see POST /irc), and losing the time must
+	// not lose the owner — or, in a resend batch, every payload alongside it.
+	lastSeen: z.number().int().nonnegative().optional().catch(undefined)
 });
