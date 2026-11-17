@@ -113,12 +113,14 @@ export class StasisManager {
 	// ── Pearl owner propagation over IRC ──
 	//
 	// Owners are shared on demand instead of being blasted every second: a pearl is announced once
-	// when it enters visual range with a resolvable owner, and the full set goes out only when a
-	// peer asks for it via resend_request (or once per IRC connect, to heal peers that connected
-	// while this bot was offline).
+	// when it enters visual range with a resolvable owner, a peer that can't attribute a pearl asks
+	// about it by id (resend_request `ids`) and we answer for the ones we hold, and the full set
+	// goes out once per IRC connect, to heal peers that asked while this bot was offline. Every
+	// payload says the pearl was seen just now: the bot only holds pearls it has in view, and peers
+	// keep the freshest of the answers they get.
 
-	/** Minimum gap between full-set resend answers. Requests inside the gap coalesce into one
-	 *  trailing answer — answers are broadcast to the whole channel, so one covers all requesters. */
+	/** Minimum gap between resend answers. Requests inside the gap coalesce into one trailing answer
+	 *  covering every id asked for — answers are broadcast to the whole channel, so one covers all requesters. */
 	private static readonly RESEND_ANSWER_INTERVAL_MS = 5_000;
 
 	/** How long newly-visible pearls accumulate before being announced in one batched POST,
@@ -128,6 +130,9 @@ export class StasisManager {
 	private static ircHooked = false;
 	private static resendAnswerTimer: NodeJS.Timeout | null = null;
 	private static lastResendAnswerAt = 0;
+
+	/** The pearl uuids (lowercase) asked about since the last answer, or `"all"` for the connect-time full set. */
+	private static pendingResend: Set<string> | "all" = new Set();
 	private static readonly pendingAnnounce = new Set<Pearl>();
 	private static announceTimer: NodeJS.Timeout | null = null;
 
@@ -148,25 +153,36 @@ export class StasisManager {
 		}
 		StasisManager.ircHooked = true;
 
-		// A peer that can't attribute a pearl asks everyone to re-share; answer with our full set
+		// A peer that can't attribute some pearls asks about them by id; answer for the ones we hold.
+		// A request naming no ids (older Hackware builds) asks about nothing we can answer.
 		presence.events.on("resend_request", payload => {
-			if (!payload.include.includes("entity_owner")) return;
-			StasisManager.scheduleResendAnswer();
+			if (!payload.include.includes("entity_owner") || !payload.ids?.length) return;
+			StasisManager.scheduleResendAnswer(payload.ids);
 		});
 
 		// Share the full set once per (re)connect so peers that connected while we were offline
-		// catch up — their own connect-time resend_request went unanswered by us
-		presence.events.on("connected", () => StasisManager.scheduleResendAnswer());
+		// catch up — a peer asks about a pearl once while it stays in its sight, and any request
+		// made while we were offline went unanswered by us
+		presence.events.on("connected", () => StasisManager.scheduleResendAnswer("all"));
 	}
 
-	/** Schedule a full-set broadcast, coalescing bursts of requests into one answer per interval. */
-	private static scheduleResendAnswer() {
+	/**
+	 * Schedule an answer for the given pearl uuids (or the full set), coalescing bursts of requests
+	 * into one answer per interval that covers every id asked for in between.
+	 */
+	private static scheduleResendAnswer(ids: string[] | "all") {
+		if (ids === "all") StasisManager.pendingResend = "all";
+		else if (StasisManager.pendingResend !== "all") for (const id of ids) StasisManager.pendingResend.add(id.toLowerCase());
+
 		if (StasisManager.resendAnswerTimer) return; // a pending answer already covers this request
 		const wait = Math.max(0, StasisManager.lastResendAnswerAt + StasisManager.RESEND_ANSWER_INTERVAL_MS - Date.now());
 		StasisManager.resendAnswerTimer = setTimeout(() => {
 			StasisManager.resendAnswerTimer = null;
 			StasisManager.lastResendAnswerAt = Date.now();
-			void StasisManager.broadcastOwners([ ...StasisManager.pearls.values() ]);
+			const asked = StasisManager.pendingResend;
+			StasisManager.pendingResend = new Set();
+			const pearls = [ ...StasisManager.pearls.values() ];
+			void StasisManager.broadcastOwners(asked === "all" ? pearls : pearls.filter(p => p.entity.uuid && asked.has(p.entity.uuid.toLowerCase())));
 		}, wait);
 	}
 
@@ -200,7 +216,11 @@ export class StasisManager {
 				owner: {
 					uuid: pearl.ownerId,
 					name: pearl.ownerName
-				}
+				},
+
+				// Every pearl we hold is in view (an unloaded one is dropped from the map), so it
+				// was seen just now. Peers keep the freshest of the answers they get.
+				lastSeen: Date.now()
 			});
 			if (parsed.success) payloads.push(parsed.data);
 		}
