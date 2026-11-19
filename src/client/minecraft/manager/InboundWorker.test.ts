@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { Duplex } from "node:stream";
 import { deflateSync } from "node:zlib";
+import mcData from "minecraft-data";
+import { PROTOCOL_VERSION } from "../protocol";
 import { InboundWorker } from "./InboundWorker";
 
 /**
@@ -18,7 +20,7 @@ const { createSerializer } = require("minecraft-protocol/src/transforms/serializ
 const [ , writeVarInt, sizeOfVarInt ] = require("protodef").types.varint;
 const aesjs = require("aes-js");
 
-const VERSION = "1.20.1";
+const VERSION = PROTOCOL_VERSION;
 const THRESHOLD = 256;
 
 /** Serialize + compress-frame one clientbound packet the way a server would. */
@@ -135,4 +137,109 @@ describe("InboundWorker", () => {
 
 		worker.stop();
 	}, 20_000);
+
+	/**
+	 * A server switch through the offloaded pipeline: play → start_configuration → configuration
+	 * → finish_configuration → play, encrypted and compressed. The configuration packets are
+	 * glued onto the same socket chunk as start_configuration (so the worker must hold them back,
+	 * still decrypting, and hand them over), with a frame cut across that chunk boundary, and the
+	 * second play phase must land back on the worker. Every packet must arrive once, in order, in
+	 * the protocol state it was sent in, with its exact bytes.
+	 */
+	test("hands the stream back across a server switch and re-attaches afterwards", async() => {
+		const socket = new Duplex({ read() {}, write(_chunk, _enc, cb) {
+			cb();
+		} });
+		(socket as unknown as { setNoDelay: () => void }).setNoDelay = () => {};
+
+		const client = new Client(false, VERSION);
+		client.setSocket(socket);
+		const secret = randomBytes(16);
+		client.setEncryption(secret);
+		client.setCompressionThreshold(THRESHOLD);
+
+		// What minecraft-protocol's client/play.js does on these (the bare Client lacks it).
+		client.on("start_configuration", () => {
+			client.state = "configuration";
+		});
+		client.on("finish_configuration", () => {
+			client.state = "play";
+		});
+
+		const received: { name: string; state: string; params: unknown; buffer: Buffer }[] = [];
+		client.on("packet", (params: unknown, meta: { name: string; state: string }, buffer: Buffer) => received.push({ name: meta.name, state: meta.state, params, buffer: Buffer.from(buffer) }));
+		client.on("error", (err: unknown) => {
+			throw err;
+		});
+
+		const worker = new InboundWorker({ _client: client } as never);
+		const internals = worker as unknown as { attached: boolean; cipherMoved: boolean; handingBack: boolean };
+		client.emit("connect");
+		client.state = "play";
+		for (let i = 0; i < 200 && !internals.attached; i++) await sleep(50);
+		expect(internals.attached).toBe(true);
+		expect(internals.cipherMoved).toBe(true);
+
+		const play = createSerializer({ state: "play", isServer: true, version: VERSION });
+		const configuration = createSerializer({ state: "configuration", isServer: true, version: VERSION });
+		const expected: { name: string; state: string; params: unknown; body: Buffer; compareParams: boolean }[] = [];
+		const frame = (state: "play" | "configuration", name: string, params: unknown, compareParams = true): Buffer => {
+			const { body, framed } = wire(state === "play" ? play : configuration, name, params);
+			expected.push({ name, state, params, body, compareParams });
+			return framed;
+		};
+		const entityBurst = (from: number, count: number) => Array.from({ length: count }, (_, k) => frame("play", "rel_entity_move", { entityId: from + k, dX: k, dY: 7 - k, dZ: 3, onGround: (k & 1) === 0 }));
+
+		// Registry payloads big enough to be compressed, straight from the 1.20.6 login data.
+		const codec = (mcData(VERSION) as unknown as { loginPacket: { dimensionCodec: Record<string, unknown> } }).loginPacket.dimensionCodec;
+		const before = Buffer.concat([
+			...entityBurst(1000, 300),
+			frame("play", "start_configuration", {})
+		]);
+		const config = Buffer.concat([
+			frame("configuration", "registry_data", codec["minecraft:dimension_type"], false),
+			frame("configuration", "registry_data", codec["minecraft:worldgen/biome"], false),
+			frame("configuration", "feature_flags", { features: [ "minecraft:vanilla" ]}),
+			frame("configuration", "custom_payload", { channel: "minecraft:brand", data: Buffer.from("velocity") }),
+			frame("configuration", "finish_configuration", {})
+		]);
+		const after = Buffer.concat(entityBurst(5000, 300));
+
+		const encrypt = new aesjs.ModeOfOperation.cfb(secret, secret, 1);
+		const enc = (bytes: Buffer) => Buffer.from(encrypt.encrypt(bytes));
+
+		// One chunk: the first play phase, start_configuration, and the configuration phase up
+		// to a frame cut in two; the rest of that frame in the next chunk.
+		const cut = Math.floor(config.length / 2);
+		socket.push(enc(Buffer.concat([ before, config.subarray(0, cut) ])));
+		socket.push(enc(config.subarray(cut)));
+
+		// The configuration phase ends in finish_configuration → play → the worker re-attaches.
+		for (let i = 0; i < 200 && !(internals.attached && received.length === 300 + 1 + 5); i++) await sleep(25);
+		expect(received.length).toBe(300 + 1 + 5);
+		expect(internals.attached).toBe(true);
+		expect(internals.cipherMoved).toBe(true);
+		expect(client.state).toBe("play");
+
+		// The second play phase, in ragged pieces, through the worker again.
+		for (let offset = 0, k = 0; offset < after.length; k++) {
+			const len = Math.min(after.length - offset, [ 7, 900, 2, 3000 ][k % 4]!);
+			socket.push(enc(after.subarray(offset, offset + len)));
+			offset += len;
+		}
+		for (let i = 0; i < 100 && received.length < expected.length; i++) await sleep(50);
+
+		expect(received.length).toBe(expected.length);
+		for (let i = 0; i < expected.length; i++) {
+			expect(`${ received[i]!.state }.${ received[i]!.name }`).toBe(`${ expected[i]!.state }.${ expected[i]!.name }`);
+			expect(received[i]!.buffer.equals(expected[i]!.body)).toBe(true);
+			if (expected[i]!.compareParams) expect(received[i]!.params).toEqual(expected[i]!.params);
+		}
+
+		// The worker parsed both play phases — start_configuration included — and not one
+		// configuration packet: those went through the stock pipeline.
+		expect(worker.stats()!.packets).toBe(300 + 1 + 300);
+
+		worker.stop();
+	}, 30_000);
 });

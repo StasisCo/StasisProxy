@@ -4,7 +4,7 @@ import type { Bot } from "mineflayer";
 import type { Duplex, Readable } from "node:stream";
 import { Worker } from "node:worker_threads";
 import { Logger } from "~/class/Logger";
-import type { BatchMessage, BufferRef, MainToWorkerMessage, WorkerOptions, WorkerToMainMessage } from "../worker/inbound.protocol";
+import type { BatchMessage, BufferRef, MainToWorkerMessage, ReleasedMessage, WorkerOptions, WorkerToMainMessage } from "../worker/inbound.protocol";
 
 /**
  * Offloads the clientbound packet pipeline to a worker thread.
@@ -32,11 +32,18 @@ import type { BatchMessage, BufferRef, MainToWorkerMessage, WorkerOptions, Worke
  * bench server flushing once per tick like a real server, main-thread load at ~100k
  * packets/s roughly halves (33% → 15%, 25% → 13% across runs) — see `docs/grim-v2.md` §K.
  *
+ * Server switches (1.20.2+): the server can send the client back to the configuration state
+ * mid-session — Velocity does on every backend change, 2b2t's queue → main server included.
+ * The worker only parses play, so it stops at `start_configuration` and holds every byte after
+ * it; once the client has switched, the main thread asks for them back together with the cipher
+ * position, re-links the stock chain exactly as it found it, and lets minecraft-protocol run the
+ * configuration phase itself. On the way back into play the worker attaches again.
+ *
  * Failure policy: if the worker dies before it ever attaches, the stock pipeline simply
- * stays in place. If it dies while attached, the bytes it held are gone and the stream
- * cannot be resumed, so the connection is ended for the reconnect path to rebuild — and
- * the offload is disabled for the rest of the process so a broken worker cannot turn
- * into a reconnect loop. `MC_INBOUND_WORKER=0` disables it outright.
+ * stays in place. If it dies while attached (or mid hand-back), the bytes it held are gone
+ * and the stream cannot be resumed, so the connection is ended for the reconnect path to
+ * rebuild — and the offload is disabled for the rest of the process so a broken worker cannot
+ * turn into a reconnect loop. `MC_INBOUND_WORKER=0` disables it outright.
  */
 export class InboundWorker {
 
@@ -59,6 +66,12 @@ export class InboundWorker {
 
 	/** Stream we take `data` events from: the socket, or a native decipher's output. */
 	private source?: Readable;
+
+	/** Where {@link source} was piped before we took it over — restored on hand-back. */
+	private upstreamDest?: Duplex;
+
+	/** Waiting for the worker to return the stream after the client left play. */
+	private handingBack = false;
 
 	/** Decryption was handed to the worker; the main-thread decipher is stale from then on. */
 	private cipherMoved = false;
@@ -89,9 +102,9 @@ export class InboundWorker {
 				setImmediate(() => this.attach());
 			} else if (this.attached) {
 
-				// 1.20.1 never leaves play until disconnect; anything else is unexpected.
-				InboundWorker.logger.warn(`Client left play state (${ state }) while offloaded — restoring stock pipeline`);
-				this.detach();
+				// A server switch (start_configuration) — the worker has already stopped
+				// parsing; take the stream back for the configuration phase.
+				this.handBack();
 			}
 		});
 
@@ -120,6 +133,8 @@ export class InboundWorker {
 		worker.on("message", (message: WorkerToMainMessage) => {
 			if (message.t === "batch") {
 				this.onBatch(message);
+			} else if (message.t === "released") {
+				this.onReleased(message);
 			} else if (message.t === "ready") {
 				InboundWorker.logger.log("Worker thread ready", chalk.dim(`(protocol ${ client.version })`));
 				this.ready = true;
@@ -144,7 +159,7 @@ export class InboundWorker {
 	 * old pipeline has fully drained and the splitter holds only a partial frame.
 	 */
 	private attach() {
-		if (this.attached || this.stopped || !this.ready || !this.worker) return;
+		if (this.attached || this.handingBack || this.stopped || !this.ready || !this.worker) return;
 		const client = this.client;
 		if (client.state !== "play") return;
 
@@ -173,6 +188,7 @@ export class InboundWorker {
 		const remainder = splitter.buffer;
 		splitter.buffer = Buffer.alloc(0);
 		this.source = source;
+		this.upstreamDest = upstreamDest;
 		this.attached = true;
 		if (remainder.length > 0) this.feed(remainder);
 		if (cipherState) {
@@ -208,22 +224,65 @@ export class InboundWorker {
 	}
 
 	/**
-	 * Hand the stock pipeline back. Bytes still in the worker's buffer are lost — only used
-	 * on unexpected state changes, where the connection is moribund anyway. Once decryption
-	 * has moved there is nothing to hand back to (the main-thread cipher state is stale), so
-	 * the connection is ended instead.
+	 * The client left play (a server switch). Stop feeding the worker — it has already halted
+	 * after the state-changing packet — and ask for the bytes it held back. Socket data that
+	 * arrives in the meantime waits in the paused source; {@link onReleased} resumes it.
 	 */
-	private detach() {
-		if (!this.attached) return;
+	private handBack() {
+		if (!this.attached || this.handingBack) return;
 		this.attached = false;
+		this.handingBack = true;
 		const source = this.source!;
 		source.off("data", this.onSourceData);
+		source.pause();
+		this.post({ t: "release" });
+	}
+
+	/**
+	 * Re-link the stock chain exactly as {@link attach} found it. The bytes the worker held are
+	 * already decrypted and start on a frame boundary, so they go straight into the splitter,
+	 * ahead of anything still queued in the socket; if decryption had moved, the main-thread
+	 * cipher resumes from the worker's shift register.
+	 */
+	private onReleased(message: ReleasedMessage) {
+		if (!this.handingBack) return;
+		this.handingBack = false;
+		const client = this.client;
+		const source = this.source!;
+		const upstreamDest = this.upstreamDest!;
 		this.source = undefined;
+		this.upstreamDest = undefined;
+
 		if (this.cipherMoved) {
-			this.client.end("inbound worker detached after cipher handover");
-			return;
+			if (!message.shiftRegister || !InboundWorker.restoreCipherState(client.decipher!, new Uint8Array(message.shiftRegister))) {
+				InboundWorker.logger.error("Could not hand the cipher back from the worker — ending connection");
+				client.end("inbound worker cipher hand-back failed");
+				return;
+			}
+			this.cipherMoved = false;
 		}
-		source.pipe(this.client.splitter);
+
+		if (message.remainder.byteLength > 0) client.splitter.write(Buffer.from(message.remainder));
+		source.pipe(upstreamDest);
+		if (upstreamDest !== client.splitter) (upstreamDest as unknown as Readable).pipe(client.splitter);
+		source.resume();
+
+		InboundWorker.logger.log("Client left play — stream handed back for the configuration phase", chalk.dim(`(${ message.remainder.byteLength } bytes held)`));
+
+		// The configuration phase may already be over (its packets were among the held bytes).
+		if (client.state === "play") setImmediate(() => this.attach());
+	}
+
+	/**
+	 * Put a shift register back into minecraft-protocol's aes-js `Decipher` fallback — the
+	 * inverse of {@link extractCipherState}.
+	 */
+	private static restoreCipherState(decipher: Readable, shiftRegister: Uint8Array): boolean {
+		const aes = (decipher as unknown as { aes?: { _shiftRegister?: Uint8Array } }).aes;
+		const target = aes?._shiftRegister;
+		if (!target || target.length !== 16 || shiftRegister.length !== 16) return false;
+		target.set(shiftRegister);
+		return true;
 	}
 
 	/**
@@ -234,7 +293,7 @@ export class InboundWorker {
 	private fail(message: string, err?: unknown) {
 		if (this.stopped) return;
 		InboundWorker.disabled = true;
-		const wasAttached = this.attached;
+		const wasAttached = this.attached || this.handingBack;
 		InboundWorker.logger.error(`${ message } — inbound offload disabled${ wasAttached ? ", ending connection" : "" }`, err ?? "");
 		this.stop();
 		if (wasAttached) this.client.end("inbound worker crashed");
@@ -289,6 +348,11 @@ export class InboundWorker {
 		this.counters.batches++;
 		this.counters.workerParseMs = message.parseMs;
 		this.counters.mainMs += performance.now() - started;
+
+		// The last packet took the client out of play. minecraft-protocol flips the state from
+		// the packet handler, which normally already triggered the hand-back; if it has not
+		// (still in play), handing back anyway is harmless — the stock chain parses play too.
+		if (message.halted) setImmediate(() => this.handBack());
 	}
 
 	/**
@@ -330,10 +394,12 @@ export class InboundWorker {
 	public stop() {
 		if (this.stopped) return;
 		this.stopped = true;
-		if (this.attached) {
+		if (this.attached || this.handingBack) {
 			this.attached = false;
+			this.handingBack = false;
 			this.source?.off("data", this.onSourceData);
 			this.source = undefined;
+			this.upstreamDest = undefined;
 		}
 		void this.worker?.terminate();
 		this.worker = undefined;

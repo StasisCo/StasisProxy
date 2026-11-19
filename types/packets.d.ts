@@ -23,12 +23,13 @@ declare namespace Packets {
 			},
 		},
 
+		/** Text components are tagged NBT since 1.20.3 — parse with `ChatManager.fromWire`. */
 		"set_title_text": {
-			text: string;
+			text: unknown;
 		},
 
 		"set_title_subtitle": {
-			text: string;
+			text: unknown;
 		}
 
 		"update_health": {
@@ -51,20 +52,27 @@ declare namespace Packets {
 			entityStatus: number;
 		}
 
+		/** Since 1.20.5 the spawn data shared with `login` is nested under `worldState`. */
 		"respawn": {
-			dimension: string | { name: string };
-			worldName: string;
-			hashedSeed: bigint;
-			gamemode: number;
-			previousGamemode: number;
-			isDebug: boolean;
-			isFlat: boolean;
-			copyMetadata: boolean;
-			death?: {
-				dimensionName: string;
-				location: { x: number; y: number; z: number };
+			worldState: {
+
+				/** Index into the dimension_type registry sent during configuration. */
+				dimension: number;
+				name: string;
+				hashedSeed: bigint;
+				gamemode: "survival" | "creative" | "adventure" | "spectator";
+				previousGamemode: number;
+				isDebug: boolean;
+				isFlat: boolean;
+				death?: {
+					dimensionName: string;
+					location: { x: number; y: number; z: number };
+				};
+				portalCooldown: number;
 			};
-			portalCooldown: number;
+
+			/** Bit 0x01 keeps attributes, 0x02 keeps entity metadata. */
+			copyMetadata: number;
 		}
 
 		"entity_velocity": {
@@ -93,8 +101,10 @@ declare namespace Packets {
 			rootIndex: number;
 		}
 
+		/** `content` is a tagged NBT text component — parse with `ChatManager.fromWire`. */
 		"system_chat": {
-			content: string | unknown;
+			content: unknown;
+			isActionBar: boolean;
 		}
 
 		"set_slot": {
@@ -156,7 +166,8 @@ declare namespace Packets {
 
 		/**
 		 * Clientbound Player Position And Look — server forcibly sets the player's own position.
-		 * `flags` is a bitmask: 0x01=X relative, 0x02=Y relative, 0x04=Z relative, 0x08=Y_ROT relative, 0x10=X_ROT relative.
+		 * `flags` marks which axes are relative; on 1.20.6 it parses as an object (`{ x, y, z, yaw,
+		 * pitch }` booleans plus the raw `_value` bitmask) — read it with `isRelative`.
 		 * yaw/pitch are floats in degrees.
 		 */
 		"position": {
@@ -165,7 +176,7 @@ declare namespace Packets {
 			z: number;
 			yaw: number;
 			pitch: number;
-			flags: number;
+			flags: import("~/client/minecraft/protocol").PositionFlags;
 			teleportId: number;
 		}
 

@@ -361,7 +361,7 @@ export class Stasis extends StasisColumn<{
 	 *
 	 * Sends the packets directly rather than going through mineflayer's `activateBlock`, which
 	 * depends on the physics loop we replace. Order matters: the rotation has to be on the wire
-	 * *before* the interaction, because a 1.20.1 `block_place` carries no rotation of its own and
+	 * *before* the interaction, because a 1.20.6 `block_place` carries no rotation of its own and
 	 * the server validates reach and line of sight against whatever it last saw us looking at.
 	 *
 	 * Resolves once the server confirms the block state changed, or false on timeout.

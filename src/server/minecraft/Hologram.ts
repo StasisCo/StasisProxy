@@ -1,11 +1,21 @@
 import crypto from "crypto";
 import type { Client as MinecraftClient } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
+import * as nbt from "prismarine-nbt";
 import { Vec3 } from "vec3";
+import { ChatManager } from "~/client/minecraft/manager/ChatManager";
 import { StasisManager } from "~/client/minecraft/manager/StasisManager";
 import { Pearl } from "~/client/minecraft/Pearl";
+import { entityTypeId } from "~/client/minecraft/protocol";
 import { StasisColumn } from "~/client/minecraft/StasisColumn";
 import { prisma } from "~/prisma";
+
+/** Entity type ids on the proxy's protocol version — these shift between versions. */
+const PLAYER_TYPE = entityTypeId("player");
+const ARMOR_STAND_TYPE = entityTypeId("armor_stand");
+
+/** An empty text component, as the NBT team fields want it. */
+const EMPTY_TEXT = nbt.comp({ text: nbt.string("") });
 
 type SkinProperty = { name: string; value: string; signature?: string };
 
@@ -69,9 +79,22 @@ abstract class BaseHologram {
 
 	protected abstract spawnVisual(params: SpawnVisualParams): SpawnVisualResult;
 
+	/** Between attach() and detach(). A spawn that was awaiting its owner lookup checks this before writing. */
+	private active = false;
+
+	/**
+	 * Whether play packets may be written to the client right now. Everything here serializes
+	 * with the client's *current* protocol — while a server switch has it in the configuration
+	 * state, a play packet would come out as a garbage frame and disconnect the player.
+	 */
+	private get writable(): boolean {
+		return this.active && (this.client.state as string) === "play";
+	}
+
 	// ─────────────────────────────── lifecycle ───────────────────────────────
 
 	public attach() {
+		this.active = true;
 		this.createHiddenNametagTeam();
 		for (const pearl of StasisManager.pearls.values()) this.track(pearl);
 		this.bot._client.on("spawn_entity", this.onSpawnEntity);
@@ -98,6 +121,7 @@ abstract class BaseHologram {
 		this.pearlListeners.clear();
 		this.entities.clear();
 		this.removeHiddenNametagTeam();
+		this.active = false;
 	}
 
 	// ─────────────────────────────── event handlers ──────────────────────────
@@ -195,6 +219,9 @@ abstract class BaseHologram {
 		const fakeUUID = crypto.randomUUID();
 		const fakeName = fakeUUID.replace(/-/g, "").substring(0, 16);
 
+		// The lookups above can outlive this renderer, or land mid server switch.
+		if (!this.writable || this.entities.has(pearl.entity.id)) return;
+
 		this.entities.set(pearl.entity.id, { entityId, fakeUUID, fakeName, ownerName, nametagEntityIds: [], eyeY: 0 });
 
 		const proto = this.client.serializer.proto;
@@ -233,7 +260,7 @@ abstract class BaseHologram {
 				params: {
 					entityId: lineEntityId,
 					objectUUID: crypto.randomUUID(),
-					type: 2, // armor_stand
+					type: ARMOR_STAND_TYPE,
 					x: column.pos2.x + 0.5,
 					y: nametagY + i * 0.25,
 					z: column.pos2.z + 0.5,
@@ -248,7 +275,7 @@ abstract class BaseHologram {
 					entityId: lineEntityId,
 					metadata: [
 						{ key: 0, type: "byte", value: 0x20 },
-						{ key: 2, type: "optional_component", value: JSON.stringify(lines[i]) },
+						{ key: 2, type: "optional_component", value: ChatManager.toNbt(lines[i]) },
 						{ key: 3, type: "boolean", value: true },
 						{ key: 5, type: "boolean", value: true },
 						{ key: 15, type: "byte", value: 0x10 }
@@ -275,6 +302,7 @@ abstract class BaseHologram {
 			this.pearlListeners.delete(pearlId);
 		}
 
+		if (!this.writable) return;
 		const proto = this.client.serializer.proto;
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "entity_destroy",
@@ -296,7 +324,7 @@ abstract class BaseHologram {
 
 	private sendRotation(entityId: number, holoX: number, holoY: number, holoZ: number) {
 		const pos = this.clientPos ?? this.bot.entity?.position;
-		if (!pos) return;
+		if (!pos || !this.writable) return;
 
 		const dx = pos.x - holoX;
 		const dy = (pos.y + 1.62) - holoY;
@@ -322,25 +350,27 @@ abstract class BaseHologram {
 	// ──────────────────────────── team management ────────────────────────────
 
 	private createHiddenNametagTeam() {
+		if (!this.writable) return;
 		const proto = this.client.serializer.proto;
 		this.client.writeRaw(proto.createPacketBuffer("packet", {
 			name: "teams",
 			params: {
 				team: BaseHologram.HIDDEN_NAMETAG_TEAM,
 				mode: 0,
-				name: JSON.stringify({ text: "" }),
+				name: EMPTY_TEXT,
 				friendlyFire: 0,
 				nameTagVisibility: "never",
 				collisionRule: "never",
 				formatting: 21,
-				prefix: JSON.stringify({ text: "" }),
-				suffix: JSON.stringify({ text: "" }),
+				prefix: EMPTY_TEXT,
+				suffix: EMPTY_TEXT,
 				players: []
 			}
 		}));
 	}
 
 	private removeHiddenNametagTeam() {
+		if (!this.writable) return;
 		try {
 			const proto = this.client.serializer.proto;
 			this.client.writeRaw(proto.createPacketBuffer("packet", {
@@ -380,6 +410,25 @@ abstract class BaseHologram {
 // Renderer variants
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Spawn a fake player entity. Since 1.20.2 players spawn through the generic `spawn_entity`
+ * (`named_entity_spawn` is gone); the matching `player_info` add must already have been sent.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw minecraft-protocol proto object
+function spawnPlayer(client: MinecraftClient, proto: any, entityId: number, uuid: string, x: number, y: number, z: number) {
+	client.writeRaw(proto.createPacketBuffer("packet", {
+		name: "spawn_entity",
+		params: {
+			entityId,
+			objectUUID: uuid,
+			type: PLAYER_TYPE,
+			x, y, z,
+			pitch: 0, yaw: 0, headPitch: 0, objectData: 0,
+			velocity: { x: 0, y: 0, z: 0 }
+		}
+	}));
+}
+
 /** Full-opacity standing player above each stasis chamber. */
 class BodyHologram extends BaseHologram {
 	protected override spawnVisual({ entityId, fakeUUID, fakeName, skinProperties, column, proto }: SpawnVisualParams): SpawnVisualResult {
@@ -395,10 +444,7 @@ class BodyHologram extends BaseHologram {
 			}
 		}));
 
-		this.client.writeRaw(proto.createPacketBuffer("packet", {
-			name: "named_entity_spawn",
-			params: { entityId, playerUUID: fakeUUID, x: column.pos2.x + 0.5, y: column.surfaceY + 19 / 16, z: column.pos2.z + 0.5, yaw: 0, pitch: 0 }
-		}));
+		spawnPlayer(this.client, proto, entityId, fakeUUID, column.pos2.x + 0.5, column.surfaceY + 19 / 16, column.pos2.z + 0.5);
 
 		return { nametagY: column.surfaceY + 3, eyeY: column.surfaceY + 19 / 16 + 1.62 };
 	}
@@ -419,10 +465,7 @@ class HeadHologram extends BaseHologram {
 			}
 		}));
 
-		this.client.writeRaw(proto.createPacketBuffer("packet", {
-			name: "named_entity_spawn",
-			params: { entityId, playerUUID: fakeUUID, x: column.pos2.x + 0.5, y: column.pos2.y + 0.5, z: column.pos2.z + 0.5, yaw: 0, pitch: 0 }
-		}));
+		spawnPlayer(this.client, proto, entityId, fakeUUID, column.pos2.x + 0.5, column.pos2.y + 0.5, column.pos2.z + 0.5);
 
 		return { nametagY: column.pos2.y + 2.5, eyeY: column.pos2.y + 2.12 };
 	}

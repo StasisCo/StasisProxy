@@ -28,6 +28,11 @@ export class Cfb8Decryptor {
 		this.shiftRegister = Buffer.from(shiftRegister);
 	}
 
+	/** A copy of the current shift register, to hand the stream back to another decryptor. */
+	public get state(): Uint8Array {
+		return Uint8Array.from(this.shiftRegister);
+	}
+
 	public decrypt(cipher: Buffer): Buffer {
 		const n = cipher.length;
 		if (n === 0) return cipher;

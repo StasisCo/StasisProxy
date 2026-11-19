@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { createServer, type Server as MinecraftServer, type SessionObject } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import type { ChatMessage } from "prismarine-chat";
+import * as nbt from "prismarine-nbt";
 import sharp from "sharp";
 import { Logger } from "~/class/Logger";
 import { ChatManager } from "~/client/minecraft/manager/ChatManager";
@@ -142,6 +143,13 @@ export class Server {
 			motd: this.motd,
 			maxPlayers: 1,
 
+			// The client gets the upstream server's registries (replayed before
+			// finish_configuration, see beforeLogin). minecraft-protocol would otherwise send
+			// minecraft-data's vanilla ones first — duplicate registry entries — and an empty
+			// object is the only value its `||` default does not replace. (Real option, missing
+			// from its typings.)
+			...{ registryCodec: {}} as object,
+
 			// Let minecraft-protocol's server send keep_alive to the proxy
 			// client on its own timer. We filter upstream keep_alive in the
 			// bridge (the bot answers them itself), so without this the client
@@ -153,6 +161,30 @@ export class Server {
 			},
 			beforeLogin: client => {
 				Server.logger.log(`UUID of player ${ client.username } is ${ client.uuid }`);
+
+				// A joining client is built from the registries of the last completed configuration
+				// phase plus the play-state cache. Mid server-switch the cache is empty and the
+				// registries are about to change — there is no consistent world to hand over yet.
+				if ((this.bot._client.state as string) !== "play" || !this.packetCache.hasConfiguration) {
+					Server.logger.warn(`${ client.username } joined while the bot is switching servers — turned away`);
+					client.end("The bot is switching servers — try again in a few seconds.");
+					return;
+				}
+
+				// Hook the login sequence minecraft-protocol writes on its own:
+				// - success: it hardcodes `properties: []`; inject the bot's signed skin.
+				// - finish_configuration: it sends no registries of its own (we pass none), so the
+				//   upstream ones go out right before it, verbatim — the client then decodes the
+				//   replayed play `login`, whose dimension is an index into those registries.
+				const origWrite = client.write.bind(client);
+				client.write = (name: string, params: Record<string, unknown>) => {
+					if (name === "success" && this.botProperties.length > 0) params.properties = this.botProperties;
+					if (name === "finish_configuration") {
+						const count = this.packetCache.replayConfiguration(client);
+						Server.logger.log(`Replayed ${ count } configuration packets`);
+					}
+					return origWrite(name, params);
+				};
 
 				// Make the connecting player appear as the bot: swap their UUID
 				// and username in login_success so the client thinks it IS the
@@ -174,16 +206,6 @@ export class Server {
 				(client as any)._originalUsername = _originalUsername;
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- attaching arbitrary metadata
 				(client as any)._originalUuid = _originalUuid;
-
-				// Inject bot skin properties into login_success
-				// (minecraft-protocol hardcodes properties: []).
-				if (this.botProperties.length > 0) {
-					const origWrite = client.write.bind(client);
-					client.write = (name: string, params: Record<string, unknown>) => {
-						if (name === "success") params.properties = this.botProperties;
-						return origWrite(name, params);
-					};
-				}
 
 				Server.logger.log(`${ _originalUsername }[/${ client.socket.remoteAddress }:${ client.socket.remotePort }] logged in with entity id ${ this.bot.player?.entity?.id ?? "?" }`);
 			}
@@ -288,7 +310,17 @@ export class Server {
 
 	public kickAll(reason: ChatMessage) {
 		if (!this.current) return;
-		this.current.client.end(reason.toMotd());
+		const client = this.current.client;
+
+		// minecraft-protocol's end() only writes a reason in the login and play states; a client
+		// caught mid server-switch would just see the socket close. Raw, because ServerClient
+		// holds back encoded writes for the duration of a switch.
+		if ((client.state as string) === "configuration") {
+			try {
+				client.writeRaw(client.serializer.proto.createPacketBuffer("packet", { name: "disconnect", params: { reason: nbt.comp({ text: nbt.string(reason.toMotd()) }) }}));
+			} catch { /* best effort */ }
+		}
+		client.end(reason.toMotd());
 	}
 
 }

@@ -25,6 +25,7 @@ import { PhysicsManager } from "./manager/PhysicsManager";
 import { QueueManager } from "./manager/QueueManager";
 import type { RotationManager } from "./manager/RotationManager";
 import { Module } from "./Module";
+import { guardStateWrites, resolveVersion } from "./protocol";
 
 /** Exponential backoff schedule for automatic reconnects. After the final (5m) attempt fails, the process exits. */
 const RECONNECT_DELAYS_MS = [ 0, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 60_000, 120_000, 300_000 ];
@@ -55,7 +56,7 @@ export class MinecraftClient {
 		port: parseInt(z.string().optional().parse(process.env.MC_HOST)?.split(":")[1] ?? "25565"),
 		profilesFolder: z.string().optional().parse(process.env.MC_PROFILE),
 		username: zMojangUsername.parse(process.env.MC_USERNAME),
-		version: z.string().refine(val => /\d+\.\d+(\.\d+)?/.test(val), "Invalid Minecraft version format").optional().parse(process.env.MC_VERSION),
+		version: resolveVersion(process.env.MC_VERSION, message => MinecraftClient.logger.warn(message)),
 
 		// Requested view distance in chunks. The dominant CPU cost on constrained hosts is
 		// packet parsing, and it scales with what the server sends — a smaller view distance
@@ -190,6 +191,18 @@ export class MinecraftClient {
 
 		// Create fresh bot and managers
 		this.bot = createBot(this.options);
+
+		// First wrapper on client.write, so every later one (PhysicsManager's raw write included)
+		// sits on top of it: nothing may put a play packet on the wire while a server switch has
+		// the connection in the configuration state.
+		const dropped = new Set<string>();
+		guardStateWrites(this.bot._client as never, (name, state) => {
+			const key = `${ state }.${ name }`;
+			if (dropped.has(key)) return;
+			dropped.add(key);
+			this.logger.log(chalk.dim(`Dropped ${ name } written during ${ state } (not a ${ state } packet)`));
+		});
+
 		this.inbound = new InboundWorker(this.bot);
 		this.proxy = new Server(this.bot);
 		this.chat = new ChatManager(this.bot);
@@ -218,9 +231,10 @@ export class MinecraftClient {
 		});
 
 		// Handle upstream disconnects
-		this.bot.on("kicked", reason => {
+		// Login-phase reasons are JSON strings; play and configuration reasons are NBT components.
+		this.bot.on("kicked", (reason: unknown) => {
 			try {
-				const component = new ChatManager.parser(JSON.parse(reason));
+				const component = ChatManager.fromWire(reason);
 				this.logger.warn("Disconnected:", component.toAnsi());
 				this.proxy.kickAll(component);
 			} catch (err) {

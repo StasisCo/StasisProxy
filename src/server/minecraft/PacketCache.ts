@@ -2,6 +2,7 @@ import chalk from "chalk";
 import type { Client as MinecraftClient, PacketMeta } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import { Logger } from "~/class/Logger";
+import { ABSOLUTE_POSITION_FLAGS } from "~/client/minecraft/protocol";
 
 /**
  * A single cached packet entry, keyed inside the cache by its packet name and
@@ -28,7 +29,9 @@ export interface CachedPacket {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- packet shapes are dynamic
 const PACKET_KEYS: Record<string, true | ((data: any) => string)> = {
 
-	// ── Login & Configuration (singletons) ──
+	// ── Login & world setup (singletons) ──
+	// Registries, feature flags and the initial tags arrive in the configuration state and are
+	// cached separately — see CONFIGURATION_KEYS. `tags` here is the play-state resend (/reload).
 	"login": true,
 	"difficulty": true,
 	"abilities": true,
@@ -37,7 +40,6 @@ const PACKET_KEYS: Record<string, true | ((data: any) => string)> = {
 	"declare_recipes": true,
 	"unlock_recipes": true,
 	"tags": true,
-	"feature_flags": true,
 	"server_data": true,
 	"spawn_position": true,
 	"update_time": true,
@@ -65,7 +67,6 @@ const PACKET_KEYS: Record<string, true | ((data: any) => string)> = {
 	// attach). Both arrive hundreds of times per second at entity-dense locations — caching
 	// them was measurable buffer-copy and map churn on constrained hosts.
 	"spawn_entity": d => `${ d.entityId }`,
-	"named_entity_spawn": d => `${ d.entityId }`,
 	"spawn_entity_experience_orb": d => `${ d.entityId }`,
 	"entity_metadata": d => `${ d.entityId }`,
 	"entity_equipment": d => `${ d.entityId }`,
@@ -102,10 +103,22 @@ const PACKET_KEYS: Record<string, true | ((data: any) => string)> = {
 	"game_state_change": d => `${ d.reason }`
 };
 
+/**
+ * Configuration-state packets a joining client needs before it can enter play: the registries
+ * (one `registry_data` per registry since 1.20.5), the enabled feature flags, and the tags.
+ * Without them a vanilla client cannot even decode the play `login` packet, whose dimension is a
+ * registry index. Everything else in that state (brand, resource packs, cookies, known packs) is
+ * connection-specific and not replayed.
+ */
+const CONFIGURATION_KEYS: Record<string, true | ((data: any) => string)> = { // eslint-disable-line @typescript-eslint/no-explicit-any -- packet shapes are dynamic
+	"registry_data": d => `${ d.id }`,
+	"feature_flags": true,
+	"tags": true
+};
+
 /** Names of all entity-keyed packets — used for invalidation when an entity is destroyed. */
 const ENTITY_PACKET_NAMES = [
 	"spawn_entity",
-	"named_entity_spawn",
 	"spawn_entity_experience_orb",
 	"entity_metadata",
 	"entity_equipment",
@@ -164,6 +177,19 @@ export class PacketCache {
 	private seq = 0;
 
 	/**
+	 * Configuration-state packets of the last *completed* configuration phase, in arrival order,
+	 * keyed like {@link CONFIGURATION_KEYS}. Replayed to every joining client by
+	 * {@link replayConfiguration}.
+	 */
+	private configuration = new Map<string, CachedPacket>();
+
+	/**
+	 * The configuration phase in progress, if any. Only promoted to {@link configuration} on
+	 * `finish_configuration`, so a client joining mid server-switch never gets half a registry set.
+	 */
+	private pendingConfiguration: Map<string, CachedPacket> | null = null;
+
+	/**
 	 * Creates a new PacketCache and immediately begins recording packets from
 	 * the bot's upstream server connection.
 	 * @param bot - The mineflayer bot whose upstream packets should be cached
@@ -184,6 +210,22 @@ export class PacketCache {
 	 */
 	public peek(name: string, key = "_"): CachedPacket | undefined {
 		return this.cache.get(name)?.get(key);
+	}
+
+	/** Whether a complete configuration phase (registries and all) has been captured. */
+	public get hasConfiguration(): boolean {
+		return this.configuration.size > 0;
+	}
+
+	/**
+	 * Write the captured configuration-state packets (registries, feature flags, tags) to a
+	 * client that is itself in the configuration state, verbatim. Packet ids are per state and
+	 * per version, and both ends speak the same version, so the upstream bytes are valid as-is.
+	 * @returns the number of packets written
+	 */
+	public replayConfiguration(client: MinecraftClient): number {
+		for (const pkt of this.configuration.values()) client.writeRaw(pkt.buffer);
+		return this.configuration.size;
 	}
 
 	/**
@@ -235,7 +277,7 @@ export class PacketCache {
 				z: lastSent.z,
 				yaw: lastSent.yaw,
 				pitch: lastSent.pitch,
-				flags: 0x00
+				flags: ABSOLUTE_POSITION_FLAGS
 			};
 		}
 
@@ -321,9 +363,50 @@ export class PacketCache {
 		}
 	}
 
+	/**
+	 * Record one configuration-state packet into the phase in progress; promote the phase on
+	 * `finish_configuration`. Runs for the initial login and for every server switch.
+	 */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol data
+	private onConfigurationPacket(name: string, data: any, buffer: Buffer) {
+		if (name === "finish_configuration") {
+			if (this.pendingConfiguration?.size) this.configuration = this.pendingConfiguration;
+			this.pendingConfiguration = null;
+			return;
+		}
+
+		const keySpec = CONFIGURATION_KEYS[name];
+		if (keySpec === undefined) return;
+
+		this.pendingConfiguration ??= new Map();
+		const key = `${ name }:${ keySpec === true ? "_" : keySpec(data) }`;
+		this.pendingConfiguration.set(key, { seq: this.seq++, name, data: null, buffer: Buffer.from(buffer) });
+	}
+
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw protocol data
 	private readonly onPacket = (data: any, meta: PacketMeta, buffer: Buffer) => {
 		const { name } = meta;
+
+		// Configuration state: registries & co. are kept apart from the play-state world cache —
+		// packet ids are per state, so they could never be replayed alongside it anyway.
+		if (meta.state === "configuration") {
+			try {
+				this.onConfigurationPacket(name, data, buffer);
+			} catch (err) {
+				PacketCache.logger.warn(`Cache error for configuration ${ name }:`, err);
+			}
+			return;
+		}
+		if (meta.state !== "play") return;
+
+		// A server switch (Velocity reconfigures on every backend change since 1.20.2): the
+		// next server sends its own registries, login and world, so nothing cached so far
+		// describes where the bot is going.
+		if (name === "start_configuration") {
+			this.cache.clear();
+			this.pendingConfiguration = new Map();
+			return;
+		}
 
 		// ── Invalidations ──
 		if (name === "entity_destroy") {
@@ -375,6 +458,18 @@ export class PacketCache {
 
 		if (name === "scoreboard_objective" && data.action === 1) {
 			this.deleteKey("scoreboard_objective", `${ data.name }`);
+			return;
+		}
+
+		// Score removal moved out of scoreboard_score into its own packet in 1.20.3. Without an
+		// objective it clears the holder's score in every objective.
+		if (name === "reset_score") {
+			if (typeof data.objective_name === "string") {
+				this.deleteKey("scoreboard_score", `${ data.entity_name }:${ data.objective_name }`);
+			} else {
+				const scores = this.cache.get("scoreboard_score");
+				if (scores) for (const k of scores.keys()) if (k.startsWith(`${ data.entity_name }:`)) scores.delete(k);
+			}
 			return;
 		}
 

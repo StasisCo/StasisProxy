@@ -1,8 +1,10 @@
 import chalk from "chalk";
 import { Client as ProtocolClient, type PacketMeta } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
+import { createRequire } from "node:module";
 import { Logger } from "~/class/Logger";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
+import { PROTOCOL_VERSION } from "~/client/minecraft/protocol";
 import { prisma } from "~/prisma";
 import type { ClientConfig } from "~/schema/server/minecraft/zClientConfig";
 import { ClientCommands } from "./ClientCommands";
@@ -34,6 +36,38 @@ const MOVEMENT_PACKETS_CS = new Set([ "position", "position_look", "look", "flyi
  * the client is required to mirror it, and the anticheat verifies that it did.
  */
 const DROP_S2C = new Set([ "entity_velocity" ]);
+
+/**
+ * C→S packets the bot answers on its own, so the client's copy must not reach the server too.
+ *
+ * `chunk_batch_received` (1.20.2+): the server paces chunk sending by one acknowledgement per
+ * `chunk_batch_finished`. Mineflayer acknowledges every batch the moment it parses it, and it is
+ * always connected — so it keeps answering, the client's duplicate is dropped, and there is
+ * nothing to make up for when the client leaves mid-batch.
+ */
+const BOT_ANSWERED_C2S = new Set([ "chunk_batch_received" ]);
+
+/**
+ * S→C configuration-state packets forwarded to an attached client during a server switch. The
+ * bot holds the actual configuration conversation (known packs, cookies, brand…); the client
+ * only needs what it takes to build the new server's world. Everything it sends back while in
+ * the configuration state is dropped.
+ */
+const FORWARD_CONFIGURATION_S2C = new Set([ "registry_data", "feature_flags", "tags", "custom_payload", "reset_chat", "finish_configuration" ]);
+
+/**
+ * A play-state packet serializer for re-encoding packets to the client. The client's own
+ * `serializer` follows its protocol state, which lags the real client by one round trip across a
+ * server switch — this one is pinned to play.
+ */
+const PLAY_PROTO = (createRequire(import.meta.url)("minecraft-protocol/src/transforms/serializer") as {
+	createSerializer: (opts: { state: string; isServer: boolean; version: string }) => { proto: { createPacketBuffer(type: string, value: unknown): Buffer } };
+}).createSerializer({ state: "play", isServer: true, version: PROTOCOL_VERSION }).proto;
+
+/** Encode a clientbound play packet. */
+function encodePlay(name: string, params: unknown): Buffer {
+	return PLAY_PROTO.createPacketBuffer("packet", { name, params });
+}
 
 /**
  * One connected proxy player. Owns the per-connection lifecycle:
@@ -98,6 +132,20 @@ export class ServerClient {
 	private pendingPingId: number | null = null;
 
 	/**
+	 * Set while the client is being walked through a server switch: from forwarding
+	 * `start_configuration` until the client acknowledges `finish_configuration`. Across that
+	 * window our view of the client's protocol state lags the real one by up to a round trip, so
+	 * nothing may be encoded for it — only verbatim upstream bytes go through.
+	 */
+	private reconfiguring = false;
+
+	/** The hologram renderer to bring back once a server switch has delivered the new world. */
+	private hologramsAfterSwitch: HologramRenderer | null = null;
+
+	/** The new server's `login` has been forwarded since the last switch began. */
+	private loginSinceSwitch = false;
+
+	/**
 	 * Last position reported by the proxied player, or null if no movement
 	 * packet has been observed yet. Read by client commands that need the
 	 * player's authoritative position (e.g. `/stasis save` searching nearby).
@@ -154,11 +202,10 @@ export class ServerClient {
 		// Hold back the position packet — defer it until AFTER login/respawn
 		// (so the client is in the play state) but BEFORE any chunk packet
 		// (so the loading-terrain screen waits for chunks at the real coords
-		// instead of dismissing at the client's default 0,0). The screen in
-		// 1.20.1 dismisses on `position` AND when a quorum of chunks around
-		// the player's known position have loaded — by injecting position
-		// right after login, the client's known position is correct, so the
-		// screen stays up while we replay chunks at that location.
+		// instead of dismissing at the client's default 0,0). The screen
+		// dismisses once the chunk at the player's known position has loaded —
+		// by injecting position right after login, the client's known position
+		// is correct, so the screen stays up while we replay chunks there.
 		const packets = this.packetCache.getReplayPackets();
 		const chunkCount = this.packetCache.size("map_chunk");
 		const lightCount = this.packetCache.size("update_light");
@@ -176,7 +223,7 @@ export class ServerClient {
 			if (positionSent || !positionPkt) return;
 			positionSent = true;
 			try {
-				this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", { name: positionPkt.name, params: positionPkt.data }));
+				this.client.writeRaw(encodePlay(positionPkt.name, positionPkt.data));
 			} catch (err) {
 				ServerClient.logger.warn("Failed to replay position:", err);
 			}
@@ -204,14 +251,14 @@ export class ServerClient {
 					// Decorate so our commands appear in tab-completion. The
 					// cached buffer is now stale — must re-serialize.
 					ClientCommands.decorateDeclareCommands(pkt.data);
-					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", { name: pkt.name, params: pkt.data }));
+					this.client.writeRaw(encodePlay(pkt.name, pkt.data));
 				} else if (pkt.name === "update_view_position" || RESERIALIZE_PACKETS.has(pkt.name)) {
 
 					// Re-serialize from parsed data: update_view_position was
 					// modified above, RESERIALIZE_PACKETS have ViaVersion extra
 					// bytes. Manual serialization + writeRaw avoids the async
 					// serializer reordering these AFTER the writeRaw'd packets.
-					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", { name: pkt.name, params: pkt.data }));
+					this.client.writeRaw(encodePlay(pkt.name, pkt.data));
 				} else {
 
 					// Default: send the raw wire buffer. structuredClone'ing
@@ -240,23 +287,17 @@ export class ServerClient {
 		const rainLevel: number = (this.bot as any).rainState ?? 0;
 		if (this.bot.isRaining && !this.packetCache.peek(gsc, "1")) {
 			try {
-				this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
-					name: gsc, params: { reason: 1, gameMode: 0 }
-				}));
+				this.client.writeRaw(encodePlay(gsc, { reason: 1, gameMode: 0 }));
 			} catch { /* client may have disconnected */ }
 		}
 		if (rainLevel > 0 && !this.packetCache.peek(gsc, "7")) {
 			try {
-				this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
-					name: gsc, params: { reason: 7, gameMode: rainLevel }
-				}));
+				this.client.writeRaw(encodePlay(gsc, { reason: 7, gameMode: rainLevel }));
 			} catch { /* client may have disconnected */ }
 		}
 		if (this.bot.thunderState > 0 && !this.packetCache.peek(gsc, "8")) {
 			try {
-				this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", {
-					name: gsc, params: { reason: 8, gameMode: this.bot.thunderState }
-				}));
+				this.client.writeRaw(encodePlay(gsc, { reason: 8, gameMode: this.bot.thunderState }));
 			} catch { /* client may have disconnected */ }
 		}
 
@@ -272,6 +313,23 @@ export class ServerClient {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw packet data
 		const onServerPacket = (data: any, meta: PacketMeta, buffer: Buffer) => {
 			if (meta.name === "keep_alive" || meta.name === "kick_disconnect") return;
+
+			// ── Server switch ── (see beginServerSwitch)
+			if (meta.state === "configuration") {
+				if (!FORWARD_CONFIGURATION_S2C.has(meta.name)) return;
+				try {
+					this.client.writeRaw(buffer);
+				} catch { /* client may have disconnected */ }
+				return;
+			}
+			if (meta.state !== "play") return;
+			if (meta.name === "start_configuration") {
+				this.beginServerSwitch();
+				try {
+					this.client.writeRaw(buffer);
+				} catch { /* client may have disconnected */ }
+				return;
+			}
 
 			// Back-pressure drops must never eat the player's own knockback. A swallowed self
 			// entity_velocity is an ignored knockback from the anticheat's point of view — one
@@ -301,21 +359,45 @@ export class ServerClient {
 					// Decorate live updates too, otherwise switching dimensions
 					// would wipe our literals from tab-completion.
 					ClientCommands.decorateDeclareCommands(data);
-					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", { name: meta.name, params: data }));
+					this.client.writeRaw(encodePlay(meta.name, data));
 				} else if (RESERIALIZE_PACKETS.has(meta.name)) {
 
 					// Re-serialize to fix ViaVersion wire-format quirks.
-					this.client.writeRaw(this.client.serializer.proto.createPacketBuffer("packet", { name: meta.name, params: data }));
+					this.client.writeRaw(encodePlay(meta.name, data));
 				} else {
 					this.client.writeRaw(buffer);
 				}
 			} catch { /* client may have disconnected */ }
+
+			// The next server's world has started arriving.
+			if (meta.name === "login" && this.hologramsAfterSwitch !== null) {
+				this.loginSinceSwitch = true;
+				setImmediate(() => this.restoreHologramsAfterSwitch());
+			}
 		};
 
 		// ── Bridge: player → server ──
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw packet data
 		const onClientPacket = (data: any, meta: PacketMeta, _buffer: Buffer, fullBuffer: Buffer) => {
 			if (meta.name === "keep_alive") return;
+
+			// ── Server switch ── The client acknowledges each state change in the old state, so
+			// our view of it flips exactly when it does. Nothing it sends while configuring is
+			// for the server — the bot holds that conversation itself.
+			if (meta.state === "play" && meta.name === "configuration_acknowledged") {
+				this.setClientState("configuration");
+				return;
+			}
+			if (meta.state === "configuration") {
+				if (meta.name === "finish_configuration") this.endServerSwitch();
+				return;
+			}
+
+			// Mid-switch the upstream connection is in the configuration state: a play packet
+			// written now would reach the server as a malformed configuration packet.
+			if ((this.bot._client.state as string) !== "play") return;
+
+			if (BOT_ANSWERED_C2S.has(meta.name)) return;
 
 			// Filter the teleport_confirm for our replayed position. We use it
 			// as the signal to unblock movement forwarding — ViaVersion requires
@@ -382,6 +464,18 @@ export class ServerClient {
 		this.client.on("packet", onClientPacket);
 		this.disposers.push(() => this.bot._client.off("packet", onServerPacket));
 		this.disposers.push(() => this.client.off("packet", onClientPacket));
+
+		// Nothing may be encoded for the client mid server-switch (keep-alives from
+		// minecraft-protocol's timer, command replies…): see `reconfiguring`. A skipped
+		// keep-alive costs nothing — the switch takes seconds, the timeout is 30.
+		const write = this.client.write.bind(this.client);
+		this.client.write = ((name: string, params: unknown) => {
+			if (this.reconfiguring) return;
+			write(name, params);
+		}) as typeof this.client.write;
+		this.disposers.push(() => {
+			this.client.write = write;
+		});
 
 		// ── Diagnostic: log packet rates and both ping numbers every 5s ──
 		// "botPing" is the bot's RTT to 2b2t (what the user sees in tab).
@@ -457,6 +551,71 @@ export class ServerClient {
 			where: { id: this.playerId },
 			data: { config: this.config }
 		}).catch(err => ServerClient.logger.warn("Failed to persist config:", err));
+	}
+
+	// ─── Server switches ─────────────────────────────────────────
+
+	/**
+	 * The upstream server is pulling the connection back into the configuration state — on 2b2t
+	 * that is Velocity moving the bot between backends (queue → main). Walk the attached client
+	 * through it instead of dropping it: forward `start_configuration`, the new registries and
+	 * `finish_configuration`, then the new server's world as usual.
+	 *
+	 * The bot answers the configuration conversation itself (minecraft-protocol acknowledges
+	 * instantly), so the client's own acknowledgements are only used to track which state it is
+	 * in and never reach the server.
+	 */
+	private beginServerSwitch() {
+		ServerClient.logger.log("Upstream server switch — reconfiguring the client");
+
+		// Our renderer's entities belong to the world being left; take them down while the
+		// client can still decode play packets.
+		if (this.holograms) {
+			this.hologramsAfterSwitch = this.config.holograms.renderer;
+			this.holograms.detach();
+			this.holograms = null;
+		}
+
+		this.reconfiguring = true;
+		this.loginSinceSwitch = false;
+
+		// Teleports, pings and positions all belong to the server being left — confirming one
+		// to the next server, or saving it as a home there, would be wrong.
+		this.pendingTeleportId = null;
+		this.pendingPingId = null;
+		this.lastClientPos = null;
+	}
+
+	/** The client acknowledged `finish_configuration` and is back in play. */
+	private endServerSwitch() {
+		this.setClientState("play");
+		this.reconfiguring = false;
+		ServerClient.logger.log("Client reconfigured for the new server");
+		this.restoreHologramsAfterSwitch();
+	}
+
+	/** Bring the hologram renderer back once the client is in play *and* has the new world. */
+	private restoreHologramsAfterSwitch() {
+		if (this.detached || this.reconfiguring || !this.loginSinceSwitch || this.hologramsAfterSwitch === null) return;
+		const renderer = this.hologramsAfterSwitch;
+		this.hologramsAfterSwitch = null;
+		this.holograms = createHologram(this.client, this.bot, this.playerListCache as unknown as Map<string, never>, renderer);
+		this.holograms.attach();
+	}
+
+	/**
+	 * Switch our side of the client's protocol state. minecraft-protocol's server keep-alive
+	 * module starts another keep-alive loop on every entry into play and never stops the old one
+	 * (which has been running since the first join), so its `state` listener sits this out.
+	 */
+	private setClientState(state: "configuration" | "play") {
+		const listeners = this.client.listeners("state") as ((...args: unknown[]) => void)[];
+		this.client.removeAllListeners("state");
+		try {
+			this.client.state = state as never;
+		} finally {
+			for (const listener of listeners) this.client.on("state", listener);
+		}
 	}
 
 	/** Tear down all listeners, holograms, and save home on disconnect. */

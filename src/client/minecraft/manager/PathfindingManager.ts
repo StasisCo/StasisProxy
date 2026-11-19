@@ -554,7 +554,7 @@ export class PathfindingManager {
 	/**
 	 * Cells that read as clear in our world copy but that movement provably cannot pass —
 	 * learned from walk stalls, expiring after a while. The server is 1.21.x behind
-	 * ViaVersion and we parse the downgraded 1.20.1 chunks, so a 1.21-only block whose
+	 * ViaVersion and we parse the downgraded 1.20.6 chunks, so a 1.21-only block whose
 	 * substitute has different collision is an invisible wall to us: the world says air,
 	 * the server says solid, and every sim step into it gets rolled back. Marking the
 	 * stall cells solid lets the planner route around what it cannot see.

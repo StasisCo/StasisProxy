@@ -14,7 +14,7 @@ import { createRequire } from "node:module";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { inflateSync } from "node:zlib";
 import { Cfb8Decryptor } from "./cfb8";
-import type { BatchItem, BatchMessage, BufferRef, MainToWorkerMessage, WorkerOptions } from "./inbound.protocol";
+import type { BatchItem, BatchMessage, BufferRef, MainToWorkerMessage, ReleasedMessage, WorkerOptions } from "./inbound.protocol";
 
 if (isMainThread || !parentPort) throw new Error("inbound.worker must be started as a worker thread");
 
@@ -29,7 +29,8 @@ const { createDeserializer } = require("minecraft-protocol/src/transforms/serial
 const options = workerData as WorkerOptions;
 
 // Compiling the play-state protocol takes the better part of a second; do it before
-// touching any message so the first batch is parsed by a warm parser.
+// touching any message so the first batch is parsed by a warm parser. Only play is ever
+// offloaded: the login and configuration states are a few dozen packets per connection.
 const deserializer = createDeserializer({
 	state: "play",
 	isServer: false,
@@ -45,6 +46,16 @@ let decryptor: Cfb8Decryptor | null = null;
 
 /** Bytes received but not yet forming a whole frame. */
 let pending: Buffer = Buffer.alloc(0);
+
+/**
+ * Clientbound play packets after which the stream is no longer play-state. Since 1.20.2 the
+ * server can send the client back to configuration (Velocity does on every backend switch);
+ * the frames that follow use configuration packet ids this parser would misread.
+ */
+const LEAVES_PLAY = new Set([ "start_configuration" ]);
+
+/** A {@link LEAVES_PLAY} packet was parsed: hold everything after it until the main thread asks for it. */
+let halted = false;
 
 /** Cumulative parse time in ms, reported with every batch for the main thread's stats. */
 let parseMs = 0;
@@ -115,7 +126,7 @@ function processPending() {
 	let total = 0;
 	let offset = 0;
 
-	while (offset < pending.length) {
+	while (!halted && offset < pending.length) {
 		const header = readVarInt(pending, offset);
 		if (header.size < 0) break;
 		const start = offset + header.size;
@@ -149,6 +160,7 @@ function processPending() {
 			const paths: (string | number)[][] = [];
 			const params = detachBuffers(packet.data.params, body, total, [], paths);
 			items.push(paths.length ? { name: packet.data.name, params, off: total, len: body.length, bufferPaths: paths } : { name: packet.data.name, params, off: total, len: body.length });
+			if (LEAVES_PLAY.has(packet.data.name)) halted = true;
 		} catch (err) {
 			const e = err as Error & { field?: string; partialReadError?: boolean };
 			items.push({ error: { message: e.message, field: e.field, partial: e.partialReadError === true }, off: total, len: body.length });
@@ -169,7 +181,9 @@ function processPending() {
 		cursor += body.length;
 	}
 
-	const message: BatchMessage = { t: "batch", frames: frames.buffer, items, parseMs };
+	const message: BatchMessage = halted
+		? { t: "batch", frames: frames.buffer, items, parseMs, halted: true }
+		: { t: "batch", frames: frames.buffer, items, parseMs };
 	parentPort!.postMessage(message, [ frames.buffer ]);
 }
 
@@ -177,9 +191,12 @@ parentPort.on("message", (message: MainToWorkerMessage) => {
 	switch (message.t) {
 		case "chunk": {
 			let chunk: Buffer = Buffer.from(message.buf);
+
+			// Keep decrypting while halted: the cipher stream has to stay in step with the
+			// socket so the main thread can resume it from exactly where it stands.
 			if (decryptor) chunk = decryptor.decrypt(chunk);
 			pending = pending.length === 0 ? chunk : Buffer.concat([ pending, chunk ]);
-			processPending();
+			if (!halted) processPending();
 			break;
 		}
 		case "compressed":
@@ -188,6 +205,19 @@ parentPort.on("message", (message: MainToWorkerMessage) => {
 		case "cipher":
 			decryptor = new Cfb8Decryptor(new Uint8Array(message.key), new Uint8Array(message.shiftRegister));
 			break;
+		case "release": {
+
+			// Hand back the held bytes and the cipher position, then return to the state of a
+			// fresh worker — the next attach re-sends compression and cipher state.
+			const remainder = Uint8Array.from(pending).buffer;
+			const shiftRegister = decryptor ? decryptor.state.buffer as ArrayBuffer : null;
+			const released: ReleasedMessage = { t: "released", remainder, shiftRegister };
+			parentPort!.postMessage(released, shiftRegister ? [ remainder, shiftRegister ] : [ remainder ]);
+			pending = Buffer.alloc(0);
+			decryptor = null;
+			halted = false;
+			break;
+		}
 	}
 });
 

@@ -14,8 +14,8 @@ const TO_RAD = PI / 180;
 const PHYSICS_INTERVAL_MS = 50;
 
 /**
- * Metadata index of `LIVING_ENTITY_FLAGS` on 1.20.1. Bit 0x01 is "hand active" — the server's
- * own view of whether we are using an item — and 0x02 selects the hand.
+ * Metadata index of `LIVING_ENTITY_FLAGS` (8 on 1.20.1 through 1.20.6). Bit 0x01 is "hand
+ * active" — the server's own view of whether we are using an item — and 0x02 selects the hand.
  */
 const META_LIVING_FLAGS = 8;
 
@@ -204,8 +204,9 @@ export class PhysicsManager {
 			// transactions and requires exactly one ordered `pong` each. Mineflayer auto-pongs
 			// every ping (game.js) while the bridged client pongs too — double responses drift
 			// the anticheat's transaction bookkeeping until every movement check misfires,
-			// which froze proxied players in a setback storm after about a minute.
-			if (name === "pong" && MinecraftClient.proxy?.connected) return;
+			// which froze proxied players in a setback storm after about a minute. Play only: a
+			// configuration-state ping is never bridged to the client, so the bot must answer it.
+			if (name === "pong" && MinecraftClient.proxy?.connected && (bot._client.state as string) === "play") return;
 
 			origWrite(name, data);
 		} as typeof bot._client.write;
@@ -391,20 +392,19 @@ export class PhysicsManager {
 			this.usingItemLocal = false;
 		});
 
-		// Mineflayer's attribute handler reads `prop.key`, but this protocol version names the
-		// field `prop.name` — so every attribute collapses under the single key `undefined` and
-		// prismarine-physics never sees the server's movement-speed attribute or its modifiers
-		// (Speed II from the base beacons, the sprint modifier). The physics then simulates at
-		// unmodified base speed: legal (slower than the server's max is always accepted) but
-		// wrong, and blind to any slowing modifier the server might apply. Re-file them under
-		// their real names; this listener runs after mineflayer's, so the fixed keys win.
+		// prismarine-physics looks the movement-speed attribute up as `generic.movement_speed`.
+		// Mineflayer files attributes under `prop.key`; on 1.20.6 that is a registry id mapped to
+		// exactly that name, but older wire formats carried a `prop.name` string instead (some
+		// namespaced) — under which every attribute collapsed into the key `undefined` and the
+		// physics simulated at unmodified base speed, blind to Speed II and the sprint modifier.
+		// Normalize to the unprefixed name; this listener runs after mineflayer's, so it wins.
 		bot._client.on("entity_update_attributes", (packet: { entityId: number; properties?: { name?: string; key?: string; value: number; modifiers: unknown[] }[] }) => {
 			if (!bot.entity || packet.entityId !== bot.entity.id || !packet.properties) return;
 			const entity = bot.entity as unknown as { attributes?: Record<string, { value: number; modifiers: unknown[] }> };
 			entity.attributes ??= {};
 			delete entity.attributes.undefined;
 			for (const prop of packet.properties) {
-				const key = prop.name ?? prop.key;
+				const key = (prop.key ?? prop.name)?.replace(/^minecraft:/, "");
 				if (key === undefined) continue;
 				entity.attributes[key] = { value: prop.value, modifiers: prop.modifiers };
 			}
@@ -461,14 +461,18 @@ export class PhysicsManager {
 	private tick() {
 		if (!this.engine || !this.bot.entity) return;
 
-		this.tickCount++;
-		this.rotation.onTick();
-
 		// Tick-health accounting for the watchdog.
 		const tickNow = performance.now();
 		this.windowTicks++;
 		if (this.lastTickAt > 0) this.maxTickGap = Math.max(this.maxTickGap, tickNow - this.lastTickAt);
 		this.lastTickAt = tickNow;
+
+		// Mid server-switch (configuration state) there is no world to simulate against and no
+		// movement packet the server would accept; resume on the next server's position.
+		if ((this.bot._client.state as string) !== "play") return;
+
+		this.tickCount++;
+		this.rotation.onTick();
 
 		// When a player is controlling the bot via proxy, their client handles
 		// physics and sends movement packets directly to the server. Our simulation

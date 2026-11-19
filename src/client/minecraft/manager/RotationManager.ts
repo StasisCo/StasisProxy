@@ -56,7 +56,7 @@ export interface LookAngles {
 /**
  * Silent rotation dispatch.
  *
- * Action packets (`use_item`, `block_place`, `use_entity`) carry no rotation on 1.20.1 — the
+ * Action packets (`use_item`, `block_place`, `use_entity`) carry no rotation below 1.21 — the
  * server validates them against the last movement packet it received. Anything that needs the
  * server to believe we are looking somewhere must therefore put that rotation on the wire
  * *before* the action packet.
@@ -67,7 +67,7 @@ export interface LookAngles {
  * next physics tick's normal `position_look` carries the real rotation again, so nothing else
  * has to undo it.
  *
- * The duplicate exemption only exists for clients presenting below 1.21. We connect as 1.20.1,
+ * The duplicate exemption only exists for clients presenting below 1.21. We connect as 1.20.6,
  * so it is available — {@link PhysicsManager} warns on join if that ever stops being true.
  */
 export class RotationManager {
