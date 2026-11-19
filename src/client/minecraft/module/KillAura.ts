@@ -4,6 +4,7 @@ import type { Item } from "prismarine-item";
 import z from "zod";
 import { MinecraftClient } from "../MinecraftClient";
 import { Module } from "../Module";
+import { enchantsOf } from "../protocol";
 import AutoEat from "./AutoEat";
 
 const zConfigSchema = z.object({
@@ -71,8 +72,9 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 		}
 
 		let damage = variantDamage[item.name as keyof typeof variantDamage] || 1;
+		const enchants = enchantsOf(item);
 
-		damage += normalizeEnch(item.enchants.find(e => e.name === "sharpness")?.lvl);
+		damage += normalizeEnch(enchants.find(e => e.name === "sharpness")?.lvl);
 
 		if (target) switch (target.name) {
 
@@ -80,7 +82,7 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 			case "cave_spider":
 			case "endermite":
 			case "silverfish":
-				damage += normalizeEnch(item.enchants.find(e => e.name === "bane_of_arthropods")?.lvl);
+				damage += normalizeEnch(enchants.find(e => e.name === "bane_of_arthropods")?.lvl);
 				break;
 
 			case "zombie":
@@ -91,7 +93,7 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 			case "wither":
 			case "drowned":
 			case "zombified_piglin":
-				damage += normalizeEnch(item.enchants.find(e => e.name === "smite")?.lvl);
+				damage += normalizeEnch(enchants.find(e => e.name === "smite")?.lvl);
 				break;
 
 		}
@@ -211,7 +213,7 @@ export default class KillAura extends Module<typeof zConfigSchema> {
 		// its own, so this is what the server checks reach and line of sight against.
 		MinecraftClient.rotation.silentLookAt(aimPoint);
 
-		// Attack — bot.attack() writes use_entity then arm_animation in 1.20.1
+		// Attack — bot.attack() writes use_entity then arm_animation on 1.20.6
 		if (MinecraftClient.interaction.attack(entity)) this.timeOfLastSwing = Date.now();
 
 		if (dropped) MinecraftClient.physics.restoreSprint();

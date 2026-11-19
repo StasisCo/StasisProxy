@@ -1,11 +1,16 @@
 import { randomBytes } from "crypto";
 import { type Bot as Mineflayer, type Player } from "mineflayer";
-import ChatMessageConstructor from "prismarine-chat";
+import ChatMessageConstructor, { type ChatMessage } from "prismarine-chat";
+import * as nbt from "prismarine-nbt";
 import z from "zod";
 import { Logger } from "~/class/Logger";
 import { MinecraftClient } from "~/client/minecraft/MinecraftClient";
 import { ConfigManager } from "../../../class/ConfigManager";
+import { PROTOCOL_VERSION } from "../protocol";
 import { ChatCommandManager } from "./ChatCommandManager";
+
+/** A tagged NBT value, as protodef's `anonymousNbt` type serializes it. */
+export type NbtTag = { type: string; value: unknown };
 
 export const zChatCommandsSchema = z.object({
 	prefix: z
@@ -22,7 +27,44 @@ export class ChatManager {
 
 	private static logger = new Logger("CHAT");
 
-	public static readonly parser = ChatMessageConstructor(`${ process.env.MC_VERSION }`);
+	public static readonly parser = ChatMessageConstructor(PROTOCOL_VERSION);
+
+	/**
+	 * Parse a text component as it comes off the wire. Since 1.20.3 every play-state text field
+	 * (chat, titles, tab list, kick reasons, team names…) is a binary NBT component; login-phase
+	 * kick reasons are still JSON strings. Accepts either, plus an already-plain component.
+	 */
+	public static fromWire(value: unknown): ChatMessage {
+		if (typeof value === "string") {
+			try {
+				return new ChatManager.parser(JSON.parse(value));
+			} catch {
+				return new ChatManager.parser(value);
+			}
+		}
+		return new ChatManager.parser((ChatManager.nbtToChat(value) ?? "") as never);
+	}
+
+	/**
+	 * Encode a plain chat component (or bare string) as the tagged NBT that 1.20.3+ text fields
+	 * serialize from. Booleans become bytes, numbers ints, arrays lists — the shapes the vanilla
+	 * component codec reads.
+	 */
+	public static toNbt(component: unknown): NbtTag {
+		if (typeof component === "string") return nbt.string(component);
+		if (typeof component === "boolean") return nbt.byte(component ? 1 : 0);
+		if (typeof component === "number") return nbt.int(component);
+		if (Array.isArray(component)) {
+			const items = component.map(entry => ChatManager.toNbt(typeof entry === "string" ? { text: entry } : entry));
+			return { type: "list", value: { type: items[0]?.type ?? "end", value: items.map(item => item.value) }};
+		}
+		const fields: Record<string, NbtTag> = {};
+		for (const [ key, value ] of Object.entries(component as Record<string, unknown>)) {
+			if (value === undefined || value === null) continue;
+			fields[key] = ChatManager.toNbt(value);
+		}
+		return nbt.comp(fields);
+	}
 
 	/**
 	 * Recursively unwrap a protodef-parsed NBT value into a plain chat component object.
@@ -122,7 +164,7 @@ export class ChatManager {
 			if (MinecraftClient.queue.isQueued) return;
 
 			// Parsed chat message objects can be deeply nested due to the way Minecraft formats text with extra components, translations, and selectors. We need to recursively unwrap these into a single string for logging.
-			const parsed = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
+			const parsed = ChatManager.fromWire(packet.content);
 			ChatManager.logger.log(ChatManager.normalizeAnsiWhitespace(parsed.toAnsi()));
 
 		});
@@ -203,7 +245,7 @@ export class ChatManager {
 		this.lastWhisper = Date.now();
 
 		const onSystemMessage = (packet: Packets.Schema["system_chat"]) => {
-			const content = new ChatManager.parser(typeof packet.content === "string" ? JSON.parse(packet.content) : ChatManager.nbtToChat(packet.content));
+			const content = ChatManager.fromWire(packet.content);
 			if (content.toString().includes(`[${ id }]`)) {
 				clearTimeout(confirmTimeout);
 				MinecraftClient.bot._client.off("system_chat", onSystemMessage);

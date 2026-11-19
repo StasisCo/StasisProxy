@@ -6,7 +6,9 @@ import type { Client as MinecraftClient, PacketMeta } from "minecraft-protocol";
 import type { Bot as Mineflayer } from "mineflayer";
 import { join } from "path";
 import ChatMessageConstructor from "prismarine-chat";
+import * as nbt from "prismarine-nbt";
 import { Logger } from "~/class/Logger";
+import { PROTOCOL_VERSION } from "~/client/minecraft/protocol";
 import type { ServerClient } from "./ServerClient";
 
 /** A single completion level: static literals or a function returning them. */
@@ -66,7 +68,7 @@ interface DeclareCommandsData {
 export class ClientCommands {
 
 	private static readonly logger = new Logger(chalk.blue("PROXY"));
-	private static readonly ChatMessage = ChatMessageConstructor(`${ process.env.MC_VERSION }`);
+	private static readonly ChatMessage = ChatMessageConstructor(PROTOCOL_VERSION);
 
 	private static initialized = false;
 	private static program: Command;
@@ -357,16 +359,13 @@ export class ClientCommands {
 		return false;
 	}
 
-	/** Send a system chat message to the client. */
+	/**
+	 * Send a system chat message to the client. The content is an NBT text component — a JSON
+	 * string fails to serialize on 1.20.3+ (asynchronously, so no try/catch would notice).
+	 */
 	public static sendSystemMessage(client: MinecraftClient, text: string) {
-		const component = JSON.stringify({ text });
-		try {
-			client.write("system_chat", { content: component, isActionBar: false });
-		} catch {
-			try {
-				client.write("chat", { message: component, position: 1, sender: "00000000-0000-0000-0000-000000000000" });
-			} catch { /* nothing more we can do */ }
-		}
+		if (client.state !== "play") return;
+		client.write("system_chat", { content: nbt.comp({ text: nbt.string(text) }), isActionBar: false });
 	}
 
 	/**

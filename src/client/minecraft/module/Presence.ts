@@ -12,6 +12,7 @@ import { name, version } from "../../../../package.json";
 import { normalizeUUID } from "~/utils";
 import { MinecraftClient } from "../MinecraftClient";
 import { Module } from "../Module";
+import { enchantsOf } from "../protocol";
 
 /**
  * The `meta` SSE event that precedes every delivered payload. `uuid` is the
@@ -229,20 +230,11 @@ export default class Presence extends Module<typeof zConfigSchema> {
 	 * @returns The translated item in the format expected by the IRC presence
 	 */
 	private static translateItem(item: Item): z.infer<typeof zIrcPresence>["inventory"][number]["item"] {
-		const enchantments: z.infer<typeof zIrcPresence>["inventory"][number]["item"]["enchantments"] = [];
-		if (typeof item.nbt === "object" && item.nbt && typeof item.nbt.value === "object" && item.nbt.value && "Enchantments" in item.nbt.value) {
-			const enchList = item.nbt.value.Enchantments;
-			if (enchList && enchList.type === "list" && enchList.value.type === "compound" && enchList.value.value) {
-				for (const ench of enchList.value.value) {
-					if (ench && typeof ench === "object" && "id" in ench && "lvl" in ench && ench.id && ench.lvl && ench.id.type === "string" && ench.lvl.type === "short") {
-						enchantments.push({
-							id: `minecraft:${ ench.id.value }`,
-							level: ench.lvl.value
-						});
-					}
-				}
-			}
-		}
+
+		// Enchantments live in the item's `enchantments` component since 1.20.5, not its NBT.
+		const enchantments: z.infer<typeof zIrcPresence>["inventory"][number]["item"]["enchantments"] = enchantsOf(item)
+			.filter(ench => ench.lvl > 0)
+			.map(ench => ({ id: `minecraft:${ ench.name }`, level: ench.lvl }));
 		return {
 			id: `minecraft:${ item.name }`,
 			count: item.count,

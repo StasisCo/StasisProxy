@@ -91,8 +91,9 @@ class RateBucket {
  *    swaps used to silently not happen. Every click routed through here is wrapped in a
  *    sprint drop/restore pair.
  *
- * Interaction packets carry no rotation on 1.20.1, so callers that need the server to raycast
- * somewhere specific must put the rotation on the wire first — see {@link RotationManager}.
+ * Interaction packets carry no rotation below 1.21 (we speak 1.20.6), so callers that need the
+ * server to raycast somewhere specific must put the rotation on the wire first — see
+ * {@link RotationManager}.
  */
 export class InteractionManager {
 

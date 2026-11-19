@@ -2,6 +2,7 @@ import chalk from "chalk";
 import z from "zod";
 import { MinecraftClient } from "../MinecraftClient";
 import { Module } from "../Module";
+import { isRelative } from "../protocol";
 import AutoTotem from "./AutoTotem";
 
 const zConfigSchema = z.object({
@@ -43,9 +44,9 @@ export default class AutoDisconnect extends Module<typeof zConfigSchema> {
 		switch (name) {
 
 			case "position":
-				const cur = MinecraftClient.bot.entity.position.clone();
+				const cur = MinecraftClient.bot.entity?.position;
 				const { y, flags } = data;
-				const ny = flags & 0x02 ? cur?.y ?? 0 + y : y;
+				const ny = isRelative(flags, "y") ? (cur?.y ?? 0) + y : y;
 				if (MinecraftClient.bot.game.gameMode !== "survival") return;
 				if (MinecraftClient.bot.game.dimension in this.config.yLevel) {
 					const yLevel = this.config.yLevel[MinecraftClient.bot.game.dimension as keyof typeof this.config.yLevel];

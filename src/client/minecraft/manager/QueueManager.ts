@@ -136,7 +136,7 @@ export class QueueManager extends EventEmitter<{
 		switch (event.name) {
 
 			case "system_chat": {
-				const parsed = new ChatManager.parser(typeof event.data.content === "string" ? JSON.parse(event.data.content) : ChatManager.nbtToChat(event.data.content));
+				const parsed = ChatManager.fromWire(event.data.content);
 				if (!this.lastChatMessage || parsed.toAnsi() !== this.lastChatMessage.toAnsi()) {
 					const chat = ChatManager.normalizeAnsiWhitespace(parsed.toAnsi());
 					QueueManager.logger.log(chat);
@@ -147,7 +147,7 @@ export class QueueManager extends EventEmitter<{
 
 			case "set_title_subtitle": {
 				const { position } = this;
-				this.subtitle = new ChatManager.parser(typeof event.data.text === "string" ? JSON.parse(event.data.text) : event.data.text);
+				this.subtitle = ChatManager.fromWire(event.data.text);
 				if (position !== this.position && this.position !== null) {
 					QueueManager.logger.log(`Position in queue: ${ chalk.yellow(this.position) }`, (this.eta ? `ETA: ${ chalk.yellow(prettyMilliseconds(this.eta * 1000)) }` : ""));
 					switch (MinecraftClient.host) {
@@ -176,7 +176,7 @@ export class QueueManager extends EventEmitter<{
 			}
 
 			case "set_title_text": {
-				this.title = new ChatManager.parser(typeof event.data.text === "string" ? JSON.parse(event.data.text) : event.data.text);
+				this.title = ChatManager.fromWire(event.data.text);
 				break;
 			}
 			

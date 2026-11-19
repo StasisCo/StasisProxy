@@ -2,7 +2,7 @@
 
 export interface WorkerOptions {
 
-	/** Minecraft wire version the play-state deserializer is compiled for (e.g. `1.20.1`). */
+	/** Minecraft wire version the play-state deserializer is compiled for (e.g. `1.20.6`). */
 	version: string;
 
 	/** minecraft-protocol `customPackets` merged into the protocol, if any. */
@@ -20,7 +20,14 @@ export type MainToWorkerMessage =
 	| { t: "compressed"; value: boolean }
 
 	/** Take over AES-128-CFB8 decryption: every chunk after this one arrives encrypted. Both buffers are 16 bytes. */
-	| { t: "cipher"; key: ArrayBuffer; shiftRegister: ArrayBuffer };
+	| { t: "cipher"; key: ArrayBuffer; shiftRegister: ArrayBuffer }
+
+	/**
+	 * Give the stream back after a {@link BatchMessage.halted} batch. Sent once the main thread
+	 * has stopped feeding chunks, so every chunk it posted is already queued ahead of this.
+	 * Answered with a {@link ReleasedMessage}; the worker is then idle until the next attach.
+	 */
+	| { t: "release" };
 
 export interface ParsedItem {
 	name: string;
@@ -63,6 +70,24 @@ export interface BatchMessage {
 
 	/** Cumulative parse time on the worker, ms. */
 	parseMs: number;
+
+	/**
+	 * The batch ends with a packet that takes the connection out of the play state
+	 * (`start_configuration`). Bytes after it belong to another protocol state, which the
+	 * play-only parser cannot read: the worker holds them, unparsed, until `release`.
+	 */
+	halted?: boolean;
 }
 
-export type WorkerToMainMessage = BatchMessage | { t: "ready" };
+/** Reply to `release`: everything the worker held back, and where the cipher stream stands. */
+export interface ReleasedMessage {
+	t: "released";
+
+	/** Received but unparsed bytes — already decrypted — starting at a frame boundary. */
+	remainder: ArrayBuffer;
+
+	/** The CFB8 shift register after the last decrypted byte, if decryption had been handed over. */
+	shiftRegister: ArrayBuffer | null;
+}
+
+export type WorkerToMainMessage = BatchMessage | ReleasedMessage | { t: "ready" };
